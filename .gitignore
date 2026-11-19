@@ -10,10 +10,15 @@ dist
 coverage
 *.lcov
 
+# test output (Playwright, from Phase 1 end-to-end tests)
+test-results/
+playwright-report/
+blob-report/
+
 # logs
 logs
-_.log
-report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
+*.log
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 # dotenv environment variable files
 .env
@@ -27,8 +32,18 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .cache
 *.tsbuildinfo
 
-# IntelliJ based IDEs
+# IDEs
 .idea
+.vscode
 
 # Finder (MacOS) folder config
 .DS_Store
+
+# Design: the approved HTML/CSS design and loose design assets stay out of the code repository
+/design-final/
+/TrangPDF logo concepts/
+/TrangPDF logo concepts.pdf
+/TrangPDF logo concepts.zip
+
+# Working notes and guides (kept locally)
+/docs/

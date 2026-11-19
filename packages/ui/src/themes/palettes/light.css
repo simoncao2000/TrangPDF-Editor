@@ -1,0 +1,33 @@
+/* Light. White surfaces, neutral dividers and muted blue selection. */
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+  --surface: var(--palette-light-surface);
+  --surface-raised: var(--palette-light-raised);
+  --surface-toolbar: var(--palette-light-toolbar);
+  --surface-navigation: var(--palette-light-navigation);
+  --canvas: var(--palette-light-canvas);
+  --text: var(--palette-light-text);
+  --text-muted: var(--palette-light-muted);
+  --accent: var(--palette-light-accent);
+  --on-accent: var(--palette-light-on-accent);
+  --border: var(--palette-light-border);
+  --separator: var(--palette-light-separator);
+  --focus: var(--palette-light-focus);
+  --selection: var(--palette-light-selection);
+  --on-selection: var(--palette-light-on-selection);
+  --surface-hover: var(--palette-light-hover);
+  --surface-active: var(--palette-light-active);
+  --text-disabled: var(--palette-light-disabled);
+  --danger: var(--palette-light-danger);
+  --success: var(--palette-light-success);
+  --warning: var(--palette-light-warning);
+  --signal: var(--palette-light-signal);
+  --signal-soft: var(--palette-light-signal-soft);
+  --spark: var(--palette-light-spark);
+  --on-spark: var(--palette-light-on-spark);
+  --spark-soft: var(--palette-light-spark-soft);
+  --inverse: var(--palette-light-inverse);
+  --on-inverse: var(--palette-light-on-inverse);
+  --shadow-rgb: var(--palette-light-shadow);
+}

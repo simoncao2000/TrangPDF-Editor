@@ -4,7 +4,16 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>web</title>
+    <meta name="color-scheme" content="light dark" />
+    <title>TrangPDF</title>
+    <!-- Apply the saved theme before the first paint (key: THEME_STORAGE_KEY in packages/ui). -->
+    <script>
+      try {
+        var theme = localStorage.getItem("trangpdf-theme");
+        if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
+      } catch (error) {}
+    </script>
+    <meta name="description" content="Read PDFs on your device. Nothing is uploaded." />
   </head>
   <body>
     <div id="root"></div>
