@@ -47,3 +47,4 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 # Working notes and guides (kept locally)
 /docs/
+/pdf-editor-architecture-and-plan.pdf

@@ -264,8 +264,6 @@ bun run test
 - [ ] **Phase 6: Sync and paid tier.** Accounts, document sync, OCR
 - [ ] **Phase 7: Advanced.** True redaction, compression, certificate signatures, conversion
 
-The full architecture and build plan is in [`pdf-editor-architecture-and-plan.pdf`](pdf-editor-architecture-and-plan.pdf).
-
 ## Acknowledgements
 
 - [PDFium](https://pdfium.googlesource.com/pdfium/) and [EmbedPDF](https://www.embedpdf.com) for the WebAssembly build.
