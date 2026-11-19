@@ -1,10 +1,13 @@
 {
   "name": "pdf-editor",
-  "module": "index.ts",
   "type": "module",
   "private": true,
   "scripts": {
-    "typecheck": "bun check"
+    "dev": "bun --filter web dev",
+    "build": "bun --filter web build",
+    "typecheck": "bun check",
+    "lint": "eslint packages apps/web/src",
+    "test": "bun test packages"
   },
   "workspaces": [
     "packages/*",
@@ -14,8 +17,7 @@
     "@types/bun": "latest",
     "eslint": "^10.15.0",
     "prettier": "^3.10.1",
-    "typescript": "^7.0.2",
-    "vitest": "^5.1.0"
+    "typescript": "^7.0.2"
   },
   "peerDependencies": {
     "typescript": "^7"
