@@ -1,0 +1,66 @@
+/* Dark. Flat neutral surfaces, with blue reserved for interaction. */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --surface: var(--palette-dark-surface);
+  --surface-raised: var(--palette-dark-raised);
+  --surface-toolbar: var(--palette-dark-toolbar);
+  --surface-navigation: var(--palette-dark-navigation);
+  --canvas: var(--palette-dark-canvas);
+  --text: var(--palette-dark-text);
+  --text-muted: var(--palette-dark-muted);
+  --accent: var(--palette-dark-accent);
+  --on-accent: var(--palette-dark-on-accent);
+  --border: var(--palette-dark-border);
+  --separator: var(--palette-dark-separator);
+  --focus: var(--palette-dark-focus);
+  --selection: var(--palette-dark-selection);
+  --on-selection: var(--palette-dark-on-selection);
+  --surface-hover: var(--palette-dark-hover);
+  --surface-active: var(--palette-dark-active);
+  --text-disabled: var(--palette-dark-disabled);
+  --danger: var(--palette-dark-danger);
+  --success: var(--palette-dark-success);
+  --warning: var(--palette-dark-warning);
+  --signal: var(--palette-dark-signal);
+  --signal-soft: var(--palette-dark-signal-soft);
+  --spark: var(--palette-dark-spark);
+  --on-spark: var(--palette-dark-on-spark);
+  --spark-soft: var(--palette-dark-spark-soft);
+  --inverse: var(--palette-dark-inverse);
+  --on-inverse: var(--palette-dark-on-inverse);
+  --shadow-rgb: var(--palette-dark-shadow);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+    --surface: var(--palette-dark-surface);
+    --surface-raised: var(--palette-dark-raised);
+    --surface-toolbar: var(--palette-dark-toolbar);
+    --surface-navigation: var(--palette-dark-navigation);
+    --canvas: var(--palette-dark-canvas);
+    --text: var(--palette-dark-text);
+    --text-muted: var(--palette-dark-muted);
+    --accent: var(--palette-dark-accent);
+    --on-accent: var(--palette-dark-on-accent);
+    --border: var(--palette-dark-border);
+    --separator: var(--palette-dark-separator);
+    --focus: var(--palette-dark-focus);
+    --selection: var(--palette-dark-selection);
+    --on-selection: var(--palette-dark-on-selection);
+    --surface-hover: var(--palette-dark-hover);
+    --surface-active: var(--palette-dark-active);
+    --text-disabled: var(--palette-dark-disabled);
+    --danger: var(--palette-dark-danger);
+    --success: var(--palette-dark-success);
+    --warning: var(--palette-dark-warning);
+    --signal: var(--palette-dark-signal);
+    --signal-soft: var(--palette-dark-signal-soft);
+    --spark: var(--palette-dark-spark);
+    --on-spark: var(--palette-dark-on-spark);
+    --spark-soft: var(--palette-dark-spark-soft);
+    --inverse: var(--palette-dark-inverse);
+    --on-inverse: var(--palette-dark-on-inverse);
+    --shadow-rgb: var(--palette-dark-shadow);
+  }
+}

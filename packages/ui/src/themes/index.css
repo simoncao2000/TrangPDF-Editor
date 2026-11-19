@@ -1,0 +1,115 @@
+@import "./fonts.css";
+@import "./primitives.css";
+@import "./semantic.css";
+@import "./palettes/light.css";
+@import "./palettes/dark.css";
+
+/* dark: matches data-theme="dark", or the OS setting when no theme is chosen. */
+@custom-variant dark {
+  &:where([data-theme="dark"], [data-theme="dark"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme]), :root:not([data-theme]) *) {
+      @slot;
+    }
+  }
+}
+
+/* Drop Tailwind's default palette, type and radius scales so only design tokens exist. */
+@theme {
+  --color-*: initial;
+  --text-*: initial;
+  --radius-*: initial;
+  --shadow-*: initial;
+}
+
+/* inline: utilities point at the live CSS variables, so themes switch without rebuilding. */
+@theme inline {
+  /* Chrome */
+  --color-surface: var(--surface);
+  --color-raised: var(--surface-raised);
+  --color-toolbar: var(--surface-toolbar);
+  --color-rail: var(--surface-navigation);
+  --color-canvas: var(--canvas);
+  --color-hover: var(--surface-hover);
+  --color-pressed: var(--surface-active);
+  --color-ink: var(--text);
+  --color-muted: var(--text-muted);
+  --color-disabled: var(--text-disabled);
+  --color-line: var(--border);
+  --color-divider: var(--separator);
+  --color-action: var(--accent);
+  --color-on-action: var(--on-accent);
+  --color-focus: var(--focus);
+  --color-selection: var(--selection);
+  --color-on-selection: var(--on-selection);
+  --color-signal: var(--signal);
+  --color-signal-soft: var(--signal-soft);
+  --color-spark: var(--spark);
+  --color-on-spark: var(--on-spark);
+  --color-spark-soft: var(--spark-soft);
+  --color-inverse: var(--inverse);
+  --color-on-inverse: var(--on-inverse);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-scrim: var(--scrim);
+
+  /* Document layer (never themed) */
+  --color-paper: var(--paper);
+  --color-paper-ink: var(--paper-ink);
+  --color-paper-muted: var(--paper-muted);
+  --color-paper-line: var(--paper-line);
+  --color-paper-rule: var(--paper-rule);
+  --color-paper-plate: var(--paper-plate);
+  --color-paper-field: var(--paper-field);
+  --color-paper-focus: var(--paper-focus);
+  --color-mark-highlight: var(--mark-highlight);
+  --color-mark-mint: var(--mark-mint);
+  --color-mark-sky: var(--mark-sky);
+  --color-mark-shape: var(--mark-shape);
+  --color-mark-ink: var(--mark-ink);
+
+  /* Type */
+  --font-ui: var(--primitive-font-ui);
+  --font-hand: var(--primitive-font-hand);
+  --font-doc: var(--primitive-font-doc);
+  --font-mono: var(--primitive-font-mono);
+  --default-font-family: var(--primitive-font-ui);
+  --text-2xs: var(--type-2xs);
+  --text-xs: var(--type-xs);
+  --text-sm: var(--type-sm);
+  --text-base: var(--type-base);
+  --text-md: var(--type-md);
+  --text-lg: var(--type-lg);
+  --text-xl: var(--type-xl);
+  --text-display: var(--type-display);
+
+  /* Shape and depth */
+  --radius-xs: var(--primitive-radius-xs);
+  --radius-sm: var(--primitive-radius-sm);
+  --radius-md: var(--primitive-radius-md);
+  --radius-lg: var(--primitive-radius-lg);
+  --radius-xl: var(--primitive-radius-xl);
+  --radius-pill: var(--primitive-radius-pill);
+  --shadow-1: var(--elevation-1);
+  --shadow-2: var(--elevation-2);
+  --shadow-3: var(--elevation-3);
+  --shadow-paper: var(--paper-shadow);
+  --shadow-lift: var(--lift-shadow);
+
+  /* Motion */
+  --ease-out: var(--curve-out);
+  --ease-in-out: var(--curve-in-out);
+  --ease-drawer: var(--curve-drawer);
+  --default-transition-duration: var(--duration-hover);
+  --default-transition-timing-function: var(--curve-out);
+}
+
+/* Lucide icons: one stroke weight everywhere, a little lighter than Lucide's default 2. */
+@layer base {
+  .lucide {
+    stroke-width: 1.75;
+  }
+}

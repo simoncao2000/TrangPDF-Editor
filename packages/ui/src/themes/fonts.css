@@ -1,0 +1,7 @@
+/* Playpen Sans (OFL-1.1), bundled from @fontsource-variable. Variable weight 100–800.
+   Latin, Vietnamese, Cyrillic and Greek; the Arabic, Hebrew, Thai and Devanagari families fill in by unicode-range. */
+@import "@fontsource-variable/playpen-sans/index.css";
+@import "@fontsource-variable/playpen-sans-arabic/index.css";
+@import "@fontsource-variable/playpen-sans-hebrew/index.css";
+@import "@fontsource-variable/playpen-sans-thai/index.css";
+@import "@fontsource-variable/playpen-sans-deva/index.css";

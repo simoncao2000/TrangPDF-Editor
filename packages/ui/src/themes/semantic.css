@@ -1,0 +1,91 @@
+/* TrangPDF semantic roles. Colour roles come from the theme files (themes/*.css), which map
+   palette primitives onto the role names below. Everything here is theme-independent or derives
+   from a themed role, so a new theme only has to supply the colour roles and --shadow-rgb. */
+:root {
+  /* Document layer (fixed; never themed) */
+  --paper: var(--fixed-paper);
+  --paper-ink: var(--fixed-paper-ink);
+  --paper-muted: var(--fixed-paper-muted);
+  --paper-line: var(--fixed-paper-line);
+  --paper-rule: var(--fixed-paper-rule);
+  --paper-plate: var(--fixed-paper-plate);
+  --paper-wash: var(--fixed-paper-wash);
+  --paper-field: var(--fixed-paper-field);
+  --paper-focus: var(--fixed-paper-focus);
+  --paper-danger: var(--fixed-paper-danger);
+  --mark-highlight: var(--fixed-mark-highlight);
+  --mark-mint: var(--fixed-mark-mint);
+  --mark-sky: var(--fixed-mark-sky);
+  --mark-shape: var(--fixed-mark-shape);
+  --mark-ink: var(--fixed-mark-ink);
+  --brand-light: var(--fixed-brand-light);
+  --brand-dark: var(--fixed-brand-dark);
+
+  /* Type */
+  --font-ui: var(--primitive-font-ui);
+  --font-doc: var(--primitive-font-doc);
+  --font-hand: var(--primitive-font-hand);
+  --font-mono: var(--primitive-font-mono);
+  --type-2xs: var(--primitive-type-2xs);
+  --type-xs: var(--primitive-type-xs);
+  --type-sm: var(--primitive-type-sm);
+  --type-base: var(--primitive-type-base);
+  --type-md: var(--primitive-type-md);
+  --type-lg: var(--primitive-type-lg);
+  --type-xl: var(--primitive-type-xl);
+  --type-display: var(--primitive-type-display);
+  --weight-regular: 450;
+  --weight-medium: 560;
+  --weight-strong: 650;
+
+  /* Space, shape, targets */
+  --space-1: var(--primitive-space-1);
+  --space-2: var(--primitive-space-2);
+  --space-3: var(--primitive-space-3);
+  --space-4: var(--primitive-space-4);
+  --space-5: var(--primitive-space-5);
+  --space-6: var(--primitive-space-6);
+  --space-8: var(--primitive-space-8);
+  --space-10: var(--primitive-space-10);
+  --radius-xs: var(--primitive-radius-xs);
+  --radius-sm: var(--primitive-radius-sm);
+  --radius-md: var(--primitive-radius-md);
+  --radius-lg: var(--primitive-radius-lg);
+  --radius-xl: var(--primitive-radius-xl);
+  --radius-pill: var(--primitive-radius-pill);
+  --target-touch: var(--primitive-target-touch);
+  --target-wide: var(--primitive-target-wide);
+  --control-target: var(--target-wide);
+
+  /* Motion */
+  --duration-hover: var(--primitive-duration-hover);
+  --duration-press: var(--primitive-duration-press);
+  --duration-pop: var(--primitive-duration-pop);
+  --duration-enter: var(--primitive-duration-enter);
+  --duration-exit: var(--primitive-duration-exit);
+  --duration-sheet: var(--primitive-duration-sheet);
+  --duration-toast: var(--primitive-duration-toast);
+  --curve-out: var(--primitive-curve-out);
+  --curve-in-out: var(--primitive-curve-in-out);
+  --curve-drawer: var(--primitive-curve-drawer);
+  --press-scale: 0.97;
+  --enter-shift: 8px;
+
+  /* Depth: offset + soft blur, tinted with the theme's shadow colour */
+  --elevation-1: 0 1px 2px rgb(var(--shadow-rgb) / 12%), 0 1px 1px rgb(var(--shadow-rgb) / 6%);
+  --elevation-2: 0 10px 28px -8px rgb(var(--shadow-rgb) / 26%), 0 2px 6px rgb(var(--shadow-rgb) / 10%);
+  --elevation-3: 0 28px 64px -16px rgb(var(--shadow-rgb) / 38%), 0 6px 14px rgb(var(--shadow-rgb) / 12%);
+  --paper-shadow: 0 1px 2px rgb(var(--shadow-rgb) / 16%), 0 14px 30px -12px rgb(var(--shadow-rgb) / 34%);
+  --lift-shadow: 0 26px 44px -14px rgb(var(--shadow-rgb) / 46%), 0 8px 16px rgb(var(--shadow-rgb) / 16%);
+  --scrim: rgb(var(--shadow-rgb) / 34%);
+}
+
+/* Reduced motion: keep opacity and colour, drop movement and scale */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --press-scale: 1;
+    --enter-shift: 0px;
+    --duration-sheet: 150ms;
+    --duration-toast: 150ms;
+  }
+}
