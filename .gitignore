@@ -42,9 +42,8 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 # Design: the approved HTML/CSS design and loose design assets stay out of the code repository
 /design-final/
 /TrangPDF logo concepts/
-/TrangPDF logo concepts.pdf
 /TrangPDF logo concepts.zip
 
 # Working notes and guides (kept locally)
 /docs/
-/pdf-editor-architecture-and-plan.pdf
+*.pdf
