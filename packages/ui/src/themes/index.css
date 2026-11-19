@@ -3,6 +3,7 @@
 @import "./semantic.css";
 @import "./palettes/light.css";
 @import "./palettes/dark.css";
+@import "./controls.css";
 
 /* dark: matches data-theme="dark", or the OS setting when no theme is chosen. */
 @custom-variant dark {

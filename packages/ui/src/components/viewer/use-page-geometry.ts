@@ -1,7 +1,10 @@
-import { cssPageSize, displayedPageSize, docIdOf, layoutPages, resolveZoom, type PageLayout, type Rotation, type ZoomMode } from "@pdf-editor/core";
+import { annotationRevisionOf, cssPageSize, displayedPageSize, docIdOf, layoutPages, resolveZoom, type PageGeometry as PageBoxes, type PageLayout, type Rotation, type ZoomMode } from "@pdf-editor/core";
 import type { PageSize } from "@pdf-editor/shared";
 import { useMemo } from "react";
 import { useDocument } from "../../editor/hooks";
+
+/** Stand-in geometry for a page whose source is unknown. */
+const LETTER: PageBoxes = { cropBox: { x: 0, y: 0, width: 612, height: 792 }, rotation: 0 };
 
 /** Everything needed to draw one page of the document, whatever file it came from. */
 export interface PageDrawInfo {
@@ -13,6 +16,10 @@ export interface PageDrawInfo {
   readonly rotation: Rotation;
   /** Size in points as shown (rotation applied). */
   readonly size: PageSize;
+  /** Changes when the page's annotations or form values change, so its picture is redrawn. */
+  readonly revision: number;
+  /** The page's crop box and own rotation, for converting annotation coordinates. */
+  readonly sourceGeometry: PageBoxes;
 }
 
 export interface PageGeometry {
@@ -28,16 +35,19 @@ export interface PageGeometry {
 export function usePageDrawInfo(): readonly PageDrawInfo[] {
   const sources = useDocument((state) => state.sources);
   const pages = useDocument((state) => state.pages);
+  const annotationRevisions = useDocument((state) => state.annotationRevisions);
   return useMemo(
     () =>
       pages.map((page) => ({
         id: page.id,
-        docId: docIdOf({ sources, pages }, page) ?? "",
+        docId: docIdOf({ sources }, page) ?? "",
         sourceIndex: page.sourceIndex,
         rotation: page.rotation,
-        size: displayedPageSize({ sources, pages }, page),
+        size: displayedPageSize({ sources }, page),
+        revision: annotationRevisionOf({ annotationRevisions }, page.id),
+        sourceGeometry: sources[page.source]?.pages[page.sourceIndex] ?? LETTER,
       })),
-    [sources, pages],
+    [sources, pages, annotationRevisions],
   );
 }
 

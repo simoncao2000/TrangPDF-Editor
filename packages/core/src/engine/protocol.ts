@@ -4,7 +4,9 @@
  * and cancel calls it no longer needs. This file and `pdfium-engine.ts` are the only places that know
  * which PDF engine runs behind the protocol.
  */
-import type { PageSize } from "@pdf-editor/shared";
+import type { PdfPoint, PdfRect } from "@pdf-editor/shared";
+import type { Annotation, EditableAnnotation } from "../annotations/annotation";
+import type { NewTextLine, NewTextStyle, PageTextObject } from "../page-text/page-text";
 
 /** Identifies an open document inside the worker. */
 export type DocId = string;
@@ -12,10 +14,18 @@ export type DocId = string;
 /** Bytes to open: fresh from a file, or held by the worker after a password prompt. */
 export type OpenSource = { readonly bytes: ArrayBuffer } | { readonly lockedId: string };
 
+/** Where a page's visible area sits in PDF space, and how the file itself turns it. */
+export interface PageGeometry {
+  /** The crop box (the media box when there is none), before rotation. */
+  readonly cropBox: PdfRect;
+  /** The page's own clockwise rotation, from the file. */
+  readonly rotation: Rotation;
+}
+
 export interface OpenedDocument {
   readonly docId: DocId;
   readonly pageCount: number;
-  readonly pageSizes: readonly PageSize[];
+  readonly pages: readonly PageGeometry[];
 }
 
 /** One rendered page, transferred (not copied) from the worker. */
@@ -34,12 +44,36 @@ export interface AssemblePart {
   readonly rotation: Rotation;
 }
 
+/** One page of an open document. */
+export interface PageAddress {
+  readonly docId: DocId;
+  readonly pageIndex: number;
+}
+
 /** Every call the worker understands: its parameters and what it resolves with. */
 export interface EngineMethods {
   init: { params: { wasmUrl: string }; result: null };
   open: { params: { source: OpenSource; password?: string }; result: OpenedDocument };
   close: { params: { docId: DocId }; result: null };
-  renderPage: { params: { docId: DocId; pageIndex: number; width: number; height: number; rotation?: Rotation }; result: RenderedPage };
+  /** `hideEditable` leaves out the annotations the editor draws in its own layer. */
+  renderPage: { params: { docId: DocId; pageIndex: number; width: number; height: number; rotation?: Rotation; hideEditable?: boolean }; result: RenderedPage };
+  getAnnotations: { params: PageAddress; result: Annotation[] };
+  /** Creates or updates an annotation; resolves with it as stored. */
+  putAnnotation: { params: PageAddress & { annotation: EditableAnnotation }; result: Annotation };
+  removeAnnotation: { params: PageAddress & { id: string }; result: null };
+  restoreAnnotation: { params: PageAddress & { id: string }; result: null };
+  /** The text between two points, one rectangle per line (for highlights). */
+  getTextRects: { params: PageAddress & { from: PdfPoint; to: PdfPoint }; result: PdfRect[] };
+  /** Every visible text object on a page, for editing the page's text. */
+  getTextObjects: { params: PageAddress; result: PageTextObject[] };
+  /** The page text object under a point, or `null`. */
+  getTextObjectAt: { params: PageAddress & { point: PdfPoint }; result: PageTextObject | null };
+  /** Replaces a text object's text; the original is switched off and the replacement gets `newId`. */
+  replacePageText: { params: PageAddress & { id: string; newId: string; text: string }; result: null };
+  /** Adds lines of page text, one text object (with the matching id) per line. */
+  addPageText: { params: PageAddress & NewTextStyle & { lines: readonly NewTextLine[]; ids: readonly string[] }; result: null };
+  /** Switches page text objects on and off (undo and redo of text edits). */
+  showPageText: { params: PageAddress & { show: readonly string[]; hide: readonly string[] }; result: null };
   assemble: { params: { parts: readonly AssemblePart[] }; result: { bytes: ArrayBuffer } };
 }
 
@@ -55,6 +89,9 @@ export type EngineErrorCode =
   | "cancelled"
   | "not-initialized"
   | "assemble-failed"
+  | "unknown-annotation"
+  | "annotation-failed"
+  | "text-edit-failed"
   | "engine-failed";
 
 export interface EngineError {

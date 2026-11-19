@@ -37,6 +37,8 @@ export function RecentFiles() {
     };
   }, [files]);
 
+  
+
   const clear = useCallback(async () => {
     await files.clearRecent();
     setRecent([]);

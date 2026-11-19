@@ -3,14 +3,16 @@
  * §7.3). Talks to the engine worker; never imports React or a platform. The UI reads `store` and calls
  * the methods; every edit goes through `dispatch` so it can be undone.
  */
-import { err, ok, type OpenErrorKind, type OpenedFile, type Result, type SavedFile } from "@pdf-editor/shared";
+import { err, ok, type OpenErrorKind, type OpenedFile, type PdfPoint, type PdfRect, type Result, type SavedFile } from "@pdf-editor/shared";
 import { createStore, type StoreApi } from "zustand/vanilla";
+import type { Annotation } from "../annotations/annotation";
+import type { PageTextObject } from "../page-text/page-text";
 import { EngineCallError } from "../engine/engine-client";
-import type { AssemblePart, EngineErrorCode, EngineMethod, EngineParams, EngineResult, OpenSource } from "../engine/protocol";
+import type { AssemblePart, EngineErrorCode, EngineMethod, EngineParams, EngineResult, OpenSource, PageAddress } from "../engine/protocol";
 import type { CancellableWork } from "../render/render-queue";
 import { inspectPdfBytes } from "../validate";
-import type { Command } from "./commands";
-import { EMPTY_DOCUMENT, docIdOf, type DocumentContent, type DocumentState, type PageRef, type SourceDoc } from "./document-state";
+import type { Command, CommandEngine } from "./commands";
+import { annotationRevisionOf, EMPTY_DOCUMENT, docIdOf, pageAddressOf, type DocumentContent, type DocumentState, type PageRef, type SourceDoc } from "./document-state";
 import { EMPTY_HISTORY, execute, isDirty, markSaved, redo, undo, type History } from "./history";
 
 /** The engine calls the session needs; `EngineClient` provides them. */
@@ -53,6 +55,38 @@ export interface DocumentSession {
   /** Re-applies the newest undone edit. */
   redo(): void;
   /**
+   * Waits for the engine work of every edit made so far (annotation and form edits).
+   * @returns Resolves when they have all finished, whether or not they succeeded.
+   */
+  settled(): Promise<void>;
+  /**
+   * A page's annotations as PDFium holds them, read once per annotation revision.
+   * @param pageId A page id.
+   * @returns The annotations in drawing order; empty for an unknown page.
+   */
+  readAnnotations(pageId: string): Promise<readonly Annotation[]>;
+  /**
+   * Every piece of the page's own text that can be edited, read once per page revision.
+   * @param pageId A page id.
+   * @returns The text objects in drawing order; empty for an unknown page.
+   */
+  readTextObjects(pageId: string): Promise<readonly PageTextObject[]>;
+  /**
+   * The text between two points on a page, for highlighting.
+   * @param pageId A page id.
+   * @param from Where the selection started, in PDF space.
+   * @param to Where it ends, in PDF space.
+   * @returns One rectangle per line; empty when a point misses the text or the page is unknown.
+   */
+  textRects(pageId: string, from: PdfPoint, to: PdfPoint): Promise<PdfRect[]>;
+  /**
+   * The page's own text under a point, for editing it.
+   * @param pageId A page id.
+   * @param point A point in PDF space.
+   * @returns The text object, or `null` when there is no text there or the page is unknown.
+   */
+  textObjectAt(pageId: string, point: PdfPoint): Promise<PageTextObject | null>;
+  /**
    * Sets the selected pages.
    * @param pageIds Page ids; unknown ids are dropped and the rest are put in page order.
    */
@@ -83,6 +117,9 @@ export interface DocumentSession {
    */
   save(write: SaveWriter): Promise<SaveResult>;
 }
+
+/** Page reads (annotations, text objects) × revisions kept; older ones are read again if needed. */
+const PAGE_READ_CACHE_SIZE = 200;
 
 /**
  * Maps an engine failure to what the user is told.
@@ -126,6 +163,54 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
   let nextSourceNumber = 1;
   /** Where the worker is holding an encrypted file's bytes, plus what is needed to finish opening it. */
   let locked: { lockedId: string; name: string; fileId: string | null } | null = null;
+  /** Engine work of edits that has not finished yet. */
+  const pendingEdits = new Set<Promise<unknown>>();
+  let failures = 0;
+
+  /** Reads of a page's annotations and text, by page and revision; dropped when a document opens or closes. */
+  const pageReads = new Map<string, Promise<unknown>>();
+
+  const callEngine: CommandEngine = (method, params) => engine.call(method, params).promise;
+
+  /**
+   * Reads something about a page once per page revision.
+   * @param kind What is read; part of the cache key.
+   * @param pageId A page id.
+   * @param read Reads it from the engine.
+   * @returns The cached or fresh result; an empty list for an unknown page.
+   */
+  const readPage = <T>(kind: "annotations" | "text", pageId: string, read: (at: PageAddress) => Promise<readonly T[]>): Promise<readonly T[]> => {
+    const state = store.getState();
+    const at = pageAddressOf(state, pageId);
+    if (!at) return Promise.resolve([]);
+    const key = `${kind}:${at.docId}#${at.pageIndex}@${annotationRevisionOf(state, pageId)}`;
+    const cached = pageReads.get(key) as Promise<readonly T[]> | undefined;
+    if (cached) return cached;
+    const result = read(at);
+    // A failed read is forgotten, so the next request tries again.
+    result.catch(() => pageReads.delete(key));
+    pageReads.set(key, result);
+    if (pageReads.size > PAGE_READ_CACHE_SIZE) pageReads.delete(pageReads.keys().next().value!);
+    return result;
+  };
+  const readAnnotations = (pageId: string) => readPage("annotations", pageId, (at) => engine.call("getAnnotations", at).promise);
+  const readTextObjects = (pageId: string) => readPage("text", pageId, (at) => engine.call("getTextObjects", at).promise);
+
+  /**
+   * Starts a command's engine work. The calls are sent right away, so they reach the worker before
+   * anything asked for later (renders, saves) and see the edit.
+   * @param work The command's `applyInEngine` or `undoInEngine`.
+   * @param label The command's label, reported if the work fails.
+   */
+  const runInEngine = (work: ((engine: CommandEngine) => Promise<unknown>) | undefined, label: string): void => {
+    if (!work) return;
+    const loadedAt = generation;
+    const pending = work(callEngine).catch(() => {
+      if (loadedAt === generation) store.setState({ failedEdit: { label, serial: ++failures } });
+    });
+    pendingEdits.add(pending);
+    void pending.finally(() => pendingEdits.delete(pending));
+  };
 
   /** Writes content and history into the store, deriving status, selection and undo labels. */
   const commit = (content: DocumentContent, nextHistory: History, extra: Partial<DocumentState> = {}): void => {
@@ -143,7 +228,7 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
     });
   };
 
-  const contentOf = (state: DocumentState): DocumentContent => ({ sources: state.sources, pages: state.pages });
+  const contentOf = (state: DocumentState): DocumentContent => ({ sources: state.sources, pages: state.pages, annotationRevisions: state.annotationRevisions });
   /** Edits are allowed only on an open document that is not being saved. */
   const editable = (): boolean => {
     const { status } = store.getState();
@@ -171,9 +256,9 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
     try {
       const opened = await openInEngine(source, password, transfer);
       if (attempt !== generation) return void engine.call("close", { docId: opened.docId });
-      const sourceDoc: SourceDoc = { id: `source-${nextSourceNumber++}`, name, pageCount: opened.pageCount, pageSizes: opened.pageSizes, docId: opened.docId };
+      const sourceDoc: SourceDoc = { id: `source-${nextSourceNumber++}`, name, pageCount: opened.pageCount, pages: opened.pages, docId: opened.docId };
       locked = null;
-      commit({ sources: { [sourceDoc.id]: sourceDoc }, pages: pagesOf(sourceDoc) }, EMPTY_HISTORY, { fileName: name, fileId, selection: [], error: null });
+      commit({ sources: { [sourceDoc.id]: sourceDoc }, pages: pagesOf(sourceDoc), annotationRevisions: {} }, EMPTY_HISTORY, { fileName: name, fileId, selection: [], error: null });
     } catch (error) {
       if (attempt !== generation) return;
       const detail = error instanceof EngineCallError ? error.detail : null;
@@ -191,6 +276,7 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
     store,
 
     async load(file) {
+      pageReads.clear();
       await closeSources(store.getState().sources);
       locked = null;
       history = EMPTY_HISTORY;
@@ -209,6 +295,7 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
     },
 
     async close() {
+      pageReads.clear();
       generation++;
       locked = null;
       history = EMPTY_HISTORY;
@@ -223,18 +310,42 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
       const command = typeof input === "function" ? input(current) : input;
       const step = execute({ content: current, history }, command);
       commit(step.content, step.history);
+      runInEngine(command.applyInEngine, command.label);
     },
 
     undo() {
-      if (!editable()) return;
+      const command = history.undoStack.at(-1);
+      if (!editable() || !command) return;
       const step = undo({ content: contentOf(store.getState()), history });
       commit(step.content, step.history);
+      runInEngine(command.undoInEngine, command.label);
     },
 
     redo() {
-      if (!editable()) return;
+      const command = history.redoStack.at(-1);
+      if (!editable() || !command) return;
       const step = redo({ content: contentOf(store.getState()), history });
       commit(step.content, step.history);
+      runInEngine(command.applyInEngine, command.label);
+    },
+
+    async settled() {
+      await Promise.allSettled([...pendingEdits]);
+    },
+
+    readAnnotations,
+    readTextObjects,
+
+    async textRects(pageId, from, to) {
+      const at = pageAddressOf(store.getState(), pageId);
+      if (!at) return [];
+      return engine.call("getTextRects", { ...at, from, to }).promise;
+    },
+
+    async textObjectAt(pageId, point) {
+      const at = pageAddressOf(store.getState(), pageId);
+      if (!at) return null;
+      return engine.call("getTextObjectAt", { ...at, point }).promise;
     },
 
     select(pageIds) {
@@ -251,7 +362,7 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
       if (problem) return err(problem);
       try {
         const opened = await openInEngine({ bytes: file.bytes }, undefined, [file.bytes]);
-        return ok({ id: `source-${nextSourceNumber++}`, name: file.name, pageCount: opened.pageCount, pageSizes: opened.pageSizes, docId: opened.docId });
+        return ok({ id: `source-${nextSourceNumber++}`, name: file.name, pageCount: opened.pageCount, pages: opened.pages, docId: opened.docId });
       } catch (error) {
         return err(toOpenError(error instanceof EngineCallError ? error.detail.code : "engine-failed"));
       }

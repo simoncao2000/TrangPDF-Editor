@@ -3,8 +3,13 @@
  * (the worker in the app, Node in tests) and returns plain pixels, never DOM objects.
  */
 import { init, type WrappedPdfiumModule } from "@embedpdf/pdfium";
-import { err, ok, type PageSize, type Result } from "@pdf-editor/shared";
-import type { AssemblePart, DocId, EngineErrorCode, Rotation } from "./protocol";
+import { err, ok, type PdfPoint, type PdfRect, type Result } from "@pdf-editor/shared";
+import type { Annotation, EditableAnnotation } from "../annotations/annotation";
+import type { NewTextLine, NewTextStyle, PageTextObject } from "../page-text/page-text";
+import { PageAnnotations } from "./pdfium-annotations";
+import { PageTextObjects, TextObjectIds } from "./pdfium-page-text";
+import { PageText } from "./pdfium-text";
+import type { AssemblePart, DocId, EngineErrorCode, PageGeometry, Rotation } from "./protocol";
 
 /** FPDF_GetLastError code for a missing or wrong password. Every other failure is treated as damage. */
 const PDFIUM_ERROR_PASSWORD = 4;
@@ -26,12 +31,24 @@ interface OpenDoc {
   readonly handle: number;
   /** PDFium reads the file lazily from this buffer, so it lives until the document closes. */
   readonly bufferPtr: number;
-  readonly byteLength: number;
   /** Password the document was opened with, needed to open it a second time when saving. */
   readonly password: string;
+  /**
+   * Pages kept loaded because their text was edited: switched-off text objects live only in a
+   * loaded page, so it must not be closed until the document is. Page index → page handle.
+   */
+  readonly held: Map<number, number>;
+  /** Ids of the text objects on held pages. */
+  readonly textIds: TextObjectIds;
 }
 
 const QUARTER_TURN = 90;
+/** Box types for EPDF_GetPageBoxByIndex. */
+const BOX_MEDIA = 0;
+const BOX_CROP = 1;
+/** Fallback page size (US Letter, points) if a page reports no box at all. */
+const LETTER_WIDTH = 612;
+const LETTER_HEIGHT = 792;
 const INT_BYTES = 4;
 
 export type OpenFailure = Extract<EngineErrorCode, "password-required" | "wrong-password" | "damaged">;
@@ -40,6 +57,9 @@ export class PdfiumEngine {
   private readonly docs = new Map<DocId, OpenDoc>();
   private nextDocNumber = 1;
   private readonly pdfium: WrappedPdfiumModule;
+  private readonly annotations: PageAnnotations;
+  private readonly text: PageText;
+  private readonly textObjects: PageTextObjects;
 
   /**
    * Use `PdfiumEngine.create()`.
@@ -47,6 +67,9 @@ export class PdfiumEngine {
    */
   private constructor(pdfium: WrappedPdfiumModule) {
     this.pdfium = pdfium;
+    this.annotations = new PageAnnotations(pdfium);
+    this.text = new PageText(pdfium);
+    this.textObjects = new PageTextObjects(pdfium);
   }
 
   /**
@@ -64,22 +87,18 @@ export class PdfiumEngine {
    * Parses a PDF held in memory.
    * @param bytes The whole file.
    * @param password The user password, if the file is encrypted.
-   * @returns The new document's id and page sizes, or why it could not be opened.
+   * @returns The new document's id and each page's geometry, or why it could not be opened.
    */
-  open(bytes: ArrayBuffer, password?: string): Result<{ docId: DocId; pageSizes: PageSize[] }, OpenFailure> {
-    const heap = this.pdfium.pdfium;
-    const bufferPtr = heap.wasmExports.malloc(bytes.byteLength);
-    heap.HEAPU8.set(new Uint8Array(bytes), bufferPtr);
-    const handle = this.pdfium.FPDF_LoadMemDocument(bufferPtr, bytes.byteLength, password ?? "");
-    if (!handle) {
-      const code = this.pdfium.FPDF_GetLastError();
-      heap.wasmExports.free(bufferPtr);
-      if (code === PDFIUM_ERROR_PASSWORD) return err(password ? "wrong-password" : "password-required");
+  open(bytes: ArrayBuffer, password?: string): Result<{ docId: DocId; pages: PageGeometry[] }, OpenFailure> {
+    const loaded = this.loadCopy(bytes, password ?? "");
+    if (!loaded) {
+      if (this.pdfium.FPDF_GetLastError() === PDFIUM_ERROR_PASSWORD) return err(password ? "wrong-password" : "password-required");
       return err("damaged");
     }
+    const { handle, bufferPtr } = loaded;
     const docId = `doc-${this.nextDocNumber++}`;
-    this.docs.set(docId, { handle, bufferPtr, byteLength: bytes.byteLength, password: password ?? "" });
-    return ok({ docId, pageSizes: this.readPageSizes(handle) });
+    this.docs.set(docId, { handle, bufferPtr, password: password ?? "", held: new Map(), textIds: new TextObjectIds() });
+    return ok({ docId, pages: this.readPageGeometry(handle) });
   }
 
   /**
@@ -89,6 +108,7 @@ export class PdfiumEngine {
   close(docId: DocId): void {
     const doc = this.docs.get(docId);
     if (!doc) return;
+    for (const page of doc.held.values()) this.pdfium.FPDF_ClosePage(page);
     this.pdfium.FPDF_CloseDocument(doc.handle);
     this.pdfium.pdfium.wasmExports.free(doc.bufferPtr);
     this.docs.delete(docId);
@@ -101,13 +121,16 @@ export class PdfiumEngine {
    * @param width Output width in device pixels.
    * @param height Output height in device pixels.
    * @param rotation Extra clockwise rotation on top of the page's own (the user's Rotate command).
+   * @param hideEditable Leave out the annotations the editor draws itself (the annotation layer
+   *   draws them on top); annotations from other apps are still drawn.
    * @returns The pixels, or `unknown-document` if `docId` is not open.
    */
-  renderPage(docId: DocId, pageIndex: number, width: number, height: number, rotation: Rotation = 0): Result<PagePixels, "unknown-document"> {
-    const doc = this.docs.get(docId);
-    if (!doc) return err("unknown-document");
-    const page = this.pdfium.FPDF_LoadPage(doc.handle, pageIndex);
+  renderPage(docId: DocId, pageIndex: number, width: number, height: number, rotation: Rotation = 0, hideEditable = false): Result<PagePixels, "unknown-document"> {
+    const opened = this.openPage(docId, pageIndex);
+    if (!opened) return err("unknown-document");
+    const { page } = opened;
     const bitmap = this.pdfium.FPDFBitmap_CreateEx(width, height, BITMAP_FORMAT_BGRA, 0, 0);
+    if (hideEditable) this.annotations.setEditableHidden(page, true);
     try {
       this.pdfium.FPDFBitmap_FillRect(bitmap, 0, 0, width, height, WHITE);
       this.pdfium.FPDF_RenderPageBitmap(bitmap, page, 0, 0, width, height, rotation / QUARTER_TURN, RENDER_FLAGS);
@@ -116,16 +139,208 @@ export class PdfiumEngine {
       const pixels = new Uint8ClampedArray(this.pdfium.pdfium.HEAPU8.buffer, start, length).slice();
       return ok({ width, height, pixels });
     } finally {
+      if (hideEditable) this.annotations.setEditableHidden(page, false);
       this.pdfium.FPDFBitmap_Destroy(bitmap);
-      this.pdfium.FPDF_ClosePage(page);
+      opened.release();
+    }
+  }
+
+  /**
+   * Lists a page's visible annotations.
+   * @param docId An open document.
+   * @param pageIndex Zero-based page index.
+   * @returns The annotations in drawing order.
+   */
+  getAnnotations(docId: DocId, pageIndex: number): Result<Annotation[], "unknown-document"> {
+    return this.withPage(docId, pageIndex, (page) => ok(this.annotations.list(page)));
+  }
+
+  /**
+   * Creates or updates an annotation the editor draws itself.
+   * @param docId An open document.
+   * @param pageIndex Zero-based page index.
+   * @param annotation The annotation; its id decides whether it is new.
+   * @returns The annotation as stored (PDFium may grow the box to fit line widths).
+   */
+  putAnnotation(docId: DocId, pageIndex: number, annotation: EditableAnnotation): Result<Annotation, "unknown-document" | "annotation-failed"> {
+    return this.withPage(docId, pageIndex, (page) => {
+      const stored = this.annotations.put(page, annotation);
+      return stored ? ok(stored) : err("annotation-failed");
+    });
+  }
+
+  /**
+   * Removes an annotation, in a way `restoreAnnotation` can undo.
+   * @param docId An open document.
+   * @param pageIndex Zero-based page index.
+   * @param id The annotation's id.
+   * @returns `unknown-annotation` if the page has no annotation with that id.
+   */
+  removeAnnotation(docId: DocId, pageIndex: number, id: string): Result<null, "unknown-document" | "unknown-annotation"> {
+    return this.withPage(docId, pageIndex, (page) => (this.annotations.remove(page, id) ? ok(null) : err("unknown-annotation")));
+  }
+
+  /**
+   * Brings back a removed annotation.
+   * @param docId An open document.
+   * @param pageIndex Zero-based page index.
+   * @param id The annotation's id.
+   * @returns `unknown-annotation` if the page has no annotation with that id.
+   */
+  restoreAnnotation(docId: DocId, pageIndex: number, id: string): Result<null, "unknown-document" | "unknown-annotation"> {
+    return this.withPage(docId, pageIndex, (page) => (this.annotations.restore(page, id) ? ok(null) : err("unknown-annotation")));
+  }
+
+  /**
+   * The text between two points, one rectangle per line.
+   * @param docId An open document.
+   * @param pageIndex Zero-based page index.
+   * @param from Where the selection started, in PDF space.
+   * @param to Where it ends, in PDF space.
+   * @returns The line rectangles; empty when a point misses the text.
+   */
+  getTextRects(docId: DocId, pageIndex: number, from: PdfPoint, to: PdfPoint): Result<PdfRect[], "unknown-document"> {
+    return this.withPage(docId, pageIndex, (page) => ok(this.text.rectsBetween(page, from, to)));
+  }
+
+  /**
+   * The text object under a point.
+   * @param docId An open document.
+   * @param pageIndex Zero-based page index.
+   * @param point A point in PDF space.
+   * @returns The text object, or `null` when there is no text there.
+   */
+  getTextObjectAt(docId: DocId, pageIndex: number, point: PdfPoint): Result<PageTextObject | null, "unknown-document"> {
+    return this.withHeldPage(docId, pageIndex, (doc, page) => ok(this.textObjects.objectAt(page, doc.textIds, point)));
+  }
+
+  /**
+   * Every visible text object on a page.
+   * @param docId An open document.
+   * @param pageIndex Zero-based page index.
+   * @returns The text objects in drawing order.
+   */
+  getTextObjects(docId: DocId, pageIndex: number): Result<PageTextObject[], "unknown-document"> {
+    return this.withHeldPage(docId, pageIndex, (doc, page) => ok(this.textObjects.list(page, doc.textIds)));
+  }
+
+  /**
+   * Replaces a text object's text, keeping the original (switched off) for undo.
+   * @param docId An open document.
+   * @param pageIndex Zero-based page index.
+   * @param id The text object's id.
+   * @param newId The id to give the replacement.
+   * @param text The new text.
+   * @returns `text-edit-failed` if the object is not visible text or PDFium refused the text.
+   */
+  replacePageText(docId: DocId, pageIndex: number, id: string, newId: string, text: string): Result<null, "unknown-document" | "text-edit-failed"> {
+    return this.withHeldPage(docId, pageIndex, (doc, page) => (this.textObjects.replace(doc.handle, page, doc.textIds, id, newId, text) ? ok(null) : err("text-edit-failed")));
+  }
+
+  /**
+   * Adds lines of page text in Helvetica.
+   * @param docId An open document.
+   * @param pageIndex Zero-based page index.
+   * @param lines The lines and where each baseline starts.
+   * @param style Size, colour and angle.
+   * @param ids One id per line.
+   * @returns `text-edit-failed` if PDFium refused the text.
+   */
+  addPageText(docId: DocId, pageIndex: number, lines: readonly NewTextLine[], style: NewTextStyle, ids: readonly string[]): Result<null, "unknown-document" | "text-edit-failed"> {
+    return this.withHeldPage(docId, pageIndex, (doc, page) => (this.textObjects.add(doc.handle, page, doc.textIds, lines, style, ids) ? ok(null) : err("text-edit-failed")));
+  }
+
+  /**
+   * Switches page text objects on and off: undo and redo of text edits.
+   * @param docId An open document.
+   * @param pageIndex Zero-based page index.
+   * @param show Ids to switch on.
+   * @param hide Ids to switch off.
+   * @returns `text-edit-failed` if an id is not an object on the page.
+   */
+  showPageText(docId: DocId, pageIndex: number, show: readonly string[], hide: readonly string[]): Result<null, "unknown-document" | "text-edit-failed"> {
+    return this.withHeldPage(docId, pageIndex, (doc, page) => (this.textObjects.show(page, doc.textIds, show, hide) ? ok(null) : err("text-edit-failed")));
+  }
+
+  /**
+   * Holds a page (it stays loaded until the document closes) and runs `work` on it.
+   * @param docId An open document.
+   * @param pageIndex Zero-based page index.
+   * @param work What to do with the document and page.
+   * @returns `work`'s result, or `unknown-document`.
+   */
+  private withHeldPage<T, E>(docId: DocId, pageIndex: number, work: (doc: OpenDoc, page: number) => Result<T, E>): Result<T, E | "unknown-document"> {
+    const doc = this.docs.get(docId);
+    const page = this.holdPage(docId, pageIndex);
+    if (!doc || !page) return err("unknown-document");
+    return work(doc, page);
+  }
+
+  /**
+   * A loaded page: the held one if the page is held, otherwise a fresh load.
+   * @param docId An open document.
+   * @param pageIndex Zero-based page index.
+   * @returns The page and how to let go of it, or `null` if it does not exist.
+   */
+  private openPage(docId: DocId, pageIndex: number): { page: number; release(): void } | null {
+    const doc = this.docs.get(docId);
+    if (!doc) return null;
+    const held = doc.held.get(pageIndex);
+    if (held) return { page: held, release: () => {} };
+    const page = this.pdfium.FPDF_LoadPage(doc.handle, pageIndex);
+    return page ? { page, release: () => this.pdfium.FPDF_ClosePage(page) } : null;
+  }
+
+  /**
+   * Keeps a page loaded until its document closes.
+   * @param docId An open document.
+   * @param pageIndex Zero-based page index.
+   * @returns The held page handle, or 0 if it does not exist.
+   */
+  private holdPage(docId: DocId, pageIndex: number): number {
+    const doc = this.docs.get(docId);
+    if (!doc) return 0;
+    const held = doc.held.get(pageIndex);
+    if (held) return held;
+    const page = this.pdfium.FPDF_LoadPage(doc.handle, pageIndex);
+    if (page) doc.held.set(pageIndex, page);
+    return page;
+  }
+
+  /**
+   * Writes the objects of held pages into their content streams, so copies and imports of the
+   * document see the edited text. Switched-off objects stay in memory for undo but are not written.
+   * @param docIds The documents to write.
+   */
+  private writeHeldPages(docIds: Iterable<DocId>): void {
+    for (const docId of docIds) {
+      for (const page of this.docs.get(docId)?.held.values() ?? []) this.pdfium.FPDFPage_GenerateContent(page);
+    }
+  }
+
+  /**
+   * Loads a page (or uses the held one), runs `work`, and lets go of the page.
+   * @param docId An open document.
+   * @param pageIndex Zero-based page index.
+   * @param work What to do with the page handle.
+   * @returns `work`'s result, or `unknown-document` if the document or page does not exist.
+   */
+  private withPage<T, E>(docId: DocId, pageIndex: number, work: (page: number) => Result<T, E>): Result<T, E | "unknown-document"> {
+    const opened = this.openPage(docId, pageIndex);
+    if (!opened) return err("unknown-document");
+    try {
+      return work(opened.page);
+    } finally {
+      opened.release();
     }
   }
 
   /**
    * Builds a new PDF from pages of open documents, in order, with extra rotation (architecture §7.3).
-   * Starts from a fresh copy of the first page's file, so its bookmarks, metadata and form keep
-   * working; pages from other files are imported, then everything is put in order and unused pages
-   * are removed. The result is reopened to check it before it is returned.
+   * Starts from a copy of the first page's document as it is now (annotations and form values
+   * included), so its bookmarks, metadata and form keep working; pages from other files are
+   * imported, then everything is put in order, unused pages and removed annotations are dropped.
+   * The result is reopened to check it before it is returned.
    * @param parts The pages of the new file, in order.
    * @returns The new file's bytes, or why it could not be built.
    */
@@ -134,19 +349,38 @@ export class PdfiumEngine {
     const base = first ? this.docs.get(first.docId) : undefined;
     if (!first || !base || parts.some((part) => !this.docs.has(part.docId))) return err("unknown-document");
 
-    const dest = this.pdfium.FPDF_LoadMemDocument(base.bufferPtr, base.byteLength, base.password);
+    this.writeHeldPages(new Set(parts.map((part) => part.docId)));
+    const current = this.saveCopy(base.handle);
+    const dest = current ? this.loadCopy(current, base.password) : null;
     if (!dest) return err("assemble-failed");
     try {
-      const order = this.importForeignPages(dest, first.docId, parts);
-      if (!order || !this.arrange(dest, order)) return err("assemble-failed");
-      parts.forEach((part, index) => this.addRotation(dest, index, part.rotation));
-      const bytes = this.saveCopy(dest);
+      const order = this.importForeignPages(dest.handle, first.docId, parts);
+      if (!order || !this.arrange(dest.handle, order)) return err("assemble-failed");
+      parts.forEach((part, index) => this.finishPage(dest.handle, index, part.rotation));
+      const bytes = this.saveCopy(dest.handle);
       // An encrypted file stays encrypted when saved, so it is checked with the same password.
       if (!bytes || this.countPages(bytes, base.password) !== parts.length) return err("assemble-failed");
       return ok(bytes);
     } finally {
-      this.pdfium.FPDF_CloseDocument(dest);
+      this.pdfium.FPDF_CloseDocument(dest.handle);
+      this.pdfium.pdfium.wasmExports.free(dest.bufferPtr);
     }
+  }
+
+  /**
+   * Opens a temporary document from bytes, without registering it.
+   * @param bytes A PDF.
+   * @param password Its password, if encrypted.
+   * @returns The handle and the buffer to free after closing, or `null` if it does not open.
+   */
+  private loadCopy(bytes: ArrayBuffer, password: string): { handle: number; bufferPtr: number } | null {
+    const heap = this.pdfium.pdfium;
+    const bufferPtr = heap.wasmExports.malloc(bytes.byteLength);
+    heap.HEAPU8.set(new Uint8Array(bytes), bufferPtr);
+    const handle = this.pdfium.FPDF_LoadMemDocument(bufferPtr, bytes.byteLength, password);
+    if (handle) return { handle, bufferPtr };
+    heap.wasmExports.free(bufferPtr);
+    return null;
   }
 
   /**
@@ -194,16 +428,20 @@ export class PdfiumEngine {
   }
 
   /**
-   * Turns one page further clockwise.
+   * Final touches on one page of a file being built: drops annotations removed in the editor and
+   * turns the page further clockwise.
    * @param dest The document being built.
-   * @param pageIndex Page to turn.
+   * @param pageIndex The page.
    * @param rotation Extra rotation.
    */
-  private addRotation(dest: number, pageIndex: number, rotation: Rotation): void {
-    if (rotation === 0) return;
+  private finishPage(dest: number, pageIndex: number, rotation: Rotation): void {
     const page = this.pdfium.FPDF_LoadPage(dest, pageIndex);
-    const quarterTurns = (this.pdfium.FPDFPage_GetRotation(page) + rotation / QUARTER_TURN) % 4;
-    this.pdfium.FPDFPage_SetRotation(page, quarterTurns);
+    if (!page) return;
+    this.annotations.stripRemoved(page);
+    if (rotation !== 0) {
+      const quarterTurns = (this.pdfium.FPDFPage_GetRotation(page) + rotation / QUARTER_TURN) % 4;
+      this.pdfium.FPDFPage_SetRotation(page, quarterTurns);
+    }
     this.pdfium.FPDF_ClosePage(page);
   }
 
@@ -240,25 +478,32 @@ export class PdfiumEngine {
     const opened = this.open(bytes, password || undefined);
     if (!opened.ok) return -1;
     this.close(opened.value.docId);
-    return opened.value.pageSizes.length;
+    return opened.value.pages.length;
   }
 
   /**
-   * Reads every page's size without loading page content.
+   * Reads every page's crop box and own rotation without loading page content.
    * @param handle An open PDFium document handle.
-   * @returns Sizes in points, rotation applied.
+   * @returns One entry per page.
    */
-  private readPageSizes(handle: number): PageSize[] {
+  private readPageGeometry(handle: number): PageGeometry[] {
     const heap = this.pdfium.pdfium;
     const count = this.pdfium.FPDF_GetPageCount(handle);
-    const sizePtr = heap.wasmExports.malloc(2 * FLOAT_BYTES);
+    // FS_RECTF: left, top, right, bottom.
+    const rectPtr = heap.wasmExports.malloc(4 * FLOAT_BYTES);
+    const read = (offset: number) => heap.getValue(rectPtr + offset * FLOAT_BYTES, "float");
     try {
       return Array.from({ length: count }, (_, index) => {
-        this.pdfium.FPDF_GetPageSizeByIndexF(handle, index, sizePtr);
-        return { width: heap.getValue(sizePtr, "float"), height: heap.getValue(sizePtr + FLOAT_BYTES, "float") };
+        const found = this.pdfium.EPDF_GetPageBoxByIndex(handle, index, BOX_CROP, rectPtr) || this.pdfium.EPDF_GetPageBoxByIndex(handle, index, BOX_MEDIA, rectPtr);
+        const [left, top, right, bottom] = found ? [read(0), read(1), read(2), read(3)] : [0, LETTER_HEIGHT, LETTER_WIDTH, 0];
+        const quarterTurns = this.pdfium.EPDF_GetPageRotationByIndex(handle, index);
+        return {
+          cropBox: { x: Math.min(left, right), y: Math.min(top, bottom), width: Math.abs(right - left), height: Math.abs(top - bottom) },
+          rotation: (((quarterTurns % 4) + 4) % 4) * QUARTER_TURN as Rotation,
+        };
       });
     } finally {
-      heap.wasmExports.free(sizePtr);
+      heap.wasmExports.free(rectPtr);
     }
   }
 }

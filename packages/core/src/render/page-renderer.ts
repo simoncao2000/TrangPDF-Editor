@@ -11,11 +11,19 @@ export interface RenderEngine {
   call<M extends EngineMethod>(method: M, params: EngineParams<M>): CancellableWork<EngineResult<M>>;
 }
 
-export interface RenderRequest {
+/** Which picture of a page: the page, turned how, with or without the editor's own annotations. */
+export interface PageImage {
   readonly docId: DocId;
   readonly pageIndex: number;
   /** Extra clockwise rotation from the Rotate command. */
   readonly rotation: Rotation;
+  /** Leave out the annotations the annotation layer draws (the main view); thumbnails show all. */
+  readonly hideEditable: boolean;
+}
+
+export interface RenderRequest extends PageImage {
+  /** The page's annotation revision; a new one renders the page again. */
+  readonly revision: number;
   /** Device pixels, already swapped for a quarter turn. */
   readonly width: number;
   readonly height: number;
@@ -41,14 +49,12 @@ export interface PageRendererOptions {
 }
 
 /**
- * Cache key prefix for one page at one rotation.
- * @param docId Document id.
- * @param pageIndex Page index.
- * @param rotation Extra rotation.
- * @returns A prefix shared by every size of that page turned that way.
+ * Cache key prefix for one picture of a page.
+ * @param image The page, its rotation and which annotations it shows.
+ * @returns A prefix shared by every size and revision of that picture.
  */
-function pageKey(docId: DocId, pageIndex: number, rotation: Rotation): string {
-  return `${docId}#${pageIndex}r${rotation}@`;
+function imageKey(image: PageImage): string {
+  return `${image.docId}#${image.pageIndex}r${image.rotation}${image.hideEditable ? "h" : "a"}@`;
 }
 
 export class PageRenderer {
@@ -73,7 +79,7 @@ export class PageRenderer {
    * @returns A ticket; cancel it when the page leaves the view or the size changes.
    */
   request(request: RenderRequest): RenderTicket {
-    const key = `${pageKey(request.docId, request.pageIndex, request.rotation)}${request.width}x${request.height}`;
+    const key = `${imageKey(request)}v${request.revision}:${request.width}x${request.height}`;
     const cached = this.cache.get(key);
     if (cached) return { promise: Promise.resolve(cached), cancel: () => {}, setPriority: () => {} };
 
@@ -97,15 +103,13 @@ export class PageRenderer {
   }
 
   /**
-   * The sharpest bitmap already cached for a page, at any size. Stretch it as a placeholder
-   * while the exact size renders.
-   * @param docId Document id.
-   * @param pageIndex Page index.
-   * @param rotation Extra rotation (a copy at another rotation would have the wrong shape).
+   * The sharpest bitmap already cached for a picture, at any size and revision. Stretch it as a
+   * placeholder while the exact one renders.
+   * @param image The page, its rotation (another rotation has the wrong shape) and annotations.
    * @returns A bitmap or `undefined`.
    */
-  bestCached(docId: DocId, pageIndex: number, rotation: Rotation): ImageBitmap | undefined {
-    return this.cache.largestWithPrefix(pageKey(docId, pageIndex, rotation));
+  bestCached(image: PageImage): ImageBitmap | undefined {
+    return this.cache.largestWithPrefix(imageKey(image));
   }
 
   /**
@@ -158,6 +162,7 @@ export class PageRenderer {
       width: request.width,
       height: request.height,
       rotation: request.rotation,
+      hideEditable: request.hideEditable,
     });
     return { promise: call.promise.then((rendered) => rendered.bitmap), cancel: () => call.cancel() };
   }

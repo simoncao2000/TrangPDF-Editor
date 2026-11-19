@@ -17,3 +17,17 @@ export type OpenErrorKind =
 
 /** Largest file the editor accepts. Bigger files risk running out of WebAssembly memory. */
 export const MAX_FILE_BYTES = 500 * 1024 * 1024;
+
+/** A point in PDF user space, in points. The origin is the page's bottom-left corner; y goes up. */
+export interface PdfPoint {
+  readonly x: number;
+  readonly y: number;
+}
+
+/** A rectangle in PDF user space, in points: `x`, `y` is its bottom-left corner. */
+export interface PdfRect {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}

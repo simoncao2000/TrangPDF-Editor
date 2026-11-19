@@ -6,6 +6,7 @@ import { useFileError, useFileOpener } from "../editor/use-file-opener";
 import { useMediaQuery, WIDE_LAYOUT_QUERY } from "../hooks/use-media-query";
 import { useShortcuts } from "../hooks/use-shortcut";
 import { useWindowFileDrop } from "../hooks/use-window-file-drop";
+import { useAnnotationUi } from "../state/annotation-store";
 import { useToast } from "../state/toast-store";
 import { useViewer } from "../state/viewer-store";
 import { OpenErrorDialog } from "./dialogs/OpenErrorDialog";
@@ -33,6 +34,9 @@ export function EditorApp() {
   const leaving = useLeaveGuard((state) => state.pending !== null);
   const resetViewer = useViewer((state) => state.reset);
   const dismissToast = useToast((state) => state.dismiss);
+  const showToast = useToast((state) => state.show);
+  const failedEdit = useDocument((state) => state.failedEdit);
+  const selectAnnotation = useAnnotationUi((state) => state.select);
   const narrow = !useMediaQuery(WIDE_LAYOUT_QUERY);
 
   const modalOpen = status === "needsPassword" || status === "failed" || fileError !== null || leaving;
@@ -55,8 +59,16 @@ export function EditorApp() {
   // document it was shown for, so toasts go when a document closes or another one opens.
   useEffect(() => {
     if (status === "loading") resetViewer();
-    if (status === "loading" || status === "empty") dismissToast();
-  }, [status, resetViewer, dismissToast]);
+    if (status === "loading" || status === "empty") {
+      dismissToast();
+      selectAnnotation(null);
+    }
+  }, [status, resetViewer, dismissToast, selectAnnotation]);
+
+  // An edit PDFium refused (rare: a damaged annotation, out of memory).
+  useEffect(() => {
+    if (failedEdit) showToast(`Couldn’t finish: ${failedEdit.label.toLowerCase()}.`, { tone: "error" });
+  }, [failedEdit, showToast]);
 
   // The browser asks before closing the tab while there are unsaved changes.
   useEffect(() => {

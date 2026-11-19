@@ -3,14 +3,24 @@
  * itself and how to undo itself, and never mutates: both return new content. Undo, redo and the
  * "unsaved changes" state all come from this one pattern.
  */
-import type { Rotation } from "../engine/protocol";
+import type { EngineMethod, EngineParams, EngineResult, Rotation } from "../engine/protocol";
 import type { DocumentContent, PageRef, SourceDoc } from "./document-state";
+
+/**
+ * How a command reaches the engine. Calls must be sent before the returned promise is awaited, so
+ * they reach the worker in the order commands run (the worker handles calls one at a time, in order).
+ */
+export type CommandEngine = <M extends EngineMethod>(method: M, params: EngineParams<M>) => Promise<EngineResult<M>>;
 
 export interface Command {
   /** Shown in toasts and the undo tooltip, e.g. "Rotate 2 pages". */
   readonly label: string;
   apply(content: DocumentContent): DocumentContent;
   undo(content: DocumentContent): DocumentContent;
+  /** Engine work that goes with `apply` (and redo), for edits PDFium holds: annotations, form values. */
+  readonly applyInEngine?: (engine: CommandEngine) => Promise<unknown>;
+  /** Engine work that goes with `undo`. */
+  readonly undoInEngine?: (engine: CommandEngine) => Promise<unknown>;
 }
 
 /**
@@ -117,6 +127,7 @@ export function insertPages(source: SourceDoc, atIndex: number): Command {
     apply: (current) => {
       const at = Math.max(0, Math.min(atIndex, current.pages.length));
       return {
+        ...current,
         sources: { ...current.sources, [source.id]: source },
         pages: [...current.pages.slice(0, at), ...inserted, ...current.pages.slice(at)],
       };

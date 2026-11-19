@@ -3,13 +3,33 @@
  * Kept free of `self`/`postMessage` so it can be tested in Node; `engine.worker.ts` wires it up.
  */
 import type { PdfiumEngine, PagePixels } from "./pdfium-engine";
-import type { EngineError, EngineMethod, EngineRequest, EngineResponse, OpenSource } from "./protocol";
+import type { Result } from "@pdf-editor/shared";
+import type { EngineError, EngineErrorCode, EngineMethod, EngineRequest, EngineResponse, OpenSource } from "./protocol";
+
+/** The engine methods the host forwards calls to. */
+type EngineApi = Pick<
+  PdfiumEngine,
+  | "open"
+  | "close"
+  | "renderPage"
+  | "assemble"
+  | "getAnnotations"
+  | "putAnnotation"
+  | "removeAnnotation"
+  | "restoreAnnotation"
+  | "getTextRects"
+  | "getTextObjects"
+  | "getTextObjectAt"
+  | "replacePageText"
+  | "addPageText"
+  | "showPageText"
+>;
 
 /** What the host needs from its environment. */
 export interface EngineHostDeps {
   /** Fetches `pdfium.wasm`. */
   loadWasm(url: string): Promise<ArrayBuffer>;
-  createEngine(wasm: ArrayBuffer): Promise<Pick<PdfiumEngine, "open" | "close" | "renderPage" | "assemble">>;
+  createEngine(wasm: ArrayBuffer): Promise<EngineApi>;
   /** Turns raw pixels into a transferable bitmap. */
   toBitmap(pixels: PagePixels): Promise<ImageBitmap>;
   /** Sends a response, moving `transfer` objects instead of copying them. */
@@ -30,6 +50,24 @@ class HostError extends Error {
     super(detail.message);
     this.detail = detail;
   }
+}
+
+/** Messages for the engine failures a caller can act on. */
+const FAILURE_MESSAGES: Partial<Record<EngineErrorCode, string>> = {
+  "unknown-document": "The document or page is not open.",
+  "unknown-annotation": "The page has no annotation with that id.",
+  "annotation-failed": "The annotation could not be written.",
+  "text-edit-failed": "That text could not be changed.",
+};
+
+/**
+ * Returns a result's value, or throws it as an error for the caller.
+ * @param result An engine result.
+ * @returns The value.
+ */
+function unwrap<T>(result: Result<T, EngineErrorCode>): T {
+  if (result.ok) return result.value;
+  throw new HostError({ code: result.error, message: FAILURE_MESSAGES[result.error] ?? "The engine failed." });
 }
 
 /**
@@ -68,8 +106,8 @@ export function createEngineHost(deps: EngineHostDeps): { receive(request: Engin
       const opened = requireEngine().open(bytes, password);
       if (opened.ok) {
         if ("lockedId" in source) locked.delete(source.lockedId);
-        const { docId, pageSizes } = opened.value;
-        return [{ docId, pageCount: pageSizes.length, pageSizes }];
+        const { docId, pages } = opened.value;
+        return [{ docId, pageCount: pages.length, pages }];
       }
       if (opened.error === "damaged") throw new HostError({ code: "damaged", message: "The file could not be parsed." });
       const lockedId = "lockedId" in source ? source.lockedId : `locked-${nextLockedId++}`;
@@ -80,11 +118,41 @@ export function createEngineHost(deps: EngineHostDeps): { receive(request: Engin
       requireEngine().close(docId);
       return [null];
     },
-    async renderPage({ docId, pageIndex, width, height, rotation }) {
-      const rendered = requireEngine().renderPage(docId, pageIndex, width, height, rotation);
+    async renderPage({ docId, pageIndex, width, height, rotation, hideEditable }) {
+      const rendered = requireEngine().renderPage(docId, pageIndex, width, height, rotation, hideEditable);
       if (!rendered.ok) throw new HostError({ code: "unknown-document", message: `No open document ${docId}.` });
       const bitmap = await deps.toBitmap(rendered.value);
       return [{ bitmap, width, height }, [bitmap]];
+    },
+    async getAnnotations({ docId, pageIndex }) {
+      return [unwrap(requireEngine().getAnnotations(docId, pageIndex))];
+    },
+    async putAnnotation({ docId, pageIndex, annotation }) {
+      return [unwrap(requireEngine().putAnnotation(docId, pageIndex, annotation))];
+    },
+    async removeAnnotation({ docId, pageIndex, id }) {
+      return [unwrap(requireEngine().removeAnnotation(docId, pageIndex, id))];
+    },
+    async restoreAnnotation({ docId, pageIndex, id }) {
+      return [unwrap(requireEngine().restoreAnnotation(docId, pageIndex, id))];
+    },
+    async getTextRects({ docId, pageIndex, from, to }) {
+      return [unwrap(requireEngine().getTextRects(docId, pageIndex, from, to))];
+    },
+    async getTextObjects({ docId, pageIndex }) {
+      return [unwrap(requireEngine().getTextObjects(docId, pageIndex))];
+    },
+    async getTextObjectAt({ docId, pageIndex, point }) {
+      return [unwrap(requireEngine().getTextObjectAt(docId, pageIndex, point))];
+    },
+    async replacePageText({ docId, pageIndex, id, newId, text }) {
+      return [unwrap(requireEngine().replacePageText(docId, pageIndex, id, newId, text))];
+    },
+    async addPageText({ docId, pageIndex, lines, ids, fontSize, color, angle }) {
+      return [unwrap(requireEngine().addPageText(docId, pageIndex, lines, { fontSize, color, angle }, ids))];
+    },
+    async showPageText({ docId, pageIndex, show, hide }) {
+      return [unwrap(requireEngine().showPageText(docId, pageIndex, show, hide))];
     },
     async assemble({ parts }) {
       const built = requireEngine().assemble(parts);

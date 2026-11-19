@@ -169,6 +169,7 @@ export function OrganizeView() {
                   docId={draggedPage.docId}
                   pageIndex={draggedPage.sourceIndex}
                   rotation={draggedPage.rotation}
+                  revision={draggedPage.revision}
                   width={TILE_PAGE_WIDTH}
                   height={(draggedPage.size.height / draggedPage.size.width) * TILE_PAGE_WIDTH}
                   priority={0}

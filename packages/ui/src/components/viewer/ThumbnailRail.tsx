@@ -66,6 +66,7 @@ export function ThumbnailRail() {
                     docId={page.docId}
                     pageIndex={page.sourceIndex}
                     rotation={page.rotation}
+                    revision={page.revision}
                     width={THUMB_WIDTH}
                     height={pageHeight}
                     priority={THUMBNAIL_PRIORITY + Math.abs(box.index - currentPage)}

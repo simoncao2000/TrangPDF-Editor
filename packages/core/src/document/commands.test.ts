@@ -11,7 +11,7 @@ import { EMPTY_HISTORY, execute, isDirty, markSaved, redo, undo, type Step } fro
  * @returns The source.
  */
 function source(id: string, count: number): SourceDoc {
-  return { id, name: `${id}.pdf`, pageCount: count, pageSizes: Array.from({ length: count }, () => ({ width: 612, height: 792 })), docId: `doc-${id}` };
+  return { id, name: `${id}.pdf`, pageCount: count, pages: Array.from({ length: count }, () => ({ cropBox: { x: 0, y: 0, width: 612, height: 792 }, rotation: 0 as const })), docId: `doc-${id}` };
 }
 
 /**
@@ -21,7 +21,7 @@ function source(id: string, count: number): SourceDoc {
  */
 function content(count: number): DocumentContent {
   const a = source("a", count);
-  return { sources: { a }, pages: Array.from({ length: count }, (_, i) => ({ id: `a:${i}`, source: "a", sourceIndex: i, rotation: 0 as const })) };
+  return { sources: { a }, pages: Array.from({ length: count }, (_, i) => ({ id: `a:${i}`, source: "a", sourceIndex: i, rotation: 0 as const })), annotationRevisions: {} };
 }
 
 const ids = (c: DocumentContent) => c.pages.map((page) => page.id);

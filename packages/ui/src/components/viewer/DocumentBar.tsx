@@ -1,4 +1,4 @@
-import { ArrowLeft, FolderOpen, LayoutGrid, Redo2, Save, Undo2, X } from "lucide-react";
+import { ArrowLeft, FolderOpen, LayoutGrid, Save, Undo2, X } from "lucide-react";
 import { useDocument, useEditorServices } from "../../editor/hooks";
 import { useDocumentActions } from "../../editor/use-document-actions";
 import { useFileOpener } from "../../editor/use-file-opener";
@@ -29,8 +29,9 @@ function FileStatus() {
 }
 
 /**
- * The top bar while a document is open: mark, file name and state, Undo/Redo, Open, Save, Save as,
- * theme, Close. Narrow shows Undo, Organize pages and Save; Open stays on the start screen.
+ * The top bar while a document is open: mark, file name and state, Open, Save, Save as, theme,
+ * Close (Undo and Redo sit in the tool row below). Narrow shows Undo, Organize pages and Save;
+ * Open stays on the start screen.
  * @param props Layout variant.
  * @returns The header.
  */
@@ -42,12 +43,10 @@ export function DocumentBar({ narrow }: DocumentBarProps) {
   const fileName = useDocument((state) => state.fileName);
   const status = useDocument((state) => state.status);
   const undoLabel = useDocument((state) => state.undoLabel);
-  const redoLabel = useDocument((state) => state.redoLabel);
   const editable = status === "clean" || status === "dirty";
   const close = () => actions.guardUnsaved(() => void session.close());
 
   const undo = <IconButton icon={Undo2} label={undoLabel ? `Undo ${undoLabel.toLowerCase()}` : "Undo"} disabled={!editable || !undoLabel} onClick={actions.undo} />;
-  const redo = <IconButton icon={Redo2} label={redoLabel ? `Redo ${redoLabel.toLowerCase()}` : "Redo"} disabled={!editable || !redoLabel} onClick={actions.redo} />;
 
   if (narrow) {
     return (
@@ -72,9 +71,6 @@ export function DocumentBar({ narrow }: DocumentBarProps) {
         <strong className="truncate font-hand text-[1.45rem] leading-none font-normal">{fileName}</strong>
         <FileStatus />
       </div>
-      <span className="mx-1.5 h-6 w-px bg-divider" aria-hidden="true" />
-      {undo}
-      {redo}
       <span className="flex-1" />
       <Button variant="ghost" icon={FolderOpen} onClick={openFromPicker}>
         Open

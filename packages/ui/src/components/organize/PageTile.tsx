@@ -62,7 +62,7 @@ export const PageTile = memo(function PageTile({ page, number, selected, carried
         <span
           className={`relative block border border-paper-line transition-transform duration-(--duration-enter) ease-out ${selected ? "scale-[0.94] outline-2 outline-offset-2 outline-signal" : "group-hover:shadow-2"}`}
         >
-          <PageCanvas docId={page.docId} pageIndex={page.sourceIndex} rotation={page.rotation} width={TILE_PAGE_WIDTH} height={height} priority={TILE_PRIORITY + number} />
+          <PageCanvas docId={page.docId} pageIndex={page.sourceIndex} rotation={page.rotation} revision={page.revision} width={TILE_PAGE_WIDTH} height={height} priority={TILE_PRIORITY + number} />
         </span>
         <span
           aria-hidden="true"
