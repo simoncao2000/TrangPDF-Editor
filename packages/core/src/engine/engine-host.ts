@@ -18,11 +18,14 @@ type EngineApi = Pick<
   | "removeAnnotation"
   | "restoreAnnotation"
   | "getTextRects"
+  | "findText"
   | "getTextObjects"
   | "getTextObjectAt"
   | "replacePageText"
   | "addPageText"
   | "showPageText"
+  | "movePageText"
+  | "renderTextObject"
 >;
 
 /** What the host needs from its environment. */
@@ -139,6 +142,9 @@ export function createEngineHost(deps: EngineHostDeps): { receive(request: Engin
     async getTextRects({ docId, pageIndex, from, to }) {
       return [unwrap(requireEngine().getTextRects(docId, pageIndex, from, to))];
     },
+    async findText({ docId, pageIndexes, query, limit }) {
+      return [unwrap(requireEngine().findText(docId, pageIndexes, query, limit))];
+    },
     async getTextObjects({ docId, pageIndex }) {
       return [unwrap(requireEngine().getTextObjects(docId, pageIndex))];
     },
@@ -150,6 +156,14 @@ export function createEngineHost(deps: EngineHostDeps): { receive(request: Engin
     },
     async addPageText({ docId, pageIndex, lines, ids, fontSize, color, angle }) {
       return [unwrap(requireEngine().addPageText(docId, pageIndex, lines, { fontSize, color, angle }, ids))];
+    },
+    async movePageText({ docId, pageIndex, id, dx, dy }) {
+      return [unwrap(requireEngine().movePageText(docId, pageIndex, id, dx, dy))];
+    },
+    async renderTextObject({ docId, pageIndex, id, scale }) {
+      const rendered = unwrap(requireEngine().renderTextObject(docId, pageIndex, id, scale));
+      const bitmap = await deps.toBitmap(rendered);
+      return [{ bitmap, width: rendered.width, height: rendered.height }, [bitmap]];
     },
     async showPageText({ docId, pageIndex, show, hide }) {
       return [unwrap(requireEngine().showPageText(docId, pageIndex, show, hide))];

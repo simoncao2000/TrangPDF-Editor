@@ -36,6 +36,8 @@ export interface DocumentActions {
   saveAs(): Promise<boolean>;
   /** Runs `action` now, or after the user decides about unsaved changes. */
   guardUnsaved(action: () => void): void;
+  /** Closes a tab (the one in front by default), asking about its unsaved changes first. */
+  closeTab(tabId?: string): void;
 }
 
 /**
@@ -43,7 +45,7 @@ export interface DocumentActions {
  * @returns Stable action functions.
  */
 export function useDocumentActions(): DocumentActions {
-  const { session, files } = useEditorServices();
+  const { session, files, workspace } = useEditorServices();
   const show = useToast((state) => state.show);
   const ask = useLeaveGuard((state) => state.ask);
 
@@ -163,7 +165,17 @@ export function useDocumentActions(): DocumentActions {
         if (session.store.getState().status === "dirty") ask(action);
         else action();
       },
+      closeTab(tabId) {
+        const id = tabId ?? workspace.store.getState().activeId;
+        const tab = workspace.store.getState().tabs.find((candidate) => candidate.id === id);
+        if (!tab) return;
+        const close = () => void workspace.close(tab.id);
+        if (tab.session.store.getState().status !== "dirty") return close();
+        // The unsaved-changes dialog works on the tab in front, so bring this one forward first.
+        workspace.activate(tab.id);
+        ask(close);
+      },
     }),
-    [undoNow, redoNow, session, confirm, numbersOf, files, show, save, saveAs, ask],
+    [undoNow, redoNow, session, workspace, confirm, numbersOf, files, show, save, saveAs, ask],
   );
 }

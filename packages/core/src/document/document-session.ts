@@ -6,7 +6,7 @@
 import { err, ok, type OpenErrorKind, type OpenedFile, type PdfPoint, type PdfRect, type Result, type SavedFile } from "@pdf-editor/shared";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { Annotation } from "../annotations/annotation";
-import type { PageTextObject } from "../page-text/page-text";
+import type { PageTextObject, TextMatch } from "../page-text/page-text";
 import { EngineCallError } from "../engine/engine-client";
 import type { AssemblePart, EngineErrorCode, EngineMethod, EngineParams, EngineResult, OpenSource, PageAddress } from "../engine/protocol";
 import type { CancellableWork } from "../render/render-queue";
@@ -27,6 +27,13 @@ export type SaveResult = { readonly saved: true; readonly file: SavedFile } | { 
 
 /** A command, or a function that builds one from the current content (for commands that remember it). */
 export type CommandInput = Command | ((content: DocumentContent) => Command);
+
+/** A search match placed in the document: which page (as shown), and where on it. */
+export interface DocumentMatch extends Omit<TextMatch, "pageIndex"> {
+  readonly pageId: string;
+  /** 1-based position of the page in the document as it is now. */
+  readonly pageNumber: number;
+}
 
 export interface DocumentSession {
   /** Subscribe with zustand's `useStore(session.store, selector)` in React. */
@@ -86,6 +93,21 @@ export interface DocumentSession {
    * @returns The text object, or `null` when there is no text there or the page is unknown.
    */
   textObjectAt(pageId: string, point: PdfPoint): Promise<PageTextObject | null>;
+  /**
+   * Finds text in the document, page by page in the order shown, ignoring case.
+   * @param query The text to find; blank finds nothing.
+   * @param limit Stop after this many matches.
+   * @returns The matches with their pages.
+   */
+  findText(query: string, limit: number): Promise<DocumentMatch[]>;
+  /**
+   * Draws one piece of page text on its own, for showing it while it is dragged.
+   * @param pageId A page id.
+   * @param id The text object's id.
+   * @param scale Device pixels per point.
+   * @returns A transparent bitmap cropped to the text (the caller closes it), or `null`.
+   */
+  renderTextObject(pageId: string, id: string, scale: number): Promise<ImageBitmap | null>;
   /**
    * Sets the selected pages.
    * @param pageIds Page ids; unknown ids are dropped and the rest are put in page order.
@@ -340,6 +362,35 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
       const at = pageAddressOf(store.getState(), pageId);
       if (!at) return [];
       return engine.call("getTextRects", { ...at, from, to }).promise;
+    },
+
+    async renderTextObject(pageId, id, scale) {
+      const at = pageAddressOf(store.getState(), pageId);
+      if (!at) return null;
+      return (await engine.call("renderTextObject", { ...at, id, scale }).promise).bitmap;
+    },
+
+    async findText(query, limit) {
+      const { pages, sources } = store.getState();
+      // Consecutive pages from the same file are searched in one engine call.
+      const runs: { docId: string; pages: PageRef[] }[] = [];
+      for (const page of pages) {
+        const docId = sources[page.source]?.docId;
+        if (!docId) continue;
+        const last = runs.at(-1);
+        if (last?.docId === docId) last.pages.push(page);
+        else runs.push({ docId, pages: [page] });
+      }
+      const matches: DocumentMatch[] = [];
+      for (const run of runs) {
+        if (matches.length >= limit) break;
+        const found = await engine.call("findText", { docId: run.docId, pageIndexes: run.pages.map((page) => page.sourceIndex), query, limit: limit - matches.length }).promise;
+        for (const { pageIndex, ...match } of found) {
+          const page = run.pages.find((candidate) => candidate.sourceIndex === pageIndex)!;
+          matches.push({ ...match, pageId: page.id, pageNumber: pages.indexOf(page) + 1 });
+        }
+      }
+      return matches;
     },
 
     async textObjectAt(pageId, point) {

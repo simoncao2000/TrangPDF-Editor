@@ -80,6 +80,14 @@ function download(name: string, bytes: ArrayBuffer): void {
 }
 
 /**
+ * Whether the browser can pick files as handles that can be written to and kept (Chromium only).
+ * @returns True when both File System Access pickers exist.
+ */
+function supportsFileHandles(): boolean {
+  return typeof window !== "undefined" && typeof window.showOpenFilePicker === "function" && typeof window.showSaveFilePicker === "function";
+}
+
+/**
  * Creates the browser file adapter.
  * @returns A FileAdapter backed by the File System Access API or a file input, with recent files in IndexedDB.
  */
@@ -103,6 +111,8 @@ export function createWebFileAdapter(): FileAdapter {
   });
 
   return {
+    canSaveInPlace: supportsFileHandles(),
+
     async open() {
       if (window.showOpenFilePicker) {
         try {

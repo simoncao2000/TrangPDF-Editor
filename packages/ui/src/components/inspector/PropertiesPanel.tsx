@@ -54,7 +54,7 @@ export function PropertiesPanel() {
     <div className="grid justify-items-center gap-2 rounded-sm border border-divider p-5 text-center">
       <PaperBoat className="w-16" />
       <p className="font-semibold">Nothing selected</p>
-      <p className="text-sm text-muted">Pick a tool above, or click a mark on the page to change its colour and size.</p>
+      <p className="text-sm text-muted">Pick a tool, or click a mark on the page to change its colour and size.</p>
     </div>
   );
 }

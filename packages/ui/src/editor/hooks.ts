@@ -1,13 +1,13 @@
 import type { DocumentState } from "@pdf-editor/core";
 import { useContext } from "react";
 import { useStore } from "zustand";
-import { EditorContext, type EditorServices } from "./context";
+import { EditorContext, type EditorContextValue } from "./context";
 
 /**
  * Reads the editor services.
- * @returns The FileAdapter, session and renderer.
+ * @returns The FileAdapter, workspace, active tab's session and renderer.
  */
-export function useEditorServices(): EditorServices {
+export function useEditorServices(): EditorContextValue {
   const services = useContext(EditorContext);
   if (!services) throw new Error("useEditorServices must be used inside <EditorProvider>.");
   return services;

@@ -46,4 +46,8 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 # Working notes and guides (kept locally)
 /docs/
+
+# Product and design records (kept locally, like the design)
+/PRODUCT.md
+/DESIGN.md
 *.pdf

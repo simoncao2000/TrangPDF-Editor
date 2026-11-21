@@ -6,7 +6,7 @@
  */
 import type { PdfPoint, PdfRect } from "@pdf-editor/shared";
 import type { Annotation, EditableAnnotation } from "../annotations/annotation";
-import type { NewTextLine, NewTextStyle, PageTextObject } from "../page-text/page-text";
+import type { NewTextLine, NewTextStyle, PageTextObject, TextMatch } from "../page-text/page-text";
 
 /** Identifies an open document inside the worker. */
 export type DocId = string;
@@ -64,6 +64,8 @@ export interface EngineMethods {
   restoreAnnotation: { params: PageAddress & { id: string }; result: null };
   /** The text between two points, one rectangle per line (for highlights). */
   getTextRects: { params: PageAddress & { from: PdfPoint; to: PdfPoint }; result: PdfRect[] };
+  /** Finds a query on some pages of a document (case-insensitive), up to `limit` matches. */
+  findText: { params: { docId: DocId; pageIndexes: readonly number[]; query: string; limit: number }; result: TextMatch[] };
   /** Every visible text object on a page, for editing the page's text. */
   getTextObjects: { params: PageAddress; result: PageTextObject[] };
   /** The page text object under a point, or `null`. */
@@ -72,6 +74,10 @@ export interface EngineMethods {
   replacePageText: { params: PageAddress & { id: string; newId: string; text: string }; result: null };
   /** Adds lines of page text, one text object (with the matching id) per line. */
   addPageText: { params: PageAddress & NewTextStyle & { lines: readonly NewTextLine[]; ids: readonly string[] }; result: null };
+  /** Moves a page text object by a distance in PDF space. */
+  movePageText: { params: PageAddress & { id: string; dx: number; dy: number }; result: null };
+  /** Draws one page text object on a transparent background (for dragging it). */
+  renderTextObject: { params: PageAddress & { id: string; scale: number }; result: RenderedPage };
   /** Switches page text objects on and off (undo and redo of text edits). */
   showPageText: { params: PageAddress & { show: readonly string[]; hide: readonly string[] }; result: null };
   assemble: { params: { parts: readonly AssemblePart[] }; result: { bytes: ArrayBuffer } };

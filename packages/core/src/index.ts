@@ -4,6 +4,7 @@
  */
 export * from "./document/document-state";
 export * from "./document/document-session";
+export * from "./workspace/workspace";
 export * from "./document/commands";
 export * from "./document/selection";
 export * from "./annotations/annotation";

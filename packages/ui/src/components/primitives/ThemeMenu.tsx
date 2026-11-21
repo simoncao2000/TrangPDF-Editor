@@ -24,7 +24,7 @@ export function ThemeMenu() {
       entries={OPTIONS}
       value={preference}
       onSelect={setPreference}
-      triggerClassName="min-h-(--control-target) border border-line bg-raised px-2"
+      triggerClassName="min-h-(--control-target) px-2 hover:bg-hover"
       renderTrigger={(open) => (
         <>
           <CurrentIcon className="size-4.5" aria-hidden="true" />

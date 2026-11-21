@@ -3,7 +3,8 @@ import { beforeAll, describe, expect, it } from "bun:test";
 import { createDocumentSession } from "../document/document-session";
 import type { EngineClient } from "../engine/engine-client";
 import { corpusFile, createTestEngine } from "../testing/fixtures";
-import { addPageText, editPageText } from "./page-text-commands";
+import { rotatePages } from "../document/commands";
+import { addPageText, editPageText, movePageText } from "./page-text-commands";
 
 let engine: EngineClient;
 
@@ -73,5 +74,48 @@ describe("page text in a session", () => {
     expect(await textsNow()).toEqual(["Tide tables for the headland", "Check before you walk"]);
     session.redo();
     expect(await textsNow()).toEqual(["Tide tables for the headland", "Check before you walk", "Low tide at noon"]);
+  });
+
+  it("moves page text with undo and redo", async () => {
+    const session = createDocumentSession(engine);
+    await session.load({ name: "Tide.pdf", bytes: corpusFile("text.pdf") });
+    const pageId = session.store.getState().pages[0]!.id;
+    const line = (await session.textObjectAt(pageId, FIRST_LINE))!;
+
+    session.dispatch((content) => movePageText(content, pageId, line, 20, -100));
+    expect(session.store.getState().undoLabel).toBe("Move text");
+    expect(await session.textObjectAt(pageId, FIRST_LINE)).toBeNull();
+    expect((await session.textObjectAt(pageId, { x: FIRST_LINE.x + 20, y: FIRST_LINE.y - 100 }))?.id).toBe(line.id);
+
+    session.undo();
+    expect((await session.textObjectAt(pageId, FIRST_LINE))?.bounds).toEqual(line.bounds);
+    session.redo();
+    expect(await session.textObjectAt(pageId, FIRST_LINE)).toBeNull();
+  });
+
+  it("deletes a line when all of its text is removed, with undo", async () => {
+    const session = createDocumentSession(engine);
+    await session.load({ name: "Tide.pdf", bytes: corpusFile("text.pdf") });
+    const pageId = session.store.getState().pages[0]!.id;
+    const line = (await session.textObjectAt(pageId, FIRST_LINE))!;
+
+    session.dispatch((content) => editPageText(content, pageId, line, "   "));
+    await session.settled();
+    expect(session.store.getState()).toMatchObject({ undoLabel: "Delete text", failedEdit: null });
+    expect(await session.textObjectAt(pageId, FIRST_LINE)).toBeNull();
+
+    session.undo();
+    expect((await session.textObjectAt(pageId, FIRST_LINE))?.text).toBe("Tide tables for the headland");
+  });
+
+  it("finds text in page order, and tells which page each match is on", async () => {
+    const session = createDocumentSession(engine);
+    await session.load({ name: "Tide.pdf", bytes: corpusFile("text.pdf") });
+    const pageId = session.store.getState().pages[0]!.id;
+    const matches = await session.findText("before", 10);
+    expect(matches).toMatchObject([{ pageId, pageNumber: 1, snippet: { match: "before" } }]);
+    // Searching does not change the document.
+    session.dispatch(rotatePages([pageId], 90));
+    expect((await session.findText("before", 10))[0]?.pageNumber).toBe(1);
   });
 });

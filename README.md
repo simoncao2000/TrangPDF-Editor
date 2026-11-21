@@ -258,7 +258,16 @@ bun run test
 - [x] **Phase 0: Setup.** Workspaces, engine running in a worker
 - [x] **Phase 1: Viewer.** Open, render, zoom, navigate, passwords, recent files
 - [x] **Phase 2: Page tools.** Reorder, rotate, delete, insert, extract, undo, save
-- [ ] **Phase 3: Annotations and forms.** Highlight, draw, shapes, text, images, signatures, form filling, flatten on export
+- [ ] **Phase 3: Annotations, comments and forms**
+  - [x] Highlight from a text selection, freehand drawing, rectangles, colour and size properties, undo
+  - [x] Edit the page's own text in place (click, retype, drag to move), add new page text
+  - [x] Several files open in tabs, command palette (search text, run commands, switch files), collapsible sidebars
+  - [ ] Every markup is a comment, Acrobat style: threads with replies, a Comments panel grouped by page
+  - [ ] The full markup set: underline, strikethrough, squiggly, sticky notes; ellipse, line and arrow shapes
+  - [x] Redesigned shell: menu bar (File, Edit, View, Tools, Pages), files in their own tab row, a tool palette you drag anywhere and turn flat or upright, tools visible at every width
+  - [x] Phone layout: file switcher, bottom bar, floating tools
+  - [ ] Images, drawn signatures saved on the device, form filling, flatten on export
+  - [ ] Matching fonts for edited text (bundled open look-alikes, fonts installed on the device)
 - [ ] **Phase 4: Desktop app.** Tauri 2, open PDFs from the system, save in place, auto-updates
 - [ ] **Phase 5: Mobile app.** Capacitor, share sheet, touch gestures, bottom sheets
 - [ ] **Phase 6: Sync and paid tier.** Accounts, document sync, OCR

@@ -73,6 +73,20 @@ describe("page text", () => {
     expect(await texts(await saveAndReopen(docId))).toEqual(["Tide tables for the bay", "Check before you walk"]);
   });
 
+  it("keeps the word spaces of a line whose font has a zero-width space (as pdfTeX writes them)", async () => {
+    // The line has no space characters: its word gaps are TJ offsets of 280/1000 em (6.72 pt at 24 pt).
+    const docId = (await engine.call("open", { source: { bytes: corpusFile("latex-spaces.pdf") } }).promise).docId;
+    const [line] = await engine.call("getTextObjects", { docId, pageIndex: 0 }).promise;
+    expect(line!.text).toBe("Dean List 7 times recipient");
+    const gap = 0.28 * 24;
+
+    // Delete one space; the three left must still push the words apart.
+    await engine.call("replacePageText", { docId, pageIndex: 0, id: line!.id, newId: "new-1", text: "Dean List7 times recipient" }).promise;
+    const [edited] = await engine.call("getTextObjects", { docId, pageIndex: 0 }).promise;
+    expect(edited!.text).toBe("Dean List7 times recipient");
+    expect(edited!.bounds.width).toBeGreaterThan(line!.bounds.width - 2 * gap);
+  });
+
   it("switches text on and off by id, in any order, even after a save", async () => {
     const docId = await openText();
     const first = await objectAt(docId, FIRST_LINE);

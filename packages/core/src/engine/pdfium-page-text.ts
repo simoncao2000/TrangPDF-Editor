@@ -21,6 +21,8 @@ const MATRIX_BYTES = 6 * FLOAT_BYTES;
 const OPAQUE = 255;
 /** The font new text is written in; every viewer has it. */
 const NEW_TEXT_FONT = "Helvetica";
+/** A space narrower than this (in em) counts as missing; real fonts' spaces are about 0.25 em. */
+const MIN_SPACE_EM = 0.1;
 
 /** Ids for the text objects of one document's loaded pages. */
 export class TextObjectIds {
@@ -132,9 +134,10 @@ export class PageTextObjects {
     const font = this.pdfium.FPDFTextObj_GetFont(original);
     const size = this.fontSizeOf(original);
 
-    // First try the original font; if it lacks a glyph the text reads back differently.
+    // First try the original font. It cannot write the text if it lacks a glyph (the text reads back
+    // differently) or if its space has no width (subset fonts from pdfTeX: the words would run together).
     let replacement = this.insertLike(page, index + 1, original, this.pdfium.FPDFPageObj_CreateTextObj(doc, font, size), text);
-    if (replacement && this.withTextPage(page, (textPage) => this.readText(textPage, replacement)) !== text) {
+    if (replacement && (this.withTextPage(page, (textPage) => this.readText(textPage, replacement)) !== text || this.spacesCollapse(doc, font, size, text))) {
       this.pdfium.FPDFPage_RemoveObject(page, replacement);
       this.pdfium.FPDFPageObj_Destroy(replacement);
       replacement = 0;
@@ -197,6 +200,97 @@ export class PageTextObjects {
     hide.forEach((id) => this.pdfium.FPDFPageObj_SetIsActive(ids.handleOf(id), false));
     show.forEach((id) => this.pdfium.FPDFPageObj_SetIsActive(ids.handleOf(id), true));
     return true;
+  }
+
+  /**
+   * Moves a text object.
+   * @param page A loaded page.
+   * @param ids The document's id registry.
+   * @param id The text object's id.
+   * @param dx Distance along x, in points.
+   * @param dy Distance along y, in points (positive is up).
+   * @returns False if `id` is not an object on this page.
+   */
+  move(page: number, ids: TextObjectIds, id: string, dx: number, dy: number): boolean {
+    const object = ids.handleOf(id);
+    if (!object || this.indexOf(page, object) < 0) return false;
+    this.pdfium.FPDFPageObj_Transform(object, 1, 0, 0, 1, dx, dy);
+    return true;
+  }
+
+  /**
+   * Draws one text object on its own, on a transparent background, tightly cropped to its bounds.
+   * @param doc The document handle.
+   * @param page A loaded page.
+   * @param ids The document's id registry.
+   * @param id The text object's id.
+   * @param scale Device pixels per point.
+   * @returns RGBA pixels, or `null` if `id` is not an object on this page.
+   */
+  render(doc: number, page: number, ids: TextObjectIds, id: string, scale: number): { width: number; height: number; pixels: Uint8ClampedArray<ArrayBuffer> } | null {
+    const object = ids.handleOf(id);
+    if (!object || this.indexOf(page, object) < 0) return null;
+    const bitmap = this.pdfium.FPDFTextObj_GetRenderedBitmap(doc, page, object, scale);
+    if (!bitmap) return null;
+    try {
+      const width = this.pdfium.FPDFBitmap_GetWidth(bitmap);
+      const height = this.pdfium.FPDFBitmap_GetHeight(bitmap);
+      const stride = this.pdfium.FPDFBitmap_GetStride(bitmap);
+      const source = this.pdfium.pdfium.HEAPU8.subarray(this.pdfium.FPDFBitmap_GetBuffer(bitmap), this.pdfium.FPDFBitmap_GetBuffer(bitmap) + stride * height);
+      // PDFium writes BGRA rows padded to `stride`; the page renderer wants tight RGBA.
+      const pixels = new Uint8ClampedArray(width * height * 4);
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const from = y * stride + x * 4;
+          const to = (y * width + x) * 4;
+          pixels[to] = source[from + 2]!;
+          pixels[to + 1] = source[from + 1]!;
+          pixels[to + 2] = source[from]!;
+          pixels[to + 3] = source[from + 3]!;
+        }
+      }
+      return { width, height, pixels };
+    } finally {
+      this.pdfium.FPDFBitmap_Destroy(bitmap);
+    }
+  }
+
+  /**
+   * Whether a font draws the spaces between words with (almost) no width. pdfTeX makes word gaps by
+   * moving the pen, not with a space glyph, and gives unused codes, the space among them, a width
+   * of 0; text written with real spaces in such a font runs together.
+   * @param doc The document handle.
+   * @param font The font.
+   * @param size Font size in points.
+   * @param text The text to be written.
+   * @returns True when the spaces inside the text would be narrower than `MIN_SPACE_EM` each.
+   */
+  private spacesCollapse(doc: number, font: number, size: number, text: string): boolean {
+    const inner = text.trim();
+    const spaces = inner.match(/\s/g)?.length ?? 0;
+    if (spaces === 0) return false;
+    // Trailing and leading spaces have no ink, so only spaces between words change the width.
+    const spacing = this.widthIn(doc, font, size, inner) - this.widthIn(doc, font, size, inner.replace(/\s/g, ""));
+    return spacing < spaces * size * MIN_SPACE_EM;
+  }
+
+  /**
+   * How wide a text would be in a font, measured on a scratch object that is never inserted.
+   * @param doc The document handle.
+   * @param font The font.
+   * @param size Font size in points.
+   * @param text The text.
+   * @returns Its width in points, or 0 if PDFium cannot write it.
+   */
+  private widthIn(doc: number, font: number, size: number, text: string): number {
+    const scratch = this.pdfium.FPDFPageObj_CreateTextObj(doc, font, size);
+    if (!scratch) return 0;
+    try {
+      if (!this.heap.withWideString(text, (ptr) => this.pdfium.FPDFText_SetText(scratch, ptr))) return 0;
+      return this.boundsOf(scratch).width;
+    } finally {
+      this.pdfium.FPDFPageObj_Destroy(scratch);
+    }
   }
 
   /**

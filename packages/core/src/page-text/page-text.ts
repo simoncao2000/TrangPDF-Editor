@@ -42,6 +42,15 @@ export interface NewTextStyle {
   readonly angle: number;
 }
 
+/** One place a search query was found. */
+export interface TextMatch {
+  readonly pageIndex: number;
+  /** One rectangle per line of the match, in PDF space. */
+  readonly rects: readonly PdfRect[];
+  /** The match with a few words either side, for a result list. */
+  readonly snippet: { readonly before: string; readonly match: string; readonly after: string };
+}
+
 /** PDF font descriptor flags. */
 const FLAG_FIXED_PITCH = 1;
 const FLAG_SERIF = 2;

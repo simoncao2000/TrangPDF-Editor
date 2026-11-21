@@ -2,21 +2,18 @@ import {
   addAnnotation,
   addPageText,
   editAnnotation,
-  editPageText,
   isEditable,
   moveAnnotation,
   pageFrame,
   pdfRectToScreen,
   screenDeltaToPdf,
-  screenToPdf,
   type Annotation,
   type EditableAnnotation,
   type PageFrame,
-  type PageTextObject,
   type ScreenPoint,
   type TextBoxAnnotation,
 } from "@pdf-editor/core";
-import { useCallback, useEffect, useMemo, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { useEditorServices } from "../../editor/hooks";
 import { isDrawingTool, useAnnotationUi } from "../../state/annotation-store";
 import type { PageDrawInfo } from "../viewer/use-page-geometry";
@@ -25,11 +22,10 @@ import { AnnotationShape } from "./AnnotationShape";
 import { newTextLines } from "./drawing-geometry";
 import { DrawingSurface } from "./DrawingSurface";
 import { NewTextEditor } from "./NewTextEditor";
-import { PageTextEditor } from "./PageTextEditor";
 import { TextBoxEditor } from "./TextBoxEditor";
 import { HANDLES, handlePosition, type Handle } from "./resize-handles";
 import { useAnnotationDrag } from "./use-annotation-drag";
-import { usePageAnnotations, usePageTextObjects } from "./use-page-annotations";
+import { usePageAnnotations } from "./use-page-annotations";
 
 interface AnnotationLayerProps {
   readonly page: PageDrawInfo;
@@ -42,8 +38,6 @@ interface AnnotationLayerProps {
 /** Hit areas reach this far past an annotation's box, so thin ones are easy to grab. */
 const HIT_SLOP = 4;
 const HANDLE_SIZE = 9;
-/** Space between page text and its outline in Edit text mode, in CSS pixels. */
-const TEXT_OUTLINE_GAP = 2;
 /** Arrow keys move a selected annotation this far, in screen pixels (Shift: ten times). */
 const NUDGE = 1;
 const NUDGE_FAR = 10;
@@ -64,7 +58,8 @@ function isResizable(annotation: Annotation): annotation is Exclude<EditableAnno
  * The annotation layer over one page (architecture §9): draws the annotations the editor
  * understands, lets the reader select, move, resize and nudge them, and runs the drawing tools.
  * Annotations from other apps are drawn in the page picture below; here they can only be selected
- * (and then deleted). Double-click a text box to change its text, or the page's own text to edit it.
+ * (and then deleted). Double-click a text box annotation to change its text. The page's own text is
+ * edited in the page text layer underneath.
  * @param props The page, the zoom and the page's on-screen size.
  * @returns An SVG the size of the page, and the text editor while one is open.
  */
@@ -80,24 +75,6 @@ export function AnnotationLayer({ page, zoom, width, height }: AnnotationLayerPr
   const [textDraft, setTextDraft] = useState<TextBoxAnnotation | null>(null);
   /** Where new page text is being typed (the Text box tool). */
   const [newTextAt, setNewTextAt] = useState<ScreenPoint | null>(null);
-  const [pageText, setPageText] = useState<PageTextObject | null>(null);
-  const textObjects = usePageTextObjects(page.id, page.revision, tool === "editText");
-
-  /** Double-click on the page: edit the page's own text under the pointer, if there is any. */
-  const editTextAt = async (event: MouseEvent<SVGRectElement>) => {
-    const box = event.currentTarget.getBoundingClientRect();
-    const point = screenToPdf({ x: event.clientX - box.left, y: event.clientY - box.top }, frame);
-    const found = await session.textObjectAt(page.id, point).catch(() => null);
-    if (found) setPageText(found);
-  };
-
-  const finishPageText = (text: string | null) => {
-    const object = pageText;
-    setPageText(null);
-    if (!object || text === null || text === object.text) return;
-    session.dispatch((content) => editPageText(content, page.id, object, text));
-  };
-
   const commit = useCallback(
     (before: EditableAnnotation, after: EditableAnnotation) => session.dispatch((content) => editAnnotation(content, page.id, before, after)),
     [session, page.id],
@@ -152,7 +129,6 @@ export function AnnotationLayer({ page, zoom, width, height }: AnnotationLayerPr
         {shown.map((annotation) => (
           <AnnotationShape key={annotation.id} annotation={annotation} frame={frame} />
         ))}
-        {tool === "select" && <rect x={0} y={0} width={width} height={height} fill="transparent" className="pointer-events-auto" onDoubleClick={(event) => void editTextAt(event)} />}
         {tool === "select" && shown.map((annotation) => {
           const box = pdfRectToScreen(annotation.rect, frame);
           const isSelected = annotation.id === selectedId;
@@ -178,34 +154,7 @@ export function AnnotationLayer({ page, zoom, width, height }: AnnotationLayerPr
           );
         })}
         {tool === "select" && selected && <SelectionFrame annotation={selected} frame={frame} onHandleDown={(event, handle) => isResizable(selected) && start(event, selected, handle)} />}
-          {tool === "editText" &&
-          textObjects.map((object) => {
-            const box = pdfRectToScreen(object.bounds, frame);
-            return (
-              <rect
-                key={object.id}
-                data-annotation=""
-                role="button"
-                tabIndex={0}
-                aria-label={`Edit text: ${object.text}`}
-                x={box.left - TEXT_OUTLINE_GAP}
-                y={box.top - TEXT_OUTLINE_GAP}
-                width={box.width + 2 * TEXT_OUTLINE_GAP}
-                height={box.height + 2 * TEXT_OUTLINE_GAP}
-                rx={2}
-                className={`pointer-events-auto cursor-text fill-transparent stroke-paper-focus/35 outline-none transition-[fill,stroke] duration-(--duration-press) hover:fill-paper-focus/8 hover:stroke-paper-focus focus-visible:stroke-paper-focus ${pageText?.id === object.id ? "invisible" : ""}`}
-                strokeWidth={1}
-                strokeDasharray="4 3"
-                onClick={() => setPageText(object)}
-                onKeyDown={(event) => {
-                  if (event.key !== "Enter" && event.key !== " ") return;
-                  event.preventDefault();
-                  setPageText(object);
-                }}
-              />
-            );
-          })}
-        {isDrawingTool(tool) && toolStyle && !textDraft && !newTextAt && (
+          {isDrawingTool(tool) && toolStyle && !textDraft && !newTextAt && (
           <DrawingSurface
             pageId={page.id}
             tool={tool}
@@ -219,7 +168,6 @@ export function AnnotationLayer({ page, zoom, width, height }: AnnotationLayerPr
         )}
       </svg>
       {textDraft && <TextBoxEditor annotation={textDraft} frame={frame} onDone={finishText} />}
-      {pageText && <PageTextEditor key={pageText.id} object={pageText} frame={frame} onDone={finishPageText} />}
       {newTextAt && toolStyle && <NewTextEditor at={newTextAt} frame={frame} fontSize={toolStyle.fontSize} color={toolStyle.color} onDone={finishNewText} />}
     </>
   );

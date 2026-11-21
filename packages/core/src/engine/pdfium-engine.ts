@@ -5,7 +5,7 @@
 import { init, type WrappedPdfiumModule } from "@embedpdf/pdfium";
 import { err, ok, type PdfPoint, type PdfRect, type Result } from "@pdf-editor/shared";
 import type { Annotation, EditableAnnotation } from "../annotations/annotation";
-import type { NewTextLine, NewTextStyle, PageTextObject } from "../page-text/page-text";
+import type { NewTextLine, NewTextStyle, PageTextObject, TextMatch } from "../page-text/page-text";
 import { PageAnnotations } from "./pdfium-annotations";
 import { PageTextObjects, TextObjectIds } from "./pdfium-page-text";
 import { PageText } from "./pdfium-text";
@@ -204,6 +204,26 @@ export class PdfiumEngine {
   }
 
   /**
+   * Finds a query on some pages of a document, ignoring case.
+   * @param docId An open document.
+   * @param pageIndexes The pages to search, in the order to search them.
+   * @param query The text to find; blank finds nothing.
+   * @param limit Stop after this many matches.
+   * @returns The matches, page by page.
+   */
+  findText(docId: DocId, pageIndexes: readonly number[], query: string, limit: number): Result<TextMatch[], "unknown-document"> {
+    if (!this.docs.has(docId)) return err("unknown-document");
+    if (!query.trim()) return ok([]);
+    const matches: TextMatch[] = [];
+    for (const pageIndex of pageIndexes) {
+      if (matches.length >= limit) break;
+      const found = this.withPage(docId, pageIndex, (page) => ok(this.text.find(page, pageIndex, query, limit - matches.length)));
+      if (found.ok) matches.push(...found.value);
+    }
+    return ok(matches);
+  }
+
+  /**
    * The text object under a point.
    * @param docId An open document.
    * @param pageIndex Zero-based page index.
@@ -248,6 +268,34 @@ export class PdfiumEngine {
    */
   addPageText(docId: DocId, pageIndex: number, lines: readonly NewTextLine[], style: NewTextStyle, ids: readonly string[]): Result<null, "unknown-document" | "text-edit-failed"> {
     return this.withHeldPage(docId, pageIndex, (doc, page) => (this.textObjects.add(doc.handle, page, doc.textIds, lines, style, ids) ? ok(null) : err("text-edit-failed")));
+  }
+
+  /**
+   * Moves a text object (undo moves it back by the opposite distance).
+   * @param docId An open document.
+   * @param pageIndex Zero-based page index.
+   * @param id The text object's id.
+   * @param dx Distance along x, in points.
+   * @param dy Distance along y, in points (positive is up).
+   * @returns `text-edit-failed` if the id is not an object on the page.
+   */
+  movePageText(docId: DocId, pageIndex: number, id: string, dx: number, dy: number): Result<null, "unknown-document" | "text-edit-failed"> {
+    return this.withHeldPage(docId, pageIndex, (doc, page) => (this.textObjects.move(page, doc.textIds, id, dx, dy) ? ok(null) : err("text-edit-failed")));
+  }
+
+  /**
+   * Draws one text object on its own, for dragging it.
+   * @param docId An open document.
+   * @param pageIndex Zero-based page index.
+   * @param id The text object's id.
+   * @param scale Device pixels per point.
+   * @returns Transparent RGBA pixels cropped to the text, or `text-edit-failed`.
+   */
+  renderTextObject(docId: DocId, pageIndex: number, id: string, scale: number): Result<PagePixels, "unknown-document" | "text-edit-failed"> {
+    return this.withHeldPage(docId, pageIndex, (doc, page) => {
+      const rendered = this.textObjects.render(doc.handle, page, doc.textIds, id, scale);
+      return rendered ? ok(rendered) : err("text-edit-failed");
+    });
   }
 
   /**

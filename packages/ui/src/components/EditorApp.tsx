@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useStore } from "zustand";
 import { useDocument, useEditorServices } from "../editor/hooks";
 import { useLeaveGuard } from "../editor/leave-guard";
 import { useDocumentActions } from "../editor/use-document-actions";
@@ -7,11 +8,14 @@ import { useMediaQuery, WIDE_LAYOUT_QUERY } from "../hooks/use-media-query";
 import { useShortcuts } from "../hooks/use-shortcut";
 import { useWindowFileDrop } from "../hooks/use-window-file-drop";
 import { useAnnotationUi } from "../state/annotation-store";
+import { usePalette } from "../state/palette-store";
 import { useToast } from "../state/toast-store";
 import { useViewer } from "../state/viewer-store";
 import { OpenErrorDialog } from "./dialogs/OpenErrorDialog";
 import { PasswordDialog } from "./dialogs/PasswordDialog";
 import { UnsavedChangesDialog } from "./dialogs/UnsavedChangesDialog";
+import { InsertPagesFlow } from "./organize/InsertPagesFlow";
+import { CommandPalette } from "./palette/CommandPalette";
 import { Toaster } from "./primitives/Toaster";
 import { StartScreen } from "./start/StartScreen";
 import { ViewerScreen } from "./viewer/ViewerScreen";
@@ -23,7 +27,7 @@ import { ViewerScreen } from "./viewer/ViewerScreen";
  * @returns The current screen and any open dialog.
  */
 export function EditorApp() {
-  const { session } = useEditorServices();
+  const { workspace, files } = useEditorServices();
   const { openFromPicker, openFromDrop } = useFileOpener();
   const actions = useDocumentActions();
   const status = useDocument((state) => state.status);
@@ -38,8 +42,10 @@ export function EditorApp() {
   const failedEdit = useDocument((state) => state.failedEdit);
   const selectAnnotation = useAnnotationUi((state) => state.select);
   const narrow = !useMediaQuery(WIDE_LAYOUT_QUERY);
+  const hasTabs = useStore(workspace.store, (state) => state.tabs.length > 0);
 
-  const modalOpen = status === "needsPassword" || status === "failed" || fileError !== null || leaving;
+  const paletteOpen = usePalette((state) => state.open);
+  const modalOpen = status === "needsPassword" || status === "failed" || fileError !== null || leaving || paletteOpen;
   const editable = status === "clean" || status === "dirty";
   const dragging = useWindowFileDrop(openFromDrop, !modalOpen);
 
@@ -49,7 +55,8 @@ export function EditorApp() {
       [{ key: "z", mod: true }, () => editable && actions.undo()],
       [{ key: "z", mod: true, shift: true }, () => editable && actions.redo()],
       [{ key: "y", mod: true }, () => editable && actions.redo()],
-      [{ key: "s", mod: true }, () => status === "dirty" && void actions.save()],
+      // Without saving in place (Firefox, Safari) Save downloads a copy, like the Download button.
+      [{ key: "s", mod: true }, () => (files.canSaveInPlace ? status === "dirty" && void actions.save() : editable && void actions.saveAs())],
       [{ key: "s", mod: true, shift: true }, () => editable && void actions.saveAs()],
     ],
     !modalOpen,
@@ -70,25 +77,30 @@ export function EditorApp() {
     if (failedEdit) showToast(`Couldn’t finish: ${failedEdit.label.toLowerCase()}.`, { tone: "error" });
   }, [failedEdit, showToast]);
 
-  // The browser asks before closing the tab while there are unsaved changes.
+  // The browser asks before closing the window while any open document has unsaved changes.
   useEffect(() => {
-    if (status !== "dirty" && status !== "saving") return;
-    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    const warn = (event: BeforeUnloadEvent) => workspace.hasUnsavedChanges() && event.preventDefault();
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
-  }, [status]);
+  }, [workspace]);
 
   const showViewer = status === "loading" || status === "clean" || status === "dirty" || status === "saving";
   const failedKind = status === "failed" && documentError && documentError !== "password-required" && documentError !== "wrong-password" ? documentError : null;
 
   return (
     <>
-      {showViewer ? <ViewerScreen narrow={narrow} dragging={dragging} /> : <StartScreen dragging={dragging} />}
+      {hasTabs && (showViewer || status === "needsPassword" || status === "failed") ? (
+        <ViewerScreen narrow={narrow} dragging={dragging} keysEnabled={!modalOpen} />
+      ) : (
+        <StartScreen dragging={dragging} />
+      )}
       {status === "needsPassword" && <PasswordDialog />}
-      {failedKind && <OpenErrorDialog kind={failedKind} fileName={fileName} onClose={() => void session.close()} />}
+      {failedKind && <OpenErrorDialog kind={failedKind} fileName={fileName} onClose={() => actions.closeTab()} />}
       {fileError && fileError.kind !== "password-required" && fileError.kind !== "wrong-password" && (
         <OpenErrorDialog kind={fileError.kind} fileName={fileError.fileName} onClose={() => clearFileError(null)} />
       )}
+      <CommandPalette />
+      <InsertPagesFlow />
       <UnsavedChangesDialog />
       <Toaster />
     </>

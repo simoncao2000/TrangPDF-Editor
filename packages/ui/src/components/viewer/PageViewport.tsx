@@ -4,8 +4,10 @@ import { useElementSize } from "../../hooks/use-element-size";
 import { useAnnotationUi } from "../../state/annotation-store";
 import { useViewer } from "../../state/viewer-store";
 import { AnnotationLayer } from "../annotations/AnnotationLayer";
+import { PageTextLayer } from "../page-text/PageTextLayer";
 import { useAnnotationShortcuts } from "../annotations/use-annotation-shortcuts";
 import { PageCanvas } from "./PageCanvas";
+import { SearchHighlight } from "./SearchHighlight";
 import { usePageGeometry } from "./use-page-geometry";
 
 interface PageViewportProps {
@@ -26,6 +28,7 @@ export function PageViewport({ narrow }: PageViewportProps) {
   const spacing = useMemo(() => (narrow ? { gap: 12, padding: 8 } : { gap: 24, padding: 24 }), [narrow]);
   const { pages, zoom, layout } = usePageGeometry(zoomMode, viewport, spacing, currentPage);
   const selectAnnotation = useAnnotationUi((state) => state.select);
+  const clearSearchHit = useViewer((state) => state.showSearchHit);
   useAnnotationShortcuts(true);
 
   useEffect(() => reportZoom(zoom), [zoom, reportZoom]);
@@ -67,7 +70,10 @@ export function PageViewport({ narrow }: PageViewportProps) {
       ref={scrollRef}
       onScroll={onScroll}
       // A press anywhere but on an annotation lets go of the selected one.
-      onPointerDown={(event) => !(event.target as Element).closest("[data-annotation]") && selectAnnotation(null)}
+      onPointerDown={(event) => {
+        clearSearchHit(null);
+        if (!(event.target as Element).closest("[data-annotation]")) selectAnnotation(null);
+      }}
       tabIndex={0} aria-label="Document pages" className="relative min-h-0 overflow-auto bg-canvas outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-inset">
       <div className="relative" style={{ height: layout.totalHeight, width: contentWidth }}>
         {mounted.map((box) => {
@@ -90,6 +96,8 @@ export function PageViewport({ narrow }: PageViewportProps) {
                 height={box.height}
                 priority={Math.abs(box.index - current)}
               />
+              <SearchHighlight page={page} zoom={zoom} width={box.width} height={box.height} />
+              <PageTextLayer page={page} zoom={zoom} width={box.width} height={box.height} />
               <AnnotationLayer page={page} zoom={zoom} width={box.width} height={box.height} />
             </div>
           );

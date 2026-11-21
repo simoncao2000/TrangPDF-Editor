@@ -1,6 +1,6 @@
 import { CSS_PIXELS_PER_POINT, pdfRectToScreen, type FontFamilyKind, type PageFrame, type PageTextObject } from "@pdf-editor/core";
 import { useRef } from "react";
-import { cssColor } from "./annotation-display";
+import { cssColor } from "../annotations/annotation-display";
 
 interface PageTextEditorProps {
   readonly object: PageTextObject;

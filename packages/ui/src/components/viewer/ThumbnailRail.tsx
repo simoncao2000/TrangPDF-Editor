@@ -5,6 +5,7 @@ import { useElementSize } from "../../hooks/use-element-size";
 import { LayoutGrid } from "lucide-react";
 import { useViewer } from "../../state/viewer-store";
 import { IconButton } from "../primitives/IconButton";
+import { PanelHeader } from "../primitives/PanelHeader";
 import { PageCanvas } from "./PageCanvas";
 import { usePageDrawInfo } from "./use-page-geometry";
 
@@ -42,11 +43,13 @@ export function ThumbnailRail() {
   const mounted = range ? layout.boxes.slice(range.first, range.last + 1) : [];
 
   return (
-    <nav aria-label="Pages" className="grid min-h-0 grid-rows-[auto_1fr] border-r border-divider bg-rail">
-      <div className="flex items-center gap-2 pt-2 pr-2 pb-1 pl-4">
-        <h2 className="flex-1 font-hand text-[1.44rem] font-normal">{pageCount === 1 ? "Page" : "Pages"}</h2>
-        <IconButton icon={LayoutGrid} label="Organize pages" onClick={() => setMode("organize")} />
-      </div>
+    <nav aria-labelledby="pages-title" className="grid min-h-0 grid-rows-[auto_1fr] border-r border-divider bg-rail">
+      <PanelHeader
+        id="pages-title"
+        title="Pages"
+        count={pageCount}
+        actions={<IconButton icon={LayoutGrid} label="Organize pages" onClick={() => setMode("organize")} />}
+      />
       <div ref={scrollRef} onScroll={() => setScrollTop(scrollRef.current?.scrollTop ?? 0)} className="min-h-0 overflow-y-auto">
         <ol className="relative" style={{ height: layout.totalHeight }}>
           {mounted.map((box) => {

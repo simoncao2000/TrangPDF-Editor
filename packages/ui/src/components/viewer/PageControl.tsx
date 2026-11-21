@@ -49,17 +49,3 @@ export function PageControl() {
     </div>
   );
 }
-
-/**
- * The narrow layout's page indicator ("3 / 8").
- * @returns A small pill.
- */
-export function PageIndicator() {
-  const pageCount = useDocument((state) => state.pages.length);
-  const currentPage = useViewer((state) => state.currentPage);
-  return (
-    <output aria-live="polite" className="rounded-sm border border-line bg-raised px-3 py-1 font-mono text-sm font-semibold">
-      {currentPage + 1} / {pageCount}
-    </output>
-  );
-}

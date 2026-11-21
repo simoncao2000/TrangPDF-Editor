@@ -9,7 +9,7 @@ import { pageEditCommand } from "../document/page-edit-command";
 import type { NewTextLine, NewTextStyle, PageTextObject } from "./page-text";
 
 /**
- * Changes the text of one text object on a page.
+ * Changes the text of one text object on a page. Removing all of its text deletes it.
  * @param content The current content.
  * @param pageId The page.
  * @param object The text object, as the engine reported it.
@@ -17,6 +17,15 @@ import type { NewTextLine, NewTextStyle, PageTextObject } from "./page-text";
  * @returns The command.
  */
 export function editPageText(content: DocumentContent, pageId: string, object: PageTextObject, text: string): Command {
+  if (!text.trim()) {
+    return pageEditCommand(
+      content,
+      pageId,
+      "Delete text",
+      (engine, at) => engine("showPageText", { ...at, show: [], hide: [object.id] }),
+      (engine, at) => engine("showPageText", { ...at, show: [object.id], hide: [] }),
+    );
+  }
   const newId = crypto.randomUUID();
   // The replacement is made the first time the command runs; redo switches it back on. The flag is
   // set when the call is sent, and calls reach the worker in order, so a quick undo still works.
@@ -55,5 +64,24 @@ export function addPageText(content: DocumentContent, pageId: string, lines: rea
       return engine("addPageText", { ...at, ...style, lines, ids });
     },
     (engine, at) => engine("showPageText", { ...at, show: [], hide: ids }),
+  );
+}
+
+/**
+ * Moves a text object on a page. Undo moves it back.
+ * @param content The current content.
+ * @param pageId The page.
+ * @param object The text object.
+ * @param dx Distance along x, in points.
+ * @param dy Distance along y, in points (positive is up).
+ * @returns The command.
+ */
+export function movePageText(content: DocumentContent, pageId: string, object: PageTextObject, dx: number, dy: number): Command {
+  return pageEditCommand(
+    content,
+    pageId,
+    "Move text",
+    (engine, at) => engine("movePageText", { ...at, id: object.id, dx, dy }),
+    (engine, at) => engine("movePageText", { ...at, id: object.id, dx: -dx, dy: -dy }),
   );
 }

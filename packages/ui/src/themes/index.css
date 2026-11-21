@@ -113,4 +113,15 @@
   .lucide {
     stroke-width: 1.75;
   }
+
+  /* Browser surfaces in the palette's colours: selection, caret, thin scrollbars. */
+  ::selection {
+    background: var(--selection);
+    color: var(--on-selection);
+  }
+  html {
+    caret-color: var(--signal);
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--text-muted) 40%, transparent) transparent;
+  }
 }

@@ -20,8 +20,8 @@ function formatOpenedAt(timestamp: number): string {
 }
 
 /**
- * The recent files list on the start screen. Entries without a stored file handle are shown but
- * cannot be reopened (browsers other than Chromium).
+ * The recent files list on the start screen. Shown only where files can be reopened later
+ * (Chromium's File System Access API).
  * @returns The list, or nothing while there are no recent files.
  */
 export function RecentFiles() {
@@ -30,6 +30,8 @@ export function RecentFiles() {
   const [recent, setRecent] = useState<RecentFile[]>([]);
 
   useEffect(() => {
+    // Without kept file access (browsers other than Chromium) recent files could not be reopened.
+    if (!files.canSaveInPlace) return;
     let active = true;
     files.listRecent().then((list) => active && setRecent(list), () => active && setRecent([]));
     return () => {
@@ -44,7 +46,7 @@ export function RecentFiles() {
     setRecent([]);
   }, [files]);
 
-  if (recent.length === 0) return null;
+  if (!files.canSaveInPlace || recent.length === 0) return null;
 
   return (
     <section className="grid gap-2" aria-labelledby="recent-title">

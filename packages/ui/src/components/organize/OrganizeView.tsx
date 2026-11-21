@@ -14,13 +14,13 @@ import { clickSelection, pagesLabel } from "@pdf-editor/core";
 import { FilePlus2 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { useDocument, useEditorServices } from "../../editor/hooks";
-import { useDocumentActions, type PagesToInsert } from "../../editor/use-document-actions";
+import { useDocumentActions } from "../../editor/use-document-actions";
 import { useShortcuts } from "../../hooks/use-shortcut";
 import { useViewer } from "../../state/viewer-store";
 import { Button } from "../primitives/Button";
 import { PageCanvas } from "../viewer/PageCanvas";
 import { usePageDrawInfo } from "../viewer/use-page-geometry";
-import { InsertPagesDialog, type InsertPosition } from "./InsertPagesDialog";
+import { useInsertPending, useStartInsertPages } from "../../editor/use-insert-pages";
 import { PageTile, TILE_PAGE_WIDTH } from "./PageTile";
 import { SelectionBar } from "./SelectionBar";
 
@@ -63,7 +63,8 @@ export function OrganizeView() {
   const status = useDocument((state) => state.status);
   const { currentPage, setMode, goToPage } = useViewer();
   const [dragging, setDragging] = useState<string | null>(null);
-  const [toInsert, setToInsert] = useState<PagesToInsert | null>(null);
+  const startInsert = useStartInsertPages();
+  const inserting = useInsertPending();
 
   const order = useMemo(() => pages.map((page) => page.id), [pages]);
   const selected = useMemo(() => new Set(selection), [selection]);
@@ -98,21 +99,6 @@ export function OrganizeView() {
     if (index !== null) actions.move(moving, index);
   };
 
-  const startInsert = async () => {
-    const picked = await actions.pickPagesToInsert();
-    if (picked) setToInsert(picked);
-  };
-
-  const insertPositions = (): InsertPosition[] => {
-    const lastSelected = order.findLastIndex((id) => selected.has(id));
-    const after = lastSelected >= 0 ? lastSelected : currentPage;
-    return [
-      { id: "start", label: "At the start", detail: "Before page 1", index: 0 },
-      { id: "after", label: `After page ${after + 1}`, detail: lastSelected >= 0 ? "After the last selected page" : "After the page you were reading", index: after + 1 },
-      { id: "end", label: "At the end", detail: `After page ${order.length}`, index: order.length },
-    ];
-  };
-
   const canDelete = selection.length > 0 && selection.length < order.length;
   useShortcuts(
     [
@@ -121,7 +107,7 @@ export function OrganizeView() {
       [{ key: "a", mod: true }, () => session.select(order)],
       [{ key: "escape" }, () => (selection.length ? session.select([]) : setMode("read"))],
     ],
-    !toInsert && !busy,
+    !inserting && !busy,
   );
 
   const draggedPage = dragging ? pages.find((page) => page.id === dragging) : undefined;
@@ -133,7 +119,7 @@ export function OrganizeView() {
         <h2 className="mr-auto font-hand text-[1.44rem] leading-tight font-normal">
           Organize <span className="font-mono text-sm text-muted">{pagesLabel(order.length)}</span>
         </h2>
-        <Button icon={FilePlus2} onClick={startInsert} disabled={busy}>
+        <Button icon={FilePlus2} onClick={() => void startInsert()} disabled={busy}>
           Insert pages…
         </Button>
         <Button variant="ghost" onClick={() => session.select(selection.length === order.length ? [] : order)}>
@@ -200,21 +186,6 @@ export function OrganizeView() {
         </div>
       )}
 
-      {toInsert && (
-        <InsertPagesDialog
-          fileName={toInsert.name}
-          pageCount={toInsert.pageCount}
-          positions={insertPositions()}
-          onInsert={(index) => {
-            toInsert.insert(index);
-            setToInsert(null);
-          }}
-          onCancel={() => {
-            toInsert.cancel();
-            setToInsert(null);
-          }}
-        />
-      )}
     </section>
   );
 }

@@ -10,7 +10,8 @@ import { Lock } from "lucide-react";
  * @returns The dialog.
  */
 export function PasswordDialog() {
-  const { session } = useEditorServices();
+  const { session, workspace } = useEditorServices();
+  const activeId = workspace.store.getState().activeId ?? "";
   const fileName = useDocument((state) => state.fileName);
   const wrong = useDocument((state) => state.error === "wrong-password");
   const [password, setPassword] = useState("");
@@ -30,10 +31,10 @@ export function PasswordDialog() {
       title={`${fileName ?? "This file"} is locked`}
       description="Enter its password to open it."
       icon={Lock}
-      onDismiss={() => void session.close()}
+      onDismiss={() => void workspace.close(activeId)}
       actions={
         <>
-          <Button onClick={() => void session.close()}>Cancel</Button>
+          <Button onClick={() => void workspace.close(activeId)}>Cancel</Button>
           <Button variant="primary" type="submit" form="password-form" disabled={!password || busy}>
             Unlock
           </Button>
