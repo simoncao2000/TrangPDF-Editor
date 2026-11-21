@@ -20,7 +20,16 @@ function fakeEngine() {
   return { engine, stats };
 }
 
-const request = { docId: "doc-1", pageIndex: 0, rotation: 0 as const, hideEditable: false, revision: 0, width: 100, height: 130, priority: 0 };
+const request = {
+  docId: "doc-1",
+  pageIndex: 0,
+  rotation: 0 as const,
+  hideEditable: false,
+  revision: 0,
+  width: 100,
+  height: 130,
+  priority: 0,
+};
 const image = { docId: "doc-1", pageIndex: 0, rotation: 0 as const, hideEditable: false };
 
 describe("PageRenderer", () => {

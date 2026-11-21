@@ -31,7 +31,16 @@ const SIZES: Record<Size, string> = {
  * @param props Variant, size, optional icon and shortcut hint, plus native button props.
  * @returns A `<button>`.
  */
-export function Button({ variant = "secondary", size = "md", icon: IconComponent, shortcut, className = "", children, type = "button", ...rest }: ButtonProps) {
+export function Button({
+  variant = "secondary",
+  size = "md",
+  icon: IconComponent,
+  shortcut,
+  className = "",
+  children,
+  type = "button",
+  ...rest
+}: ButtonProps) {
   return (
     <button
       type={type}

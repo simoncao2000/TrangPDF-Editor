@@ -28,9 +28,22 @@ export function AnnotationShape({ annotation, frame }: AnnotationShapeProps) {
       );
     case "ink":
       return (
-        <g fill="none" stroke={color} strokeOpacity={annotation.opacity} strokeWidth={annotation.lineWidth * scale} strokeLinecap="round" strokeLinejoin="round">
+        <g
+          fill="none"
+          stroke={color}
+          strokeOpacity={annotation.opacity}
+          strokeWidth={annotation.lineWidth * scale}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
           {annotation.strokes.map((stroke, index) => (
-            <polyline key={index} points={stroke.map((point) => pdfToScreen(point, frame)).map(({ x, y }) => `${x},${y}`).join(" ")} />
+            <polyline
+              key={index}
+              points={stroke
+                .map((point) => pdfToScreen(point, frame))
+                .map(({ x, y }) => `${x},${y}`)
+                .join(" ")}
+            />
           ))}
         </g>
       );

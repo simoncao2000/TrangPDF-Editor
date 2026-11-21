@@ -76,7 +76,8 @@ describe("DocumentSession editing and saving", () => {
     return session;
   }
 
-  const ids = (session: Awaited<ReturnType<typeof openSession>>) => session.store.getState().pages.map((page) => page.sourceIndex);
+  const ids = (session: Awaited<ReturnType<typeof openSession>>) =>
+    session.store.getState().pages.map((page) => page.sourceIndex);
 
   it("becomes dirty after an edit and clean after undo", async () => {
     const session = await openSession();
@@ -130,7 +131,11 @@ describe("DocumentSession editing and saving", () => {
       return { name: "Three (edited).pdf", fileId: "file-2" };
     });
     expect(result).toEqual({ saved: true, file: { name: "Three (edited).pdf", fileId: "file-2" } });
-    expect(session.store.getState()).toMatchObject({ status: "clean", fileName: "Three (edited).pdf", fileId: "file-2" });
+    expect(session.store.getState()).toMatchObject({
+      status: "clean",
+      fileName: "Three (edited).pdf",
+      fileId: "file-2",
+    });
     const reopened = createDocumentSession(engine);
     await reopened.load({ name: "check.pdf", bytes: written! });
     expect(reopened.store.getState().pages).toHaveLength(2);

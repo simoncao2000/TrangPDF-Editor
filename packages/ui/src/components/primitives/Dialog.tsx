@@ -21,7 +21,15 @@ interface DialogProps {
  * @param props Title, optional description, icon and tone, body, actions and dismiss handler.
  * @returns The open dialog.
  */
-export function Dialog({ title, description, icon: IconComponent, tone = "neutral", onDismiss, children, actions }: DialogProps) {
+export function Dialog({
+  title,
+  description,
+  icon: IconComponent,
+  tone = "neutral",
+  onDismiss,
+  children,
+  actions,
+}: DialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -46,7 +54,9 @@ export function Dialog({ title, description, icon: IconComponent, tone = "neutra
       <div className="grid gap-4 p-5">
         <div className="flex items-start gap-3">
           {IconComponent && (
-            <span className={`grid size-9 shrink-0 place-items-center rounded-full ${tone === "danger" ? "bg-danger/15 text-danger" : "bg-signal-soft text-signal"}`}>
+            <span
+              className={`grid size-9 shrink-0 place-items-center rounded-full ${tone === "danger" ? "bg-danger/15 text-danger" : "bg-signal-soft text-signal"}`}
+            >
               <IconComponent className="size-5" aria-hidden="true" />
             </span>
           )}

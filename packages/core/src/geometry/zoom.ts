@@ -13,7 +13,8 @@ export const MAX_ZOOM = 8;
 /** Largest bitmap rendered in one piece (architecture §8.2: 16 megapixels on desktop). */
 export const MAX_BITMAP_PIXELS = 16_000_000;
 
-export type ZoomMode = { readonly kind: "fit-width" } | { readonly kind: "fit-page" } | { readonly kind: "percent"; readonly zoom: number };
+export type ZoomMode =
+  { readonly kind: "fit-width" } | { readonly kind: "fit-page" } | { readonly kind: "percent"; readonly zoom: number };
 
 export interface Size {
   readonly width: number;

@@ -1,7 +1,14 @@
 /**
  * Screen-space helpers for the drawing tools. Pure, so they are easy to test.
  */
-import { CSS_PIXELS_PER_POINT, screenToPdf, type NewTextLine, type PageFrame, type ScreenPoint, type ScreenRect } from "@pdf-editor/core";
+import {
+  CSS_PIXELS_PER_POINT,
+  screenToPdf,
+  type NewTextLine,
+  type PageFrame,
+  type ScreenPoint,
+  type ScreenRect,
+} from "@pdf-editor/core";
 
 /** Ink points closer than this to the previous one are dropped, in CSS pixels. */
 export const MIN_STROKE_STEP = 1.5;
@@ -34,7 +41,12 @@ export function rectBetween(a: ScreenPoint, b: ScreenPoint): ScreenRect {
  * @param frame How the page is shown.
  * @returns The lines with their baselines, and the angle that keeps the text upright on screen.
  */
-export function newTextLines(text: string, at: ScreenPoint, fontSize: number, frame: PageFrame): { lines: NewTextLine[]; angle: number } {
+export function newTextLines(
+  text: string,
+  at: ScreenPoint,
+  fontSize: number,
+  frame: PageFrame,
+): { lines: NewTextLine[]; angle: number } {
   const scale = frame.zoom * CSS_PIXELS_PER_POINT;
   const lines = text.split("\n").flatMap((line, index) => {
     if (!line.trim()) return [];

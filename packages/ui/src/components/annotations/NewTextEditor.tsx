@@ -44,7 +44,16 @@ export function NewTextEditor({ at, frame, fontSize, color, onDone }: NewTextEdi
       wrap="off"
       spellCheck
       className="absolute resize-none overflow-hidden bg-transparent whitespace-pre outline-2 outline-offset-2 outline-paper-focus outline-dashed [field-sizing:content]"
-      style={{ left: at.x, top: at.y, minWidth: size * 2, color: cssColor(color), fontFamily: "Helvetica, Arial, sans-serif", fontSize: size, lineHeight: LINE_HEIGHT, padding: 0 }}
+      style={{
+        left: at.x,
+        top: at.y,
+        minWidth: size * 2,
+        color: cssColor(color),
+        fontFamily: "Helvetica, Arial, sans-serif",
+        fontSize: size,
+        lineHeight: LINE_HEIGHT,
+        padding: 0,
+      }}
       onBlur={(event) => finish(event.currentTarget.value)}
       onKeyDown={(event) => {
         if (event.key === "Escape") {

@@ -46,7 +46,11 @@ export function Workbench({ keysEnabled }: WorkbenchProps) {
   return (
     <div
       className="grid min-h-0"
-      style={{ gridTemplateColumns: [showPages ? PAGES_WIDTH : null, "minmax(0,1fr)", showProperties ? PROPERTIES_WIDTH : null].filter(Boolean).join(" ") }}
+      style={{
+        gridTemplateColumns: [showPages ? PAGES_WIDTH : null, "minmax(0,1fr)", showProperties ? PROPERTIES_WIDTH : null]
+          .filter(Boolean)
+          .join(" "),
+      }}
     >
       {showPages && <ThumbnailRail />}
       <div className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)]">

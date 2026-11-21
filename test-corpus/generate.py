@@ -96,7 +96,7 @@ HELVETICA_WIDTHS = [
 zero_space_widths = " ".join(str(w) for w in [0] + HELVETICA_WIDTHS[1:])
 (HERE / "latex-spaces.pdf").write_bytes(
     text_pdf(
-        b"BT /F1 24 Tf 72 700 Td [(Dean) -280 (List) -280 (7) -280 (times) -280 (recipient)] TJ ET",
+        b"BT /F1 24 Tf 72 700 Td [(Dean) -600 (List) -600 (7) -600 (times) -600 (recipient)] TJ ET",
         f"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding /FirstChar 32 /LastChar 126 /Widths [{zero_space_widths}] >>",
     )
 )

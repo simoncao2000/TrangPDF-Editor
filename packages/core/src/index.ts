@@ -13,10 +13,23 @@ export * from "./page-text/page-text";
 export * from "./page-text/page-text-commands";
 export { isDirty, type History } from "./document/history";
 export * from "./engine/protocol";
-export { EngineClient, EngineCallError, spawnEngineWorker, type EngineTransport, type EngineCall } from "./engine/engine-client";
+export {
+  EngineClient,
+  EngineCallError,
+  spawnEngineWorker,
+  type EngineTransport,
+  type EngineCall,
+} from "./engine/engine-client";
 export * from "./render/bitmap-cache";
 export * from "./render/render-queue";
-export { PageRenderer, type PageImage, type RenderRequest, type RenderTicket, type RenderEngine, type PageRendererOptions } from "./render/page-renderer";
+export {
+  PageRenderer,
+  type PageImage,
+  type RenderRequest,
+  type RenderTicket,
+  type RenderEngine,
+  type PageRendererOptions,
+} from "./render/page-renderer";
 export * from "./geometry/zoom";
 export * from "./geometry/page-layout";
 export * from "./geometry/coordinates";

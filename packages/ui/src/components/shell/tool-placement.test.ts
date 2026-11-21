@@ -10,7 +10,10 @@ describe("placeInside", () => {
   });
 
   test("pulls the palette back inside when the area shrinks", () => {
-    expect(placeInside({ x: 950, y: 600 }, palette, area)).toEqual({ x: 1000 - 48 - PLACEMENT_MARGIN, y: 700 - 400 - PLACEMENT_MARGIN });
+    expect(placeInside({ x: 950, y: 600 }, palette, area)).toEqual({
+      x: 1000 - 48 - PLACEMENT_MARGIN,
+      y: 700 - 400 - PLACEMENT_MARGIN,
+    });
   });
 
   test("keeps a margin from the top-left edges", () => {
@@ -18,6 +21,9 @@ describe("placeInside", () => {
   });
 
   test("prefers the top-left corner when the area is smaller than the palette", () => {
-    expect(placeInside({ x: 500, y: 500 }, palette, { width: 30, height: 200 })).toEqual({ x: PLACEMENT_MARGIN, y: PLACEMENT_MARGIN });
+    expect(placeInside({ x: 500, y: 500 }, palette, { width: 30, height: 200 })).toEqual({
+      x: PLACEMENT_MARGIN,
+      y: PLACEMENT_MARGIN,
+    });
   });
 });

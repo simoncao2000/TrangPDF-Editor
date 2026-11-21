@@ -7,18 +7,24 @@ import { err, ok, type PdfPoint, type PdfRect, type Result } from "@pdf-editor/s
 import type { Annotation, EditableAnnotation } from "../annotations/annotation";
 import type { NewTextLine, NewTextStyle, PageTextObject, TextMatch } from "../page-text/page-text";
 import { PageAnnotations } from "./pdfium-annotations";
-import { PageTextObjects, TextObjectIds } from "./pdfium-page-text";
+import { PageTextObjects, TextObjectIds, type PageContext } from "./pdfium-page-text";
 import { PageText } from "./pdfium-text";
-import type { AssemblePart, DocId, EngineErrorCode, PageGeometry, Rotation } from "./protocol";
+import type { AssemblePart, DocId, EngineErrorCode, PageAddress, PageGeometry, Rotation } from "./protocol";
 
 /** FPDF_GetLastError code for a missing or wrong password. Every other failure is treated as damage. */
 const PDFIUM_ERROR_PASSWORD = 4;
 /** FPDFBitmap_BGRA. With FPDF_REVERSE_BYTE_ORDER the buffer comes out in RGBA order. */
 const BITMAP_FORMAT_BGRA = 4;
-const RENDER_FLAGS = 0x01 /* FPDF_ANNOT */ | 0x10 /* FPDF_REVERSE_BYTE_ORDER */;
+const RENDER_FLAGS = 0x01 /* FPDF_ANNOT */ | 0x10; /* FPDF_REVERSE_BYTE_ORDER */
 const WHITE = 0xffffffff;
 const BYTES_PER_PIXEL = 4;
 const FLOAT_BYTES = 4;
+
+/** A bitmap's size in device pixels. */
+export interface PixelSize {
+  readonly width: number;
+  readonly height: number;
+}
 
 /** Raw RGBA pixels of one rendered page. */
 export interface PagePixels {
@@ -92,12 +98,19 @@ export class PdfiumEngine {
   open(bytes: ArrayBuffer, password?: string): Result<{ docId: DocId; pages: PageGeometry[] }, OpenFailure> {
     const loaded = this.loadCopy(bytes, password ?? "");
     if (!loaded) {
-      if (this.pdfium.FPDF_GetLastError() === PDFIUM_ERROR_PASSWORD) return err(password ? "wrong-password" : "password-required");
+      if (this.pdfium.FPDF_GetLastError() === PDFIUM_ERROR_PASSWORD)
+        return err(password ? "wrong-password" : "password-required");
       return err("damaged");
     }
     const { handle, bufferPtr } = loaded;
     const docId = `doc-${this.nextDocNumber++}`;
-    this.docs.set(docId, { handle, bufferPtr, password: password ?? "", held: new Map(), textIds: new TextObjectIds() });
+    this.docs.set(docId, {
+      handle,
+      bufferPtr,
+      password: password ?? "",
+      held: new Map(),
+      textIds: new TextObjectIds(),
+    });
     return ok({ docId, pages: this.readPageGeometry(handle) });
   }
 
@@ -115,20 +128,24 @@ export class PdfiumEngine {
   }
 
   /**
-   * Draws one page into an RGBA buffer, stretched to exactly `width` × `height` pixels on white.
-   * @param docId An open document.
-   * @param pageIndex Zero-based page index.
-   * @param width Output width in device pixels.
-   * @param height Output height in device pixels.
+   * Draws one page into an RGBA buffer, stretched to exactly `size` pixels on white.
+   * @param at An open document's page.
+   * @param size Output width and height in device pixels.
    * @param rotation Extra clockwise rotation on top of the page's own (the user's Rotate command).
    * @param hideEditable Leave out the annotations the editor draws itself (the annotation layer
    *   draws them on top); annotations from other apps are still drawn.
-   * @returns The pixels, or `unknown-document` if `docId` is not open.
+   * @returns The pixels, or `unknown-document` if the page is not open.
    */
-  renderPage(docId: DocId, pageIndex: number, width: number, height: number, rotation: Rotation = 0, hideEditable = false): Result<PagePixels, "unknown-document"> {
-    const opened = this.openPage(docId, pageIndex);
+  renderPage(
+    at: PageAddress,
+    size: PixelSize,
+    rotation: Rotation = 0,
+    hideEditable = false,
+  ): Result<PagePixels, "unknown-document"> {
+    const opened = this.openPage(at);
     if (!opened) return err("unknown-document");
     const { page } = opened;
+    const { width, height } = size;
     const bitmap = this.pdfium.FPDFBitmap_CreateEx(width, height, BITMAP_FORMAT_BGRA, 0, 0);
     if (hideEditable) this.annotations.setEditableHidden(page, true);
     try {
@@ -147,23 +164,24 @@ export class PdfiumEngine {
 
   /**
    * Lists a page's visible annotations.
-   * @param docId An open document.
-   * @param pageIndex Zero-based page index.
+   * @param at An open document's page.
    * @returns The annotations in drawing order.
    */
-  getAnnotations(docId: DocId, pageIndex: number): Result<Annotation[], "unknown-document"> {
-    return this.withPage(docId, pageIndex, (page) => ok(this.annotations.list(page)));
+  getAnnotations(at: PageAddress): Result<Annotation[], "unknown-document"> {
+    return this.withPage(at, (page) => ok(this.annotations.list(page)));
   }
 
   /**
    * Creates or updates an annotation the editor draws itself.
-   * @param docId An open document.
-   * @param pageIndex Zero-based page index.
+   * @param at An open document's page.
    * @param annotation The annotation; its id decides whether it is new.
    * @returns The annotation as stored (PDFium may grow the box to fit line widths).
    */
-  putAnnotation(docId: DocId, pageIndex: number, annotation: EditableAnnotation): Result<Annotation, "unknown-document" | "annotation-failed"> {
-    return this.withPage(docId, pageIndex, (page) => {
+  putAnnotation(
+    at: PageAddress,
+    annotation: EditableAnnotation,
+  ): Result<Annotation, "unknown-document" | "annotation-failed"> {
+    return this.withPage(at, (page) => {
       const stored = this.annotations.put(page, annotation);
       return stored ? ok(stored) : err("annotation-failed");
     });
@@ -171,36 +189,33 @@ export class PdfiumEngine {
 
   /**
    * Removes an annotation, in a way `restoreAnnotation` can undo.
-   * @param docId An open document.
-   * @param pageIndex Zero-based page index.
+   * @param at An open document's page.
    * @param id The annotation's id.
    * @returns `unknown-annotation` if the page has no annotation with that id.
    */
-  removeAnnotation(docId: DocId, pageIndex: number, id: string): Result<null, "unknown-document" | "unknown-annotation"> {
-    return this.withPage(docId, pageIndex, (page) => (this.annotations.remove(page, id) ? ok(null) : err("unknown-annotation")));
+  removeAnnotation(at: PageAddress, id: string): Result<null, "unknown-document" | "unknown-annotation"> {
+    return this.withPage(at, (page) => (this.annotations.remove(page, id) ? ok(null) : err("unknown-annotation")));
   }
 
   /**
    * Brings back a removed annotation.
-   * @param docId An open document.
-   * @param pageIndex Zero-based page index.
+   * @param at An open document's page.
    * @param id The annotation's id.
    * @returns `unknown-annotation` if the page has no annotation with that id.
    */
-  restoreAnnotation(docId: DocId, pageIndex: number, id: string): Result<null, "unknown-document" | "unknown-annotation"> {
-    return this.withPage(docId, pageIndex, (page) => (this.annotations.restore(page, id) ? ok(null) : err("unknown-annotation")));
+  restoreAnnotation(at: PageAddress, id: string): Result<null, "unknown-document" | "unknown-annotation"> {
+    return this.withPage(at, (page) => (this.annotations.restore(page, id) ? ok(null) : err("unknown-annotation")));
   }
 
   /**
    * The text between two points, one rectangle per line.
-   * @param docId An open document.
-   * @param pageIndex Zero-based page index.
+   * @param at An open document's page.
    * @param from Where the selection started, in PDF space.
    * @param to Where it ends, in PDF space.
    * @returns The line rectangles; empty when a point misses the text.
    */
-  getTextRects(docId: DocId, pageIndex: number, from: PdfPoint, to: PdfPoint): Result<PdfRect[], "unknown-document"> {
-    return this.withPage(docId, pageIndex, (page) => ok(this.text.rectsBetween(page, from, to)));
+  getTextRects(at: PageAddress, from: PdfPoint, to: PdfPoint): Result<PdfRect[], "unknown-document"> {
+    return this.withPage(at, (page) => ok(this.text.rectsBetween(page, from, to)));
   }
 
   /**
@@ -211,147 +226,178 @@ export class PdfiumEngine {
    * @param limit Stop after this many matches.
    * @returns The matches, page by page.
    */
-  findText(docId: DocId, pageIndexes: readonly number[], query: string, limit: number): Result<TextMatch[], "unknown-document"> {
+  findText(
+    docId: DocId,
+    pageIndexes: readonly number[],
+    query: string,
+    limit: number,
+  ): Result<TextMatch[], "unknown-document"> {
     if (!this.docs.has(docId)) return err("unknown-document");
     if (!query.trim()) return ok([]);
     const matches: TextMatch[] = [];
     for (const pageIndex of pageIndexes) {
       if (matches.length >= limit) break;
-      const found = this.withPage(docId, pageIndex, (page) => ok(this.text.find(page, pageIndex, query, limit - matches.length)));
+      const found = this.withPage({ docId, pageIndex }, (page) =>
+        ok(this.text.find(page, pageIndex, query, limit - matches.length)),
+      );
       if (found.ok) matches.push(...found.value);
     }
     return ok(matches);
   }
 
   /**
-   * The text object under a point.
-   * @param docId An open document.
-   * @param pageIndex Zero-based page index.
+   * The line of page text under a point.
+   * @param at An open document's page.
    * @param point A point in PDF space.
-   * @returns The text object, or `null` when there is no text there.
+   * @returns The line, or `null` when there is no text there.
    */
-  getTextObjectAt(docId: DocId, pageIndex: number, point: PdfPoint): Result<PageTextObject | null, "unknown-document"> {
-    return this.withHeldPage(docId, pageIndex, (doc, page) => ok(this.textObjects.objectAt(page, doc.textIds, point)));
+  getTextObjectAt(at: PageAddress, point: PdfPoint): Result<PageTextObject | null, "unknown-document"> {
+    return this.withHeldPage(at, (page) => ok(this.textObjects.objectAt(page, point)));
   }
 
   /**
-   * Every visible text object on a page.
-   * @param docId An open document.
-   * @param pageIndex Zero-based page index.
-   * @returns The text objects in drawing order.
+   * Every visible line of page text.
+   * @param at An open document's page.
+   * @returns The lines in drawing order.
    */
-  getTextObjects(docId: DocId, pageIndex: number): Result<PageTextObject[], "unknown-document"> {
-    return this.withHeldPage(docId, pageIndex, (doc, page) => ok(this.textObjects.list(page, doc.textIds)));
+  getTextObjects(at: PageAddress): Result<PageTextObject[], "unknown-document"> {
+    return this.withHeldPage(at, (page) => ok(this.textObjects.list(page)));
   }
 
   /**
-   * Replaces a text object's text, keeping the original (switched off) for undo.
-   * @param docId An open document.
-   * @param pageIndex Zero-based page index.
-   * @param id The text object's id.
+   * Replaces a line's text, keeping the original (switched off) for undo.
+   * @param at An open document's page.
+   * @param id The line's id.
    * @param newId The id to give the replacement.
    * @param text The new text.
-   * @returns `text-edit-failed` if the object is not visible text or PDFium refused the text.
+   * @returns `text-edit-failed` if the line is not visible text or PDFium refused the text.
    */
-  replacePageText(docId: DocId, pageIndex: number, id: string, newId: string, text: string): Result<null, "unknown-document" | "text-edit-failed"> {
-    return this.withHeldPage(docId, pageIndex, (doc, page) => (this.textObjects.replace(doc.handle, page, doc.textIds, id, newId, text) ? ok(null) : err("text-edit-failed")));
+  replacePageText(
+    at: PageAddress,
+    id: string,
+    newId: string,
+    text: string,
+  ): Result<null, "unknown-document" | "text-edit-failed"> {
+    return this.withHeldPage(at, (page) =>
+      this.textObjects.replace(page, id, newId, text) ? ok(null) : err("text-edit-failed"),
+    );
   }
 
   /**
    * Adds lines of page text in Helvetica.
-   * @param docId An open document.
-   * @param pageIndex Zero-based page index.
+   * @param at An open document's page.
    * @param lines The lines and where each baseline starts.
    * @param style Size, colour and angle.
    * @param ids One id per line.
    * @returns `text-edit-failed` if PDFium refused the text.
    */
-  addPageText(docId: DocId, pageIndex: number, lines: readonly NewTextLine[], style: NewTextStyle, ids: readonly string[]): Result<null, "unknown-document" | "text-edit-failed"> {
-    return this.withHeldPage(docId, pageIndex, (doc, page) => (this.textObjects.add(doc.handle, page, doc.textIds, lines, style, ids) ? ok(null) : err("text-edit-failed")));
+  addPageText(
+    at: PageAddress,
+    lines: readonly NewTextLine[],
+    style: NewTextStyle,
+    ids: readonly string[],
+  ): Result<null, "unknown-document" | "text-edit-failed"> {
+    return this.withHeldPage(at, (page) =>
+      this.textObjects.add(page, lines, style, ids) ? ok(null) : err("text-edit-failed"),
+    );
   }
 
   /**
-   * Moves a text object (undo moves it back by the opposite distance).
-   * @param docId An open document.
-   * @param pageIndex Zero-based page index.
-   * @param id The text object's id.
+   * Moves a line (undo moves it back by the opposite distance).
+   * @param at An open document's page.
+   * @param id The line's id.
    * @param dx Distance along x, in points.
    * @param dy Distance along y, in points (positive is up).
-   * @returns `text-edit-failed` if the id is not an object on the page.
+   * @returns `text-edit-failed` if the id is not on the page.
    */
-  movePageText(docId: DocId, pageIndex: number, id: string, dx: number, dy: number): Result<null, "unknown-document" | "text-edit-failed"> {
-    return this.withHeldPage(docId, pageIndex, (doc, page) => (this.textObjects.move(page, doc.textIds, id, dx, dy) ? ok(null) : err("text-edit-failed")));
+  movePageText(
+    at: PageAddress,
+    id: string,
+    dx: number,
+    dy: number,
+  ): Result<null, "unknown-document" | "text-edit-failed"> {
+    return this.withHeldPage(at, (page) =>
+      this.textObjects.move(page, id, dx, dy) ? ok(null) : err("text-edit-failed"),
+    );
   }
 
   /**
-   * Draws one text object on its own, for dragging it.
-   * @param docId An open document.
-   * @param pageIndex Zero-based page index.
-   * @param id The text object's id.
+   * Draws one line on its own, for dragging it.
+   * @param at An open document's page.
+   * @param id The line's id.
    * @param scale Device pixels per point.
    * @returns Transparent RGBA pixels cropped to the text, or `text-edit-failed`.
    */
-  renderTextObject(docId: DocId, pageIndex: number, id: string, scale: number): Result<PagePixels, "unknown-document" | "text-edit-failed"> {
-    return this.withHeldPage(docId, pageIndex, (doc, page) => {
-      const rendered = this.textObjects.render(doc.handle, page, doc.textIds, id, scale);
+  renderTextObject(
+    at: PageAddress,
+    id: string,
+    scale: number,
+  ): Result<PagePixels, "unknown-document" | "text-edit-failed"> {
+    return this.withHeldPage(at, (page) => {
+      const rendered = this.textObjects.render(page, id, scale);
       return rendered ? ok(rendered) : err("text-edit-failed");
     });
   }
 
   /**
-   * Switches page text objects on and off: undo and redo of text edits.
-   * @param docId An open document.
-   * @param pageIndex Zero-based page index.
+   * Switches lines of page text on and off: undo and redo of text edits.
+   * @param at An open document's page.
    * @param show Ids to switch on.
    * @param hide Ids to switch off.
-   * @returns `text-edit-failed` if an id is not an object on the page.
+   * @returns `text-edit-failed` if an id is not on the page.
    */
-  showPageText(docId: DocId, pageIndex: number, show: readonly string[], hide: readonly string[]): Result<null, "unknown-document" | "text-edit-failed"> {
-    return this.withHeldPage(docId, pageIndex, (doc, page) => (this.textObjects.show(page, doc.textIds, show, hide) ? ok(null) : err("text-edit-failed")));
+  showPageText(
+    at: PageAddress,
+    show: readonly string[],
+    hide: readonly string[],
+  ): Result<null, "unknown-document" | "text-edit-failed"> {
+    return this.withHeldPage(at, (page) =>
+      this.textObjects.show(page, show, hide) ? ok(null) : err("text-edit-failed"),
+    );
   }
 
   /**
    * Holds a page (it stays loaded until the document closes) and runs `work` on it.
-   * @param docId An open document.
-   * @param pageIndex Zero-based page index.
-   * @param work What to do with the document and page.
+   * @param at An open document's page.
+   * @param work What to do with the page, its document and the document's text ids.
    * @returns `work`'s result, or `unknown-document`.
    */
-  private withHeldPage<T, E>(docId: DocId, pageIndex: number, work: (doc: OpenDoc, page: number) => Result<T, E>): Result<T, E | "unknown-document"> {
-    const doc = this.docs.get(docId);
-    const page = this.holdPage(docId, pageIndex);
+  private withHeldPage<T, E>(
+    at: PageAddress,
+    work: (page: PageContext) => Result<T, E>,
+  ): Result<T, E | "unknown-document"> {
+    const doc = this.docs.get(at.docId);
+    const page = this.holdPage(at);
     if (!doc || !page) return err("unknown-document");
-    return work(doc, page);
+    return work({ doc: doc.handle, page, ids: doc.textIds });
   }
 
   /**
    * A loaded page: the held one if the page is held, otherwise a fresh load.
-   * @param docId An open document.
-   * @param pageIndex Zero-based page index.
+   * @param at An open document's page.
    * @returns The page and how to let go of it, or `null` if it does not exist.
    */
-  private openPage(docId: DocId, pageIndex: number): { page: number; release(): void } | null {
-    const doc = this.docs.get(docId);
+  private openPage(at: PageAddress): { page: number; release(): void } | null {
+    const doc = this.docs.get(at.docId);
     if (!doc) return null;
-    const held = doc.held.get(pageIndex);
+    const held = doc.held.get(at.pageIndex);
     if (held) return { page: held, release: () => {} };
-    const page = this.pdfium.FPDF_LoadPage(doc.handle, pageIndex);
+    const page = this.pdfium.FPDF_LoadPage(doc.handle, at.pageIndex);
     return page ? { page, release: () => this.pdfium.FPDF_ClosePage(page) } : null;
   }
 
   /**
    * Keeps a page loaded until its document closes.
-   * @param docId An open document.
-   * @param pageIndex Zero-based page index.
+   * @param at An open document's page.
    * @returns The held page handle, or 0 if it does not exist.
    */
-  private holdPage(docId: DocId, pageIndex: number): number {
-    const doc = this.docs.get(docId);
+  private holdPage(at: PageAddress): number {
+    const doc = this.docs.get(at.docId);
     if (!doc) return 0;
-    const held = doc.held.get(pageIndex);
+    const held = doc.held.get(at.pageIndex);
     if (held) return held;
-    const page = this.pdfium.FPDF_LoadPage(doc.handle, pageIndex);
-    if (page) doc.held.set(pageIndex, page);
+    const page = this.pdfium.FPDF_LoadPage(doc.handle, at.pageIndex);
+    if (page) doc.held.set(at.pageIndex, page);
     return page;
   }
 
@@ -368,13 +414,12 @@ export class PdfiumEngine {
 
   /**
    * Loads a page (or uses the held one), runs `work`, and lets go of the page.
-   * @param docId An open document.
-   * @param pageIndex Zero-based page index.
+   * @param at An open document's page.
    * @param work What to do with the page handle.
    * @returns `work`'s result, or `unknown-document` if the document or page does not exist.
    */
-  private withPage<T, E>(docId: DocId, pageIndex: number, work: (page: number) => Result<T, E>): Result<T, E | "unknown-document"> {
-    const opened = this.openPage(docId, pageIndex);
+  private withPage<T, E>(at: PageAddress, work: (page: number) => Result<T, E>): Result<T, E | "unknown-document"> {
+    const opened = this.openPage(at);
     if (!opened) return err("unknown-document");
     try {
       return work(opened.page);
@@ -445,7 +490,13 @@ export class PdfiumEngine {
         if (part.docId === baseDocId) return part.pageIndex;
         const appendAt = this.pdfium.FPDF_GetPageCount(dest);
         this.pdfium.pdfium.setValue(indexPtr, part.pageIndex, "i32");
-        const imported = this.pdfium.FPDF_ImportPagesByIndex(dest, this.docs.get(part.docId)!.handle, indexPtr, 1, appendAt);
+        const imported = this.pdfium.FPDF_ImportPagesByIndex(
+          dest,
+          this.docs.get(part.docId)!.handle,
+          indexPtr,
+          1,
+          appendAt,
+        );
         if (!imported) throw new Error("import failed");
         return appendAt;
       });
@@ -468,7 +519,8 @@ export class PdfiumEngine {
     try {
       order.forEach((pageIndex, i) => heap.setValue(listPtr + i * INT_BYTES, pageIndex, "i32"));
       if (!this.pdfium.FPDF_MovePages(dest, listPtr, order.length, 0)) return false;
-      for (let index = this.pdfium.FPDF_GetPageCount(dest) - 1; index >= order.length; index--) this.pdfium.FPDFPage_Delete(dest, index);
+      for (let index = this.pdfium.FPDF_GetPageCount(dest) - 1; index >= order.length; index--)
+        this.pdfium.FPDFPage_Delete(dest, index);
       return true;
     } finally {
       heap.wasmExports.free(listPtr);
@@ -542,12 +594,21 @@ export class PdfiumEngine {
     const read = (offset: number) => heap.getValue(rectPtr + offset * FLOAT_BYTES, "float");
     try {
       return Array.from({ length: count }, (_, index) => {
-        const found = this.pdfium.EPDF_GetPageBoxByIndex(handle, index, BOX_CROP, rectPtr) || this.pdfium.EPDF_GetPageBoxByIndex(handle, index, BOX_MEDIA, rectPtr);
-        const [left, top, right, bottom] = found ? [read(0), read(1), read(2), read(3)] : [0, LETTER_HEIGHT, LETTER_WIDTH, 0];
+        const found =
+          this.pdfium.EPDF_GetPageBoxByIndex(handle, index, BOX_CROP, rectPtr) ||
+          this.pdfium.EPDF_GetPageBoxByIndex(handle, index, BOX_MEDIA, rectPtr);
+        const [left, top, right, bottom] = found
+          ? [read(0), read(1), read(2), read(3)]
+          : [0, LETTER_HEIGHT, LETTER_WIDTH, 0];
         const quarterTurns = this.pdfium.EPDF_GetPageRotationByIndex(handle, index);
         return {
-          cropBox: { x: Math.min(left, right), y: Math.min(top, bottom), width: Math.abs(right - left), height: Math.abs(top - bottom) },
-          rotation: (((quarterTurns % 4) + 4) % 4) * QUARTER_TURN as Rotation,
+          cropBox: {
+            x: Math.min(left, right),
+            y: Math.min(top, bottom),
+            width: Math.abs(right - left),
+            height: Math.abs(top - bottom),
+          },
+          rotation: ((((quarterTurns % 4) + 4) % 4) * QUARTER_TURN) as Rotation,
         };
       });
     } finally {

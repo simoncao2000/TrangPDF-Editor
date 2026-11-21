@@ -48,7 +48,8 @@ export class PdfiumHeap {
    */
   withWideString<T>(text: string, work: (ptr: number) => T): T {
     return this.withBuffer((text.length + 1) * UTF16_BYTES, (ptr) => {
-      for (let i = 0; i < text.length; i++) this.pdfium.pdfium.setValue(ptr + i * UTF16_BYTES, text.charCodeAt(i), "i16");
+      for (let i = 0; i < text.length; i++)
+        this.pdfium.pdfium.setValue(ptr + i * UTF16_BYTES, text.charCodeAt(i), "i16");
       this.pdfium.pdfium.setValue(ptr + text.length * UTF16_BYTES, 0, "i16");
       return work(ptr);
     });
@@ -66,7 +67,8 @@ export class PdfiumHeap {
     return this.withBuffer(bytes, (ptr) => {
       read(ptr, bytes);
       let text = "";
-      for (let i = 0; i < bytes / UTF16_BYTES - 1; i++) text += String.fromCharCode(this.pdfium.pdfium.getValue(ptr + i * UTF16_BYTES, "i16") & 0xffff);
+      for (let i = 0; i < bytes / UTF16_BYTES - 1; i++)
+        text += String.fromCharCode(this.pdfium.pdfium.getValue(ptr + i * UTF16_BYTES, "i16") & 0xffff);
       return text;
     });
   }
@@ -113,8 +115,18 @@ export class PdfiumHeap {
    * @returns The rectangle in PDF space.
    */
   readRect(ptr: number): PdfRect {
-    const [left, top, right, bottom] = [0, 1, 2, 3].map((i) => this.float(ptr + i * FLOAT_BYTES)) as [number, number, number, number];
-    return { x: Math.min(left, right), y: Math.min(top, bottom), width: Math.abs(right - left), height: Math.abs(top - bottom) };
+    const [left, top, right, bottom] = [0, 1, 2, 3].map((i) => this.float(ptr + i * FLOAT_BYTES)) as [
+      number,
+      number,
+      number,
+      number,
+    ];
+    return {
+      x: Math.min(left, right),
+      y: Math.min(top, bottom),
+      width: Math.abs(right - left),
+      height: Math.abs(top - bottom),
+    };
   }
 
   /**
@@ -163,6 +175,9 @@ export class PdfiumHeap {
    * @returns The points.
    */
   readPoints(ptr: number, count: number): PdfPoint[] {
-    return Array.from({ length: count }, (_, i) => ({ x: this.float(ptr + i * POINT_BYTES), y: this.float(ptr + i * POINT_BYTES + FLOAT_BYTES) }));
+    return Array.from({ length: count }, (_, i) => ({
+      x: this.float(ptr + i * POINT_BYTES),
+      y: this.float(ptr + i * POINT_BYTES + FLOAT_BYTES),
+    }));
   }
 }

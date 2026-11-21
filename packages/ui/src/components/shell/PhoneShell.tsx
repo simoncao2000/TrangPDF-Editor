@@ -57,17 +57,39 @@ export function PhoneShell({ keysEnabled }: PhoneShellProps) {
           <ChevronDown className="size-4 shrink-0 text-muted" aria-hidden="true" />
         </button>
         <PhoneAction icon={Search} label="Search" onClick={() => showPalette()} />
-        <PhoneAction icon={Save} label={files.canSaveInPlace ? "Save" : "Download"} disabled={files.canSaveInPlace ? status !== "dirty" : !ready} onClick={save} />
+        <PhoneAction
+          icon={Save}
+          label={files.canSaveInPlace ? "Save" : "Download"}
+          disabled={files.canSaveInPlace ? status !== "dirty" : !ready}
+          onClick={save}
+        />
       </header>
 
       <div ref={areaRef} className="relative grid min-h-0 min-w-0 bg-canvas">
-        {ready && mode === "organize" ? <OrganizeView /> : ready ? <PageViewport narrow /> : <p className="grid place-items-center font-hand text-xl text-muted">Opening {fileName}…</p>}
+        {ready && mode === "organize" ? (
+          <OrganizeView />
+        ) : ready ? (
+          <PageViewport narrow />
+        ) : (
+          <p className="grid place-items-center font-hand text-xl text-muted">Opening {fileName}…</p>
+        )}
         {ready && <ToolPalette area={area} keysEnabled={keysEnabled} phone />}
       </div>
 
-      <nav aria-label="Panels" className="flex min-h-14 items-center justify-around border-t border-divider bg-toolbar pb-[env(safe-area-inset-bottom)]">
-        <PhoneAction icon={PanelLeft} label={mode === "organize" ? "Read" : "Pages"} pressed={mode === "organize"} onClick={() => setMode(mode === "organize" ? "read" : "organize")} withLabel />
-        <span className="text-sm text-muted tabular-nums">{pageCount > 0 ? `${currentPage + 1} / ${pageCount}` : ""}</span>
+      <nav
+        aria-label="Panels"
+        className="flex min-h-14 items-center justify-around border-t border-divider bg-toolbar pb-[env(safe-area-inset-bottom)]"
+      >
+        <PhoneAction
+          icon={PanelLeft}
+          label={mode === "organize" ? "Read" : "Pages"}
+          pressed={mode === "organize"}
+          onClick={() => setMode(mode === "organize" ? "read" : "organize")}
+          withLabel
+        />
+        <span className="text-sm text-muted tabular-nums">
+          {pageCount > 0 ? `${currentPage + 1} / ${pageCount}` : ""}
+        </span>
         <PhoneAction icon={SlidersHorizontal} label="Properties" onClick={() => setSheet("properties")} withLabel />
       </nav>
 

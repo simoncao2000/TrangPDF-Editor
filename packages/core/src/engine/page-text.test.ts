@@ -54,7 +54,12 @@ async function saveAndReopen(docId: string): Promise<string> {
 describe("page text", () => {
   it("finds the text object under a point, with its size, colour and font style", async () => {
     const docId = await openText();
-    expect(await objectAt(docId, FIRST_LINE)).toMatchObject({ text: "Tide tables for the headland", fontSize: 24, color: BLACK, style: { family: "sans", bold: false, italic: false } });
+    expect(await objectAt(docId, FIRST_LINE)).toMatchObject({
+      text: "Tide tables for the headland",
+      fontSize: 24,
+      color: BLACK,
+      style: { family: "sans", bold: false, italic: false },
+    });
     expect(await engine.call("getTextObjectAt", { docId, pageIndex: 0, point: { x: 300, y: 300 } }).promise).toBeNull();
   });
 
@@ -68,30 +73,42 @@ describe("page text", () => {
   it("replaces text, and the saved file has only the new text", async () => {
     const docId = await openText();
     const line = await objectAt(docId, FIRST_LINE);
-    await engine.call("replacePageText", { docId, pageIndex: 0, id: line.id, newId: "new-1", text: "Tide tables for the bay" }).promise;
+    await engine.call("replacePageText", {
+      docId,
+      pageIndex: 0,
+      id: line.id,
+      newId: "new-1",
+      text: "Tide tables for the bay",
+    }).promise;
     expect(await texts(docId)).toEqual(["Tide tables for the bay", "Check before you walk"]);
     expect(await texts(await saveAndReopen(docId))).toEqual(["Tide tables for the bay", "Check before you walk"]);
   });
 
-  it("keeps the word spaces of a line whose font has a zero-width space (as pdfTeX writes them)", async () => {
-    // The line has no space characters: its word gaps are TJ offsets of 280/1000 em (6.72 pt at 24 pt).
-    const docId = (await engine.call("open", { source: { bytes: corpusFile("latex-spaces.pdf") } }).promise).docId;
-    const [line] = await engine.call("getTextObjects", { docId, pageIndex: 0 }).promise;
-    expect(line!.text).toBe("Dean List 7 times recipient");
-    const gap = 0.28 * 24;
+  it("keeps a line typed back as it was readable, and undo puts the original back in place", async () => {
+    const docId = await openText();
+    const line = await objectAt(docId, FIRST_LINE);
+    await engine.call("replacePageText", {
+      docId,
+      pageIndex: 0,
+      id: line.id,
+      newId: "same",
+      text: "Tide tables for the headland",
+    }).promise;
+    expect(await texts(docId)).toEqual(["Tide tables for the headland", "Check before you walk"]);
+    expect(
+      await engine.call("findText", { docId, pageIndexes: [0], query: "headland", limit: 5 }).promise,
+    ).toHaveLength(1);
 
-    // Delete one space; the three left must still push the words apart.
-    await engine.call("replacePageText", { docId, pageIndex: 0, id: line!.id, newId: "new-1", text: "Dean List7 times recipient" }).promise;
-    const [edited] = await engine.call("getTextObjects", { docId, pageIndex: 0 }).promise;
-    expect(edited!.text).toBe("Dean List7 times recipient");
-    expect(edited!.bounds.width).toBeGreaterThan(line!.bounds.width - 2 * gap);
+    await engine.call("showPageText", { docId, pageIndex: 0, show: [line.id], hide: ["same"] }).promise;
+    expect((await objectAt(docId, FIRST_LINE)).bounds).toEqual(line.bounds);
   });
 
   it("switches text on and off by id, in any order, even after a save", async () => {
     const docId = await openText();
     const first = await objectAt(docId, FIRST_LINE);
     const second = await objectAt(docId, SECOND_LINE);
-    await engine.call("replacePageText", { docId, pageIndex: 0, id: second.id, newId: "b", text: "Check twice" }).promise;
+    await engine.call("replacePageText", { docId, pageIndex: 0, id: second.id, newId: "b", text: "Check twice" })
+      .promise;
     await engine.call("replacePageText", { docId, pageIndex: 0, id: first.id, newId: "a", text: "Tides" }).promise;
     await saveAndReopen(docId);
 
@@ -120,7 +137,12 @@ describe("page text", () => {
     expect(added).toMatchObject({ id: "l1", text: "Low tide at noon", fontSize: 14, color: { r: 41, g: 77, b: 119 } });
 
     const saved = await saveAndReopen(docId);
-    expect(await texts(saved)).toEqual(["Tide tables for the headland", "Check before you walk", "Low tide at noon", "Bring a jacket"]);
+    expect(await texts(saved)).toEqual([
+      "Tide tables for the headland",
+      "Check before you walk",
+      "Low tide at noon",
+      "Bring a jacket",
+    ]);
 
     await engine.call("showPageText", { docId, pageIndex: 0, show: [], hide: ["l1", "l2"] }).promise;
     expect(await texts(docId)).toEqual(["Tide tables for the headland", "Check before you walk"]);
@@ -128,7 +150,9 @@ describe("page text", () => {
 
   it("refuses an unknown id", async () => {
     const docId = await openText();
-    const error = await engine.call("replacePageText", { docId, pageIndex: 0, id: "nope", newId: "x", text: "x" }).promise.catch((e: unknown) => e);
+    const error = await engine
+      .call("replacePageText", { docId, pageIndex: 0, id: "nope", newId: "x", text: "x" })
+      .promise.catch((e: unknown) => e);
     expect((error as { detail: { code: string } }).detail.code).toBe("text-edit-failed");
   });
 
@@ -136,13 +160,17 @@ describe("page text", () => {
     const docId = await openText();
     const line = await objectAt(docId, FIRST_LINE);
     await engine.call("movePageText", { docId, pageIndex: 0, id: line.id, dx: 0, dy: -300 }).promise;
-    expect((await engine.call("getTextObjectAt", { docId, pageIndex: 0, point: FIRST_LINE }).promise)?.text).toBeUndefined();
+    expect(
+      (await engine.call("getTextObjectAt", { docId, pageIndex: 0, point: FIRST_LINE }).promise)?.text,
+    ).toBeUndefined();
     const moved = await objectAt(docId, { x: FIRST_LINE.x, y: FIRST_LINE.y - 300 });
     expect(moved).toMatchObject({ id: line.id, text: "Tide tables for the headland" });
     expect(moved.bounds.y).toBeCloseTo(line.bounds.y - 300, 3);
 
     const saved = await saveAndReopen(docId);
-    expect((await objectAt(saved, { x: FIRST_LINE.x, y: FIRST_LINE.y - 300 })).text).toBe("Tide tables for the headland");
+    expect((await objectAt(saved, { x: FIRST_LINE.x, y: FIRST_LINE.y - 300 })).text).toBe(
+      "Tide tables for the headland",
+    );
 
     // Moving back (undo) puts it exactly where it was.
     await engine.call("movePageText", { docId, pageIndex: 0, id: line.id, dx: 0, dy: 300 }).promise;

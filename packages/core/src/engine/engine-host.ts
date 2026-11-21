@@ -99,7 +99,9 @@ export function createEngineHost(deps: EngineHostDeps): { receive(request: Engin
     return bytes;
   };
 
-  const handlers: { [M in EngineMethod]: (params: Extract<CallRequest, { method: M }>["params"]) => Promise<[unknown, Transferable[]?]> } = {
+  const handlers: {
+    [M in EngineMethod]: (params: Extract<CallRequest, { method: M }>["params"]) => Promise<[unknown, Transferable[]?]>;
+  } = {
     async init({ wasmUrl }) {
       engine ??= await deps.createEngine(await deps.loadWasm(wasmUrl));
       return [null];
@@ -112,7 +114,8 @@ export function createEngineHost(deps: EngineHostDeps): { receive(request: Engin
         const { docId, pages } = opened.value;
         return [{ docId, pageCount: pages.length, pages }];
       }
-      if (opened.error === "damaged") throw new HostError({ code: "damaged", message: "The file could not be parsed." });
+      if (opened.error === "damaged")
+        throw new HostError({ code: "damaged", message: "The file could not be parsed." });
       const lockedId = "lockedId" in source ? source.lockedId : `locked-${nextLockedId++}`;
       locked.set(lockedId, bytes);
       throw new HostError({ code: opened.error, message: "The file needs a password.", lockedId });
@@ -122,51 +125,51 @@ export function createEngineHost(deps: EngineHostDeps): { receive(request: Engin
       return [null];
     },
     async renderPage({ docId, pageIndex, width, height, rotation, hideEditable }) {
-      const rendered = requireEngine().renderPage(docId, pageIndex, width, height, rotation, hideEditable);
+      const rendered = requireEngine().renderPage({ docId, pageIndex }, { width, height }, rotation, hideEditable);
       if (!rendered.ok) throw new HostError({ code: "unknown-document", message: `No open document ${docId}.` });
       const bitmap = await deps.toBitmap(rendered.value);
       return [{ bitmap, width, height }, [bitmap]];
     },
-    async getAnnotations({ docId, pageIndex }) {
-      return [unwrap(requireEngine().getAnnotations(docId, pageIndex))];
+    async getAnnotations(at) {
+      return [unwrap(requireEngine().getAnnotations(at))];
     },
-    async putAnnotation({ docId, pageIndex, annotation }) {
-      return [unwrap(requireEngine().putAnnotation(docId, pageIndex, annotation))];
+    async putAnnotation({ annotation, ...at }) {
+      return [unwrap(requireEngine().putAnnotation(at, annotation))];
     },
-    async removeAnnotation({ docId, pageIndex, id }) {
-      return [unwrap(requireEngine().removeAnnotation(docId, pageIndex, id))];
+    async removeAnnotation({ id, ...at }) {
+      return [unwrap(requireEngine().removeAnnotation(at, id))];
     },
-    async restoreAnnotation({ docId, pageIndex, id }) {
-      return [unwrap(requireEngine().restoreAnnotation(docId, pageIndex, id))];
+    async restoreAnnotation({ id, ...at }) {
+      return [unwrap(requireEngine().restoreAnnotation(at, id))];
     },
-    async getTextRects({ docId, pageIndex, from, to }) {
-      return [unwrap(requireEngine().getTextRects(docId, pageIndex, from, to))];
+    async getTextRects({ from, to, ...at }) {
+      return [unwrap(requireEngine().getTextRects(at, from, to))];
     },
     async findText({ docId, pageIndexes, query, limit }) {
       return [unwrap(requireEngine().findText(docId, pageIndexes, query, limit))];
     },
-    async getTextObjects({ docId, pageIndex }) {
-      return [unwrap(requireEngine().getTextObjects(docId, pageIndex))];
+    async getTextObjects(at) {
+      return [unwrap(requireEngine().getTextObjects(at))];
     },
-    async getTextObjectAt({ docId, pageIndex, point }) {
-      return [unwrap(requireEngine().getTextObjectAt(docId, pageIndex, point))];
+    async getTextObjectAt({ point, ...at }) {
+      return [unwrap(requireEngine().getTextObjectAt(at, point))];
     },
-    async replacePageText({ docId, pageIndex, id, newId, text }) {
-      return [unwrap(requireEngine().replacePageText(docId, pageIndex, id, newId, text))];
+    async replacePageText({ id, newId, text, ...at }) {
+      return [unwrap(requireEngine().replacePageText(at, id, newId, text))];
     },
     async addPageText({ docId, pageIndex, lines, ids, fontSize, color, angle }) {
-      return [unwrap(requireEngine().addPageText(docId, pageIndex, lines, { fontSize, color, angle }, ids))];
+      return [unwrap(requireEngine().addPageText({ docId, pageIndex }, lines, { fontSize, color, angle }, ids))];
     },
-    async movePageText({ docId, pageIndex, id, dx, dy }) {
-      return [unwrap(requireEngine().movePageText(docId, pageIndex, id, dx, dy))];
+    async movePageText({ id, dx, dy, ...at }) {
+      return [unwrap(requireEngine().movePageText(at, id, dx, dy))];
     },
-    async renderTextObject({ docId, pageIndex, id, scale }) {
-      const rendered = unwrap(requireEngine().renderTextObject(docId, pageIndex, id, scale));
+    async renderTextObject({ id, scale, ...at }) {
+      const rendered = unwrap(requireEngine().renderTextObject(at, id, scale));
       const bitmap = await deps.toBitmap(rendered);
       return [{ bitmap, width: rendered.width, height: rendered.height }, [bitmap]];
     },
-    async showPageText({ docId, pageIndex, show, hide }) {
-      return [unwrap(requireEngine().showPageText(docId, pageIndex, show, hide))];
+    async showPageText({ show, hide, ...at }) {
+      return [unwrap(requireEngine().showPageText(at, show, hide))];
     },
     async assemble({ parts }) {
       const built = requireEngine().assemble(parts);
@@ -188,7 +191,8 @@ export function createEngineHost(deps: EngineHostDeps): { receive(request: Engin
       const [result, transfer] = await handler(request.params);
       deps.post({ requestId: request.requestId, ok: true, result }, transfer);
     } catch (error) {
-      const detail: EngineError = error instanceof HostError ? error.detail : { code: "engine-failed", message: String(error) };
+      const detail: EngineError =
+        error instanceof HostError ? error.detail : { code: "engine-failed", message: String(error) };
       deps.post({ requestId: request.requestId, ok: false, error: detail });
     }
   };

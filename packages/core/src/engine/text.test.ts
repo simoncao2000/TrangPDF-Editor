@@ -14,7 +14,12 @@ beforeAll(async () => {
 describe("getTextRects", () => {
   it("gives one rectangle per line between two points", async () => {
     // Line 1 starts at (72, 700), line 2 at (72, 670); both 24 pt Helvetica.
-    const lines = await engine.call("getTextRects", { docId, pageIndex: 0, from: { x: 73, y: 708 }, to: { x: 150, y: 678 } }).promise;
+    const lines = await engine.call("getTextRects", {
+      docId,
+      pageIndex: 0,
+      from: { x: 73, y: 708 },
+      to: { x: 150, y: 678 },
+    }).promise;
     expect(lines).toHaveLength(2);
     expect(lines[0]!.x).toBeCloseTo(72, 0);
     expect(lines[0]!.y).toBeGreaterThan(lines[1]!.y);
@@ -22,12 +27,25 @@ describe("getTextRects", () => {
   });
 
   it("works when dragged backwards", async () => {
-    const forwards = await engine.call("getTextRects", { docId, pageIndex: 0, from: { x: 73, y: 708 }, to: { x: 150, y: 678 } }).promise;
-    const backwards = await engine.call("getTextRects", { docId, pageIndex: 0, from: { x: 150, y: 678 }, to: { x: 73, y: 708 } }).promise;
+    const forwards = await engine.call("getTextRects", {
+      docId,
+      pageIndex: 0,
+      from: { x: 73, y: 708 },
+      to: { x: 150, y: 678 },
+    }).promise;
+    const backwards = await engine.call("getTextRects", {
+      docId,
+      pageIndex: 0,
+      from: { x: 150, y: 678 },
+      to: { x: 73, y: 708 },
+    }).promise;
     expect(backwards).toEqual(forwards);
   });
 
   it("finds nothing away from the text", async () => {
-    expect(await engine.call("getTextRects", { docId, pageIndex: 0, from: { x: 300, y: 300 }, to: { x: 400, y: 200 } }).promise).toEqual([]);
+    expect(
+      await engine.call("getTextRects", { docId, pageIndex: 0, from: { x: 300, y: 300 }, to: { x: 400, y: 200 } })
+        .promise,
+    ).toEqual([]);
   });
 });

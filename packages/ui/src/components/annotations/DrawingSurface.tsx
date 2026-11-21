@@ -33,7 +33,12 @@ interface DrawingSurfaceProps {
   onTextAt(point: ScreenPoint): void;
 }
 
-const CURSORS: Record<DrawingTool, string> = { highlight: "cursor-text", ink: "cursor-crosshair", square: "cursor-crosshair", textBox: "cursor-text" };
+const CURSORS: Record<DrawingTool, string> = {
+  highlight: "cursor-text",
+  ink: "cursor-crosshair",
+  square: "cursor-crosshair",
+  textBox: "cursor-text",
+};
 
 /**
  * The bounding box of some rectangles.
@@ -41,7 +46,12 @@ const CURSORS: Record<DrawingTool, string> = { highlight: "cursor-text", ink: "c
  * @returns Their bounds.
  */
 function boundsOfRects(rects: readonly PdfRect[]): PdfRect {
-  return boundsOf(rects.flatMap((rect) => [{ x: rect.x, y: rect.y }, { x: rect.x + rect.width, y: rect.y + rect.height }]));
+  return boundsOf(
+    rects.flatMap((rect) => [
+      { x: rect.x, y: rect.y },
+      { x: rect.x + rect.width, y: rect.y + rect.height },
+    ]),
+  );
 }
 
 /**
@@ -74,7 +84,11 @@ export function DrawingSurface({ pageId, tool, style, frame, width, height, onCr
     lookingUp.current = true;
     session
       .textRects(pageId, from, to)
-      .then((lines) => setDraft((current) => (current?.kind === "highlight" && current.from === from ? { ...current, lines } : current)))
+      .then((lines) =>
+        setDraft((current) =>
+          current?.kind === "highlight" && current.from === from ? { ...current, lines } : current,
+        ),
+      )
       .catch(() => {})
       .finally(() => {
         lookingUp.current = false;
@@ -109,13 +123,24 @@ export function DrawingSurface({ pageId, tool, style, frame, width, height, onCr
     const id = crypto.randomUUID();
     if (finished.kind === "ink") {
       // A single click leaves a dot.
-      const points = (finished.points.length === 1 ? [finished.points[0]!, finished.points[0]!] : finished.points).map((point) => screenToPdf(point, frame));
-      onCreate({ ...base, id, kind: "ink", lineWidth: style.lineWidth, strokes: [points], rect: boundsOf(points, style.lineWidth / 2) });
+      const points = (finished.points.length === 1 ? [finished.points[0]!, finished.points[0]!] : finished.points).map(
+        (point) => screenToPdf(point, frame),
+      );
+      onCreate({
+        ...base,
+        id,
+        kind: "ink",
+        lineWidth: style.lineWidth,
+        strokes: [points],
+        rect: boundsOf(points, style.lineWidth / 2),
+      });
       return;
     }
     if (finished.kind === "highlight") {
       latestPoint.current = null;
-      const lines = await session.textRects(pageId, finished.from, screenToPdf(pointOf(event), frame)).catch(() => finished.lines);
+      const lines = await session
+        .textRects(pageId, finished.from, screenToPdf(pointOf(event), frame))
+        .catch(() => finished.lines);
       if (lines.length > 0) onCreate({ ...base, id, kind: "highlight", lines, rect: boundsOfRects(lines) });
       return;
     }
@@ -124,7 +149,8 @@ export function DrawingSurface({ pageId, tool, style, frame, width, height, onCr
       return;
     }
     const dragged = rectBetween(finished.start, finished.end);
-    if (dragged.width >= CLICK_SLOP || dragged.height >= CLICK_SLOP) onCreate({ ...base, id, kind: "square", lineWidth: style.lineWidth, rect: screenRectToPdf(dragged, frame) });
+    if (dragged.width >= CLICK_SLOP || dragged.height >= CLICK_SLOP)
+      onCreate({ ...base, id, kind: "square", lineWidth: style.lineWidth, rect: screenRectToPdf(dragged, frame) });
   };
 
   return (
@@ -184,5 +210,16 @@ function DraftPreview({ draft, style, frame, scale }: DraftPreviewProps) {
     );
   }
   const box = rectBetween(draft.start, draft.end);
-  return <rect x={box.left} y={box.top} width={box.width} height={box.height} fill="none" stroke={color} strokeWidth={Math.max(1, style.lineWidth * scale)} strokeDasharray="6 4" />;
+  return (
+    <rect
+      x={box.left}
+      y={box.top}
+      width={box.width}
+      height={box.height}
+      fill="none"
+      stroke={color}
+      strokeWidth={Math.max(1, style.lineWidth * scale)}
+      strokeDasharray="6 4"
+    />
+  );
 }

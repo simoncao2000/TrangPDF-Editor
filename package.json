@@ -7,7 +7,9 @@
     "build": "bun --filter web build",
     "typecheck": "bun check",
     "lint": "eslint packages apps/web/src",
-    "test": "bun test packages"
+    "test": "bun test packages",
+    "format": "prettier --write packages apps eslint.config.js",
+    "format:check": "prettier --check packages apps eslint.config.js"
   },
   "workspaces": [
     "packages/*",

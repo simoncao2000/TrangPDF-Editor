@@ -56,8 +56,18 @@ export function TitleBar({ keysEnabled }: TitleBarProps) {
       </button>
 
       <div className="flex items-center justify-end gap-1">
-        <IconButton icon={PanelLeft} label={pagesOpen ? `Hide Pages (${MOD}B)` : `Show Pages (${MOD}B)`} aria-pressed={pagesOpen} onClick={togglePages} />
-        <IconButton icon={PanelRight} label={propertiesOpen ? "Hide Properties" : "Show Properties"} aria-pressed={propertiesOpen} onClick={toggleProperties} />
+        <IconButton
+          icon={PanelLeft}
+          label={pagesOpen ? `Hide Pages (${MOD}B)` : `Show Pages (${MOD}B)`}
+          aria-pressed={pagesOpen}
+          onClick={togglePages}
+        />
+        <IconButton
+          icon={PanelRight}
+          label={propertiesOpen ? "Hide Properties" : "Show Properties"}
+          aria-pressed={propertiesOpen}
+          onClick={toggleProperties}
+        />
         <ThemeMenu />
       </div>
     </header>

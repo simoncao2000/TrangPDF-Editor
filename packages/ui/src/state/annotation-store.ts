@@ -66,6 +66,7 @@ export const useAnnotationUi = create<AnnotationUiState>((set) => ({
   selected: null,
   // Picking a tool lets go of the selection, so the Properties panel shows the tool.
   setTool: (tool) => set({ tool, selected: null }),
-  setStyle: (tool, patch) => set((state) => ({ styles: { ...state.styles, [tool]: { ...state.styles[tool], ...patch } } })),
+  setStyle: (tool, patch) =>
+    set((state) => ({ styles: { ...state.styles, [tool]: { ...state.styles[tool], ...patch } } })),
   select: (selected) => set({ selected }),
 }));

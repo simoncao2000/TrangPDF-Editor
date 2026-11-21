@@ -56,7 +56,10 @@ export function EditorApp() {
       [{ key: "z", mod: true, shift: true }, () => editable && actions.redo()],
       [{ key: "y", mod: true }, () => editable && actions.redo()],
       // Without saving in place (Firefox, Safari) Save downloads a copy, like the Download button.
-      [{ key: "s", mod: true }, () => (files.canSaveInPlace ? status === "dirty" && void actions.save() : editable && void actions.saveAs())],
+      [
+        { key: "s", mod: true },
+        () => (files.canSaveInPlace ? status === "dirty" && void actions.save() : editable && void actions.saveAs()),
+      ],
       [{ key: "s", mod: true, shift: true }, () => editable && void actions.saveAs()],
     ],
     !modalOpen,
@@ -85,7 +88,10 @@ export function EditorApp() {
   }, [workspace]);
 
   const showViewer = status === "loading" || status === "clean" || status === "dirty" || status === "saving";
-  const failedKind = status === "failed" && documentError && documentError !== "password-required" && documentError !== "wrong-password" ? documentError : null;
+  const failedKind =
+    status === "failed" && documentError && documentError !== "password-required" && documentError !== "wrong-password"
+      ? documentError
+      : null;
 
   return (
     <>

@@ -37,7 +37,8 @@ describe("page text in a session", () => {
       return { name: "Tide.pdf" };
     });
     const reopened = await engine.call("open", { source: { bytes: written! } }).promise;
-    const saved = await engine.call("getTextObjectAt", { docId: reopened.docId, pageIndex: 0, point: FIRST_LINE }).promise;
+    const saved = await engine.call("getTextObjectAt", { docId: reopened.docId, pageIndex: 0, point: FIRST_LINE })
+      .promise;
     expect(saved?.text).toBe("Tide tables for the bay");
   });
 
@@ -50,7 +51,10 @@ describe("page text in a session", () => {
     expect(await session.readTextObjects(pageId)).toBe(first);
 
     session.dispatch((content) => editPageText(content, pageId, first[1]!, "Check twice"));
-    expect((await session.readTextObjects(pageId)).map((object) => object.text)).toEqual(["Tide tables for the headland", "Check twice"]);
+    expect((await session.readTextObjects(pageId)).map((object) => object.text)).toEqual([
+      "Tide tables for the headland",
+      "Check twice",
+    ]);
   });
 
   it("adds text with undo and redo, and the added text is editable like any other", async () => {
@@ -60,7 +64,11 @@ describe("page text in a session", () => {
     const textsNow = async () => (await session.readTextObjects(pageId)).map((object) => object.text);
 
     session.dispatch((content) =>
-      addPageText(content, pageId, [{ text: "Low tide at noon", origin: { x: 72, y: 500 } }], { fontSize: 14, color: { r: 0, g: 0, b: 0 }, angle: 0 }),
+      addPageText(content, pageId, [{ text: "Low tide at noon", origin: { x: 72, y: 500 } }], {
+        fontSize: 14,
+        color: { r: 0, g: 0, b: 0 },
+        angle: 0,
+      }),
     );
     expect(session.store.getState().undoLabel).toBe("Add text");
     expect(await textsNow()).toEqual(["Tide tables for the headland", "Check before you walk", "Low tide at noon"]);
@@ -82,7 +90,7 @@ describe("page text in a session", () => {
     const pageId = session.store.getState().pages[0]!.id;
     const line = (await session.textObjectAt(pageId, FIRST_LINE))!;
 
-    session.dispatch((content) => movePageText(content, pageId, line, 20, -100));
+    session.dispatch((content) => movePageText(content, pageId, line, { dx: 20, dy: -100 }));
     expect(session.store.getState().undoLabel).toBe("Move text");
     expect(await session.textObjectAt(pageId, FIRST_LINE)).toBeNull();
     expect((await session.textObjectAt(pageId, { x: FIRST_LINE.x + 20, y: FIRST_LINE.y - 100 }))?.id).toBe(line.id);

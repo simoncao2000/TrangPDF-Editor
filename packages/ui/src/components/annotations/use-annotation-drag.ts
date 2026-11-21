@@ -1,4 +1,14 @@
-import { moveAnnotation, pdfRectToScreen, resizeAnnotation, screenDeltaToPdf, screenRectToPdf, type Annotation, type EditableAnnotation, type PageFrame, type ScreenRect } from "@pdf-editor/core";
+import {
+  moveAnnotation,
+  pdfRectToScreen,
+  resizeAnnotation,
+  screenDeltaToPdf,
+  screenRectToPdf,
+  type Annotation,
+  type EditableAnnotation,
+  type PageFrame,
+  type ScreenRect,
+} from "@pdf-editor/core";
 import { useCallback, useRef, useState, type PointerEvent } from "react";
 import { resizeRect, type Handle } from "./resize-handles";
 
@@ -42,7 +52,10 @@ export interface AnnotationDrag {
  * @param commit Records the change (dispatches an edit command).
  * @returns The preview, a start function and the layer's pointer handlers.
  */
-export function useAnnotationDrag(frame: PageFrame, commit: (before: EditableAnnotation, after: EditableAnnotation) => void): AnnotationDrag {
+export function useAnnotationDrag(
+  frame: PageFrame,
+  commit: (before: EditableAnnotation, after: EditableAnnotation) => void,
+): AnnotationDrag {
   const drag = useRef<DragState | null>(null);
   const [preview, setPreview] = useState<Annotation | null>(null);
 
@@ -50,7 +63,15 @@ export function useAnnotationDrag(frame: PageFrame, commit: (before: EditableAnn
     (event: PointerEvent<Element>, annotation: EditableAnnotation, mode: "move" | Handle) => {
       if (event.button !== 0) return;
       event.currentTarget.setPointerCapture(event.pointerId);
-      drag.current = { pointerId: event.pointerId, mode, startX: event.clientX, startY: event.clientY, original: annotation, originalBox: pdfRectToScreen(annotation.rect, frame), moved: false };
+      drag.current = {
+        pointerId: event.pointerId,
+        mode,
+        startX: event.clientX,
+        startY: event.clientY,
+        original: annotation,
+        originalBox: pdfRectToScreen(annotation.rect, frame),
+        moved: false,
+      };
     },
     [frame],
   );

@@ -56,7 +56,17 @@ export interface EngineMethods {
   open: { params: { source: OpenSource; password?: string }; result: OpenedDocument };
   close: { params: { docId: DocId }; result: null };
   /** `hideEditable` leaves out the annotations the editor draws in its own layer. */
-  renderPage: { params: { docId: DocId; pageIndex: number; width: number; height: number; rotation?: Rotation; hideEditable?: boolean }; result: RenderedPage };
+  renderPage: {
+    params: {
+      docId: DocId;
+      pageIndex: number;
+      width: number;
+      height: number;
+      rotation?: Rotation;
+      hideEditable?: boolean;
+    };
+    result: RenderedPage;
+  };
   getAnnotations: { params: PageAddress; result: Annotation[] };
   /** Creates or updates an annotation; resolves with it as stored. */
   putAnnotation: { params: PageAddress & { annotation: EditableAnnotation }; result: Annotation };
@@ -65,7 +75,10 @@ export interface EngineMethods {
   /** The text between two points, one rectangle per line (for highlights). */
   getTextRects: { params: PageAddress & { from: PdfPoint; to: PdfPoint }; result: PdfRect[] };
   /** Finds a query on some pages of a document (case-insensitive), up to `limit` matches. */
-  findText: { params: { docId: DocId; pageIndexes: readonly number[]; query: string; limit: number }; result: TextMatch[] };
+  findText: {
+    params: { docId: DocId; pageIndexes: readonly number[]; query: string; limit: number };
+    result: TextMatch[];
+  };
   /** Every visible text object on a page, for editing the page's text. */
   getTextObjects: { params: PageAddress; result: PageTextObject[] };
   /** The page text object under a point, or `null`. */
@@ -73,7 +86,10 @@ export interface EngineMethods {
   /** Replaces a text object's text; the original is switched off and the replacement gets `newId`. */
   replacePageText: { params: PageAddress & { id: string; newId: string; text: string }; result: null };
   /** Adds lines of page text, one text object (with the matching id) per line. */
-  addPageText: { params: PageAddress & NewTextStyle & { lines: readonly NewTextLine[]; ids: readonly string[] }; result: null };
+  addPageText: {
+    params: PageAddress & NewTextStyle & { lines: readonly NewTextLine[]; ids: readonly string[] };
+    result: null;
+  };
   /** Moves a page text object by a distance in PDF space. */
   movePageText: { params: PageAddress & { id: string; dx: number; dy: number }; result: null };
   /** Draws one page text object on a transparent background (for dragging it). */
@@ -110,7 +126,12 @@ export interface EngineError {
 /** Messages the core sends to the worker. */
 export type EngineRequest =
   | {
-      [M in EngineMethod]: { readonly kind: "call"; readonly requestId: number; readonly method: M; readonly params: EngineParams<M> };
+      [M in EngineMethod]: {
+        readonly kind: "call";
+        readonly requestId: number;
+        readonly method: M;
+        readonly params: EngineParams<M>;
+      };
     }[EngineMethod]
   | { readonly kind: "cancel"; readonly requestId: number };
 

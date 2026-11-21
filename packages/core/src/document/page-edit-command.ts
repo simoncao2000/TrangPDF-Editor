@@ -10,21 +10,27 @@ import { annotationRevisionOf, type DocumentContent, pageAddressOf } from "./doc
 /** Revision tokens only ever grow, so an old token is never reused for a different state. */
 let lastRevision = 0;
 
+/** The engine work of a page edit, given the engine and where the page lives in it. */
+export interface PageEngineWork {
+  /** Work for apply and redo. */
+  apply(engine: CommandEngine, at: PageAddress): Promise<unknown>;
+  /** Work for undo. */
+  undo(engine: CommandEngine, at: PageAddress): Promise<unknown>;
+}
+
 /**
  * Builds a command that changes one page in the engine.
  * @param content The content the command is made from (to find the page and its revision).
  * @param pageId The page.
  * @param label Shown in toasts and the undo tooltip.
- * @param applyInEngine Engine work for apply and redo.
- * @param undoInEngine Engine work for undo.
+ * @param work The engine work for apply (and redo) and for undo.
  * @returns The command.
  */
 export function pageEditCommand(
   content: DocumentContent,
   pageId: string,
   label: string,
-  applyInEngine: (engine: CommandEngine, at: PageAddress) => Promise<unknown>,
-  undoInEngine: (engine: CommandEngine, at: PageAddress) => Promise<unknown>,
+  work: PageEngineWork,
 ): Command {
   const at = pageAddressOf(content, pageId);
   if (!at) throw new Error(`Unknown page ${pageId}.`);
@@ -38,7 +44,7 @@ export function pageEditCommand(
     label,
     apply: (current) => withRevision(current, after),
     undo: (current) => withRevision(current, before),
-    applyInEngine: (engine) => applyInEngine(engine, at),
-    undoInEngine: (engine) => undoInEngine(engine, at),
+    applyInEngine: (engine) => work.apply(engine, at),
+    undoInEngine: (engine) => work.undo(engine, at),
   };
 }

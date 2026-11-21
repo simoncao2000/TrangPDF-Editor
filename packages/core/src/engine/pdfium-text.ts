@@ -47,7 +47,17 @@ export class PageText {
         const at = (slot: number) => this.pdfium.pdfium.getValue(ptr + slot * DOUBLE_BYTES, "double");
         const total = this.pdfium.FPDFText_CountRects(textPage, start, count);
         for (let index = 0; index < total; index++) {
-          if (!this.pdfium.FPDFText_GetRect(textPage, index, ptr, ptr + DOUBLE_BYTES, ptr + 2 * DOUBLE_BYTES, ptr + 3 * DOUBLE_BYTES)) continue;
+          if (
+            !this.pdfium.FPDFText_GetRect(
+              textPage,
+              index,
+              ptr,
+              ptr + DOUBLE_BYTES,
+              ptr + 2 * DOUBLE_BYTES,
+              ptr + 3 * DOUBLE_BYTES,
+            )
+          )
+            continue;
           const [left, top, right, bottom] = [at(0), at(1), at(2), at(3)];
           rects.push({ x: left, y: bottom, width: right - left, height: top - bottom });
         }
@@ -82,9 +92,13 @@ export class PageText {
           pageIndex,
           rects: this.rectsOf(textPage, start, count),
           snippet: {
-            before: this.textOf(textPage, from, start - from).replace(/\s+/g, " ").trimStart(),
+            before: this.textOf(textPage, from, start - from)
+              .replace(/\s+/g, " ")
+              .trimStart(),
             match: this.textOf(textPage, start, count),
-            after: this.textOf(textPage, start + count, to - start - count).replace(/\s+/g, " ").trimEnd(),
+            after: this.textOf(textPage, start + count, to - start - count)
+              .replace(/\s+/g, " ")
+              .trimEnd(),
           },
         });
       }
@@ -108,7 +122,17 @@ export class PageText {
       const at = (slot: number) => this.pdfium.pdfium.getValue(ptr + slot * DOUBLE_BYTES, "double");
       const total = this.pdfium.FPDFText_CountRects(textPage, start, count);
       for (let index = 0; index < total; index++) {
-        if (!this.pdfium.FPDFText_GetRect(textPage, index, ptr, ptr + DOUBLE_BYTES, ptr + 2 * DOUBLE_BYTES, ptr + 3 * DOUBLE_BYTES)) continue;
+        if (
+          !this.pdfium.FPDFText_GetRect(
+            textPage,
+            index,
+            ptr,
+            ptr + DOUBLE_BYTES,
+            ptr + 2 * DOUBLE_BYTES,
+            ptr + 3 * DOUBLE_BYTES,
+          )
+        )
+          continue;
         rects.push({ x: at(0), y: at(3), width: at(2) - at(0), height: at(1) - at(3) });
       }
     });
@@ -128,7 +152,8 @@ export class PageText {
     return this.heap.withBuffer((count + 1) * UTF16_BYTES, (ptr) => {
       const written = this.pdfium.FPDFText_GetText(textPage, start, count, ptr);
       let text = "";
-      for (let i = 0; i < Math.max(0, written - 1); i++) text += String.fromCharCode(this.pdfium.pdfium.getValue(ptr + i * UTF16_BYTES, "i16") & 0xffff);
+      for (let i = 0; i < Math.max(0, written - 1); i++)
+        text += String.fromCharCode(this.pdfium.pdfium.getValue(ptr + i * UTF16_BYTES, "i16") & 0xffff);
       return text;
     });
   }

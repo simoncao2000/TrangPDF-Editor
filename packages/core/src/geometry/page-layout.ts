@@ -86,7 +86,12 @@ function firstBoxEndingAfter(boxes: readonly PageBox[], y: number): number {
  * @param overscan Extra pages above and below (architecture §8.1 uses 1).
  * @returns Inclusive first and last indexes, or `null` when there are no pages.
  */
-export function visibleRange(layout: PageLayout, scrollTop: number, viewportHeight: number, overscan = 1): { first: number; last: number } | null {
+export function visibleRange(
+  layout: PageLayout,
+  scrollTop: number,
+  viewportHeight: number,
+  overscan = 1,
+): { first: number; last: number } | null {
   const { boxes } = layout;
   if (boxes.length === 0) return null;
   const first = Math.min(firstBoxEndingAfter(boxes, scrollTop), boxes.length - 1);

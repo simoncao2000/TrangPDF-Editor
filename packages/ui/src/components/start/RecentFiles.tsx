@@ -13,7 +13,9 @@ import { File } from "lucide-react";
 function formatOpenedAt(timestamp: number): string {
   const opened = new Date(timestamp);
   const today = new Date();
-  const days = Math.round((new Date(today.toDateString()).getTime() - new Date(opened.toDateString()).getTime()) / 86_400_000);
+  const days = Math.round(
+    (new Date(today.toDateString()).getTime() - new Date(opened.toDateString()).getTime()) / 86_400_000,
+  );
   if (days === 0) return `Today, ${opened.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`;
   if (days === 1) return "Yesterday";
   return opened.toLocaleDateString(undefined, { day: "numeric", month: "short" });
@@ -33,13 +35,14 @@ export function RecentFiles() {
     // Without kept file access (browsers other than Chromium) recent files could not be reopened.
     if (!files.canSaveInPlace) return;
     let active = true;
-    files.listRecent().then((list) => active && setRecent(list), () => active && setRecent([]));
+    files.listRecent().then(
+      (list) => active && setRecent(list),
+      () => active && setRecent([]),
+    );
     return () => {
       active = false;
     };
   }, [files]);
-
-  
 
   const clear = useCallback(async () => {
     await files.clearRecent();

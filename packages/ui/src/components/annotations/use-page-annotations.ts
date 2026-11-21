@@ -10,7 +10,11 @@ import { useEditorServices } from "../../editor/hooks";
  * @param revision The page's revision.
  * @returns The latest result (empty until the first read finishes).
  */
-function usePageRead<T>(read: (pageId: string) => Promise<readonly T[]>, pageId: string, revision: number): readonly T[] {
+function usePageRead<T>(
+  read: (pageId: string) => Promise<readonly T[]>,
+  pageId: string,
+  revision: number,
+): readonly T[] {
   const [items, setItems] = useState<readonly T[]>([]);
   useEffect(() => {
     let active = true;

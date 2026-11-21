@@ -110,7 +110,6 @@ export function DropdownMenu<T extends string>({
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
-
   const onMenuKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const index = itemRefs.current.findIndex((item) => item === document.activeElement);
     const keys: Record<string, () => void> = {
@@ -159,11 +158,14 @@ export function DropdownMenu<T extends string>({
           onKeyDown={onMenuKeyDown}
           data-phase={phase}
           className={`absolute z-30 grid gap-px rounded-sm border border-line bg-raised p-1 shadow-2 transition-[opacity,scale,translate] ease-out motion-reduce:transition-opacity starting:scale-96 starting:opacity-0 ${widthClassName} ${PLACEMENT[placement]} ${
-            phase === "closing" ? "pointer-events-none scale-96 opacity-0 duration-(--duration-exit)" : "scale-100 opacity-100 duration-(--duration-pop)"
+            phase === "closing"
+              ? "pointer-events-none scale-96 opacity-0 duration-(--duration-exit)"
+              : "scale-100 opacity-100 duration-(--duration-pop)"
           }`}
         >
           {entries.map((entry, entryIndex) => {
-            if (entry === "separator") return <span key={`separator-${entryIndex}`} role="separator" className="mx-2 my-1 h-px bg-divider" />;
+            if (entry === "separator")
+              return <span key={`separator-${entryIndex}`} role="separator" className="mx-2 my-1 h-px bg-divider" />;
             optionIndex++;
             const position = optionIndex;
             const checked = entry.value === value;
@@ -187,7 +189,10 @@ export function DropdownMenu<T extends string>({
                 {OptionIcon && <OptionIcon className="size-4 shrink-0 text-muted" aria-hidden="true" />}
                 <span className="flex-1 whitespace-nowrap">{entry.label}</span>
                 {kind === "choice" ? (
-                  <Check className={`size-4 shrink-0 text-signal transition-opacity ${checked ? "opacity-100" : "opacity-0"}`} aria-hidden="true" />
+                  <Check
+                    className={`size-4 shrink-0 text-signal transition-opacity ${checked ? "opacity-100" : "opacity-0"}`}
+                    aria-hidden="true"
+                  />
                 ) : (
                   entry.shortcut && <kbd className="shrink-0 pl-4 font-mono text-2xs text-muted">{entry.shortcut}</kbd>
                 )}

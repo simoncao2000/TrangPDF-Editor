@@ -34,12 +34,19 @@ export interface TextDrag {
  * @param onClick Called for a press that did not move.
  * @returns The live preview and handlers to spread on each outline.
  */
-export function useTextDrag(frame: PageFrame, onMove: (object: PageTextObject, dx: number, dy: number) => void, onClick: (object: PageTextObject) => void): TextDrag {
+export function useTextDrag(
+  frame: PageFrame,
+  onMove: (object: PageTextObject, dx: number, dy: number) => void,
+  onClick: (object: PageTextObject) => void,
+): TextDrag {
   const press = useRef<Press | null>(null);
   const [moving, setMoving] = useState<TextDrag["moving"]>(null);
 
   const clear = useCallback(() => setMoving(null), []);
-  const offsetOf = (state: Press, event: PointerEvent<SVGElement>): ScreenPoint => ({ x: event.clientX - state.startX, y: event.clientY - state.startY });
+  const offsetOf = (state: Press, event: PointerEvent<SVGElement>): ScreenPoint => ({
+    x: event.clientX - state.startX,
+    y: event.clientY - state.startY,
+  });
 
   return {
     moving,
@@ -49,7 +56,13 @@ export function useTextDrag(frame: PageFrame, onMove: (object: PageTextObject, d
         if (event.button !== 0) return;
         event.stopPropagation();
         event.currentTarget.setPointerCapture(event.pointerId);
-        press.current = { pointerId: event.pointerId, object, startX: event.clientX, startY: event.clientY, dragging: false };
+        press.current = {
+          pointerId: event.pointerId,
+          object,
+          startX: event.clientX,
+          startY: event.clientY,
+          dragging: false,
+        };
       },
       onPointerMove(event) {
         const state = press.current;

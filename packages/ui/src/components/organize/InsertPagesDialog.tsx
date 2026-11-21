@@ -50,7 +50,13 @@ export function InsertPagesDialog({ fileName, pageCount, positions, onInsert, on
             key={position.id}
             className="flex min-h-(--control-target) cursor-pointer items-center gap-3 rounded-sm border border-divider px-3 py-2 text-sm transition-colors has-checked:border-signal has-checked:bg-signal-soft"
           >
-            <input type="radio" name="insert-position" checked={chosen === position.id} onChange={() => setChosen(position.id)} className="size-4 accent-signal" />
+            <input
+              type="radio"
+              name="insert-position"
+              checked={chosen === position.id}
+              onChange={() => setChosen(position.id)}
+              className="size-4 accent-signal"
+            />
             <span className="grid">
               <span className="font-semibold">{position.label}</span>
               <span className="text-xs text-muted">{position.detail}</span>

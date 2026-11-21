@@ -58,7 +58,8 @@ const FLAG_ITALIC = 64;
 const FLAG_FORCE_BOLD = 1 << 18;
 
 const MONO_NAMES = /courier|mono|consol|menlo|cmtt|lmmono|inconsolata/i;
-const SERIF_NAMES = /times|roman|serif|georgia|garamond|minion|cambria|palatino|book|baskerville|cmr|cmbx|cmti|lmroman|nimbusrom|tinos|caladea/i;
+const SERIF_NAMES =
+  /times|roman|serif|georgia|garamond|minion|cambria|palatino|book|baskerville|cmr|cmbx|cmti|lmroman|nimbusrom|tinos|caladea/i;
 const SANS_NAMES = /sans|helvet|arial|verdana|calibri|segoe|roboto|inter|lato|cmss|arimo|carlito/i;
 const BOLD_NAMES = /bold|black|heavy|semibold|demi|cmbx|-bd/i;
 const ITALIC_NAMES = /italic|oblique|cmti|-it\b/i;
@@ -81,8 +82,18 @@ export function withoutSubsetTag(baseName: string): string {
 export function fontStyleOf(baseName: string, flags: number): FontStyle {
   const name = withoutSubsetTag(baseName);
   const family: FontFamilyKind =
-    MONO_NAMES.test(name) || flags & FLAG_FIXED_PITCH ? "mono" : SANS_NAMES.test(name) ? "sans" : SERIF_NAMES.test(name) || flags & FLAG_SERIF ? "serif" : "sans";
-  return { family, bold: BOLD_NAMES.test(name) || (flags & FLAG_FORCE_BOLD) !== 0, italic: ITALIC_NAMES.test(name) || (flags & FLAG_ITALIC) !== 0 };
+    MONO_NAMES.test(name) || flags & FLAG_FIXED_PITCH
+      ? "mono"
+      : SANS_NAMES.test(name)
+        ? "sans"
+        : SERIF_NAMES.test(name) || flags & FLAG_SERIF
+          ? "serif"
+          : "sans";
+  return {
+    family,
+    bold: BOLD_NAMES.test(name) || (flags & FLAG_FORCE_BOLD) !== 0,
+    italic: ITALIC_NAMES.test(name) || (flags & FLAG_ITALIC) !== 0,
+  };
 }
 
 const STANDARD_FONTS: Record<FontFamilyKind, readonly [string, string, string, string]> = {

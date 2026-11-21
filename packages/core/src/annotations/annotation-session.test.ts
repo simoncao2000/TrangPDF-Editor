@@ -13,7 +13,14 @@ beforeAll(async () => {
   engine = await createTestEngine();
 });
 
-const square: SquareAnnotation = { kind: "square", id: "sq", rect: { x: 100, y: 100, width: 50, height: 50 }, color: { r: 0, g: 0, b: 255 }, opacity: 1, lineWidth: 2 };
+const square: SquareAnnotation = {
+  kind: "square",
+  id: "sq",
+  rect: { x: 100, y: 100, width: 50, height: 50 },
+  color: { r: 0, g: 0, b: 255 },
+  opacity: 1,
+  lineWidth: 2,
+};
 
 /**
  * Ids of the annotations on a page, as the engine has them now.

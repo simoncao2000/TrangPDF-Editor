@@ -16,7 +16,10 @@ export const MIN_SIZE = 8;
  * @returns The corner's position.
  */
 export function handlePosition(rect: ScreenRect, handle: Handle): { x: number; y: number } {
-  return { x: handle.endsWith("w") ? rect.left : rect.left + rect.width, y: handle.startsWith("n") ? rect.top : rect.top + rect.height };
+  return {
+    x: handle.endsWith("w") ? rect.left : rect.left + rect.width,
+    y: handle.startsWith("n") ? rect.top : rect.top + rect.height,
+  };
 }
 
 /**

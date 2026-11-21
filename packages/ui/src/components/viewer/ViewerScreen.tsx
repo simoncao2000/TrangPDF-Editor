@@ -18,7 +18,9 @@ interface ViewerScreenProps {
  */
 export function ViewerScreen({ narrow, dragging, keysEnabled }: ViewerScreenProps) {
   return (
-    <div className={`relative grid h-dvh grid-cols-[minmax(0,1fr)] bg-canvas ${narrow ? "grid-rows-[auto_minmax(0,1fr)_auto]" : "grid-rows-[auto_minmax(0,1fr)]"}`}>
+    <div
+      className={`relative grid h-dvh grid-cols-[minmax(0,1fr)] bg-canvas ${narrow ? "grid-rows-[auto_minmax(0,1fr)_auto]" : "grid-rows-[auto_minmax(0,1fr)]"}`}
+    >
       {narrow ? (
         <PhoneShell keysEnabled={keysEnabled && !dragging} />
       ) : (

@@ -1,6 +1,5 @@
 import { layoutPages, sizesAtWidth, visibleRange } from "@pdf-editor/core";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useDocument } from "../../editor/hooks";
 import { useElementSize } from "../../hooks/use-element-size";
 import { LayoutGrid } from "lucide-react";
 import { useViewer } from "../../state/viewer-store";
@@ -25,9 +24,18 @@ export function ThumbnailRail() {
   const viewport = useElementSize(scrollRef);
   const [scrollTop, setScrollTop] = useState(0);
   const { currentPage, goToPage, setMode } = useViewer();
-  const pageCount = useDocument((state) => state.pages.length);
   const pages = usePageDrawInfo();
-  const layout = useMemo(() => layoutPages(sizesAtWidth(pages.map((page) => page.size), THUMB_WIDTH), { ...SPACING, extraHeight: CAPTION_HEIGHT }), [pages]);
+  const layout = useMemo(
+    () =>
+      layoutPages(
+        sizesAtWidth(
+          pages.map((page) => page.size),
+          THUMB_WIDTH,
+        ),
+        { ...SPACING, extraHeight: CAPTION_HEIGHT },
+      ),
+    [pages],
+  );
 
   // Keep the current page's thumbnail in view.
   useEffect(() => {
@@ -47,10 +55,13 @@ export function ThumbnailRail() {
       <PanelHeader
         id="pages-title"
         title="Pages"
-        count={pageCount}
         actions={<IconButton icon={LayoutGrid} label="Organize pages" onClick={() => setMode("organize")} />}
       />
-      <div ref={scrollRef} onScroll={() => setScrollTop(scrollRef.current?.scrollTop ?? 0)} className="min-h-0 overflow-y-auto">
+      <div
+        ref={scrollRef}
+        onScroll={() => setScrollTop(scrollRef.current?.scrollTop ?? 0)}
+        className="min-h-0 overflow-y-auto"
+      >
         <ol className="relative" style={{ height: layout.totalHeight }}>
           {mounted.map((box) => {
             const page = pages[box.index]!;
@@ -75,11 +86,7 @@ export function ThumbnailRail() {
                     priority={THUMBNAIL_PRIORITY + Math.abs(box.index - currentPage)}
                     className="border border-paper-line outline-offset-3 group-hover:shadow-2 group-aria-[current=page]:outline-2 group-aria-[current=page]:outline-signal"
                   />
-                  { !isCurrent && 
-                    <span className="font-mono text-sm text-muted">
-                      {box.index + 1}
-                    </span> 
-                  }
+                  {!isCurrent && <span className="font-mono text-sm text-muted">{box.index + 1}</span>}
                 </button>
               </li>
             );

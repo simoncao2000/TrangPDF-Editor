@@ -30,15 +30,27 @@ describe("matchScore", () => {
 
 describe("tidySnippet", () => {
   test("drops words cut off at either end and separators at the start", () => {
-    expect(tidySnippet({ before: "kout 2.4 km · Benches, water C · ", match: "Tide", after: " marker 4.1 km Low tide only Co" })).toEqual({
+    expect(
+      tidySnippet({
+        before: "kout 2.4 km · Benches, water C · ",
+        match: "Tide",
+        after: " marker 4.1 km Low tide only Co",
+      }),
+    ).toEqual({
       before: "…2.4 km · Benches, water C · ",
       match: "Tide",
       after: " marker 4.1 km Low tide only…",
     });
-    expect(tidySnippet({ before: "il · The headland trail Check the ", match: "tide", after: " before" }).before).toBe("…The headland trail Check the ");
+    expect(tidySnippet({ before: "il · The headland trail Check the ", match: "tide", after: " before" }).before).toBe(
+      "…The headland trail Check the ",
+    );
   });
 
   test("keeps a match with no context on one side as it is", () => {
-    expect(tidySnippet({ before: "", match: "Tide", after: " tables for the head" })).toEqual({ before: "", match: "Tide", after: " tables for the…" });
+    expect(tidySnippet({ before: "", match: "Tide", after: " tables for the head" })).toEqual({
+      before: "",
+      match: "Tide",
+      after: " tables for the…",
+    });
   });
 });

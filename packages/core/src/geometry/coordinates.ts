@@ -85,7 +85,9 @@ function scaleOf(frame: PageFrame): number {
 export function displayedSize(frame: PageFrame): Size {
   const scale = scaleOf(frame);
   const { width, height } = frame.cropBox;
-  return frame.rotation % 180 === 0 ? { width: width * scale, height: height * scale } : { width: height * scale, height: width * scale };
+  return frame.rotation % 180 === 0
+    ? { width: width * scale, height: height * scale }
+    : { width: height * scale, height: width * scale };
 }
 
 /**

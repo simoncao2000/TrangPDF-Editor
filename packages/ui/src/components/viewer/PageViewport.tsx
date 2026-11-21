@@ -46,7 +46,9 @@ export function PageViewport({ narrow }: PageViewportProps) {
       if (box) element.scrollTop = box.top + previous.fraction * box.height - viewport.height * 0.4;
     }
     const box = layout.boxes[current];
-    anchor.current = box ? { page: current, fraction: (scrollTop + viewport.height * 0.4 - box.top) / box.height, zoom } : null;
+    anchor.current = box
+      ? { page: current, fraction: (scrollTop + viewport.height * 0.4 - box.top) / box.height, zoom }
+      : null;
   }, [zoom, layout, current, scrollTop, viewport.height]);
 
   useEffect(() => {
@@ -74,7 +76,10 @@ export function PageViewport({ narrow }: PageViewportProps) {
         clearSearchHit(null);
         if (!(event.target as Element).closest("[data-annotation]")) selectAnnotation(null);
       }}
-      tabIndex={0} aria-label="Document pages" className="relative min-h-0 overflow-auto bg-canvas outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-inset">
+      tabIndex={0}
+      aria-label="Document pages"
+      className="relative min-h-0 overflow-auto bg-canvas outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-inset"
+    >
       <div className="relative" style={{ height: layout.totalHeight, width: contentWidth }}>
         {mounted.map((box) => {
           const page = pages[box.index]!;
@@ -82,6 +87,7 @@ export function PageViewport({ narrow }: PageViewportProps) {
             <div
               key={page.id}
               role="img"
+              data-page=""
               aria-label={`Page ${box.index + 1}`}
               className="absolute border border-paper-line"
               style={{ top: box.top, left: Math.max(spacing.padding, (contentWidth - box.width) / 2) }}

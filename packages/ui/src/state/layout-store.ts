@@ -33,14 +33,20 @@ export const useLayout = create<LayoutState>()(
       togglePages: () => set((state) => ({ pagesOpen: !state.pagesOpen })),
       toggleProperties: () => set((state) => ({ propertiesOpen: !state.propertiesOpen })),
       moveTools: (toolPosition) => set({ toolPosition }),
-      turnTools: () => set((state) => ({ toolOrientation: state.toolOrientation === "vertical" ? "horizontal" : "vertical" })),
+      turnTools: () =>
+        set((state) => ({ toolOrientation: state.toolOrientation === "vertical" ? "horizontal" : "vertical" })),
       resetTools: () => set({ toolPosition: null, toolOrientation: "vertical" }),
     }),
     {
       name: "trangpdf-layout",
       version: 1,
       storage: createJSONStorage(() => localStorage),
-      partialize: ({ pagesOpen, propertiesOpen, toolPosition, toolOrientation }) => ({ pagesOpen, propertiesOpen, toolPosition, toolOrientation }),
+      partialize: ({ pagesOpen, propertiesOpen, toolPosition, toolOrientation }) => ({
+        pagesOpen,
+        propertiesOpen,
+        toolPosition,
+        toolOrientation,
+      }),
       // Version 0 stored a docking edge; the palette now floats, so start it in its default place.
       migrate: (persisted) => ({ ...(persisted as object), toolPosition: null, toolOrientation: "vertical" }),
     },

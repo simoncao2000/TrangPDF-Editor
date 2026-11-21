@@ -4,7 +4,13 @@
  * browser.
  */
 import wasmUrl from "@embedpdf/pdfium/pdfium.wasm?url";
-import { createDocumentSession, createWorkspace, EngineClient, PageRenderer, spawnEngineWorker } from "@pdf-editor/core";
+import {
+  createDocumentSession,
+  createWorkspace,
+  EngineClient,
+  PageRenderer,
+  spawnEngineWorker,
+} from "@pdf-editor/core";
 import { createWebFileAdapter } from "@pdf-editor/platform";
 import type { EditorServices } from "@pdf-editor/ui";
 

@@ -67,7 +67,10 @@ export function ColorSwatches({ label, swatches, value, onChange }: ColorSwatche
             }`}
             style={{ backgroundColor: `rgb(${r} ${g} ${b})` }}
           >
-            <Check className={`size-3.5 transition-opacity duration-(--duration-press) ${isChecked ? "opacity-100" : "opacity-0"} ${luminance(swatch.color) > 0.5 ? "text-paper-ink" : "text-paper-field"}`} aria-hidden="true" />
+            <Check
+              className={`size-3.5 transition-opacity duration-(--duration-press) ${isChecked ? "opacity-100" : "opacity-0"} ${luminance(swatch.color) > 0.5 ? "text-paper-ink" : "text-paper-field"}`}
+              aria-hidden="true"
+            />
           </button>
         );
       })}

@@ -1,4 +1,16 @@
-import { Highlighter, MousePointer2, PenLine, RectangleHorizontal, RectangleVertical, Redo2, Square, TextCursorInput, Type, Undo2, type LucideIcon } from "lucide-react";
+import {
+  Highlighter,
+  MousePointer2,
+  PenLine,
+  RectangleHorizontal,
+  RectangleVertical,
+  Redo2,
+  Square,
+  TextCursorInput,
+  Type,
+  Undo2,
+  type LucideIcon,
+} from "lucide-react";
 import { useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { useDocument } from "../../editor/hooks";
 import { useDocumentActions } from "../../editor/use-document-actions";
@@ -30,7 +42,12 @@ const TOOLS: readonly ToolInfo[] = [
 const DEFAULT_POSITION: Point = { x: PLACEMENT_MARGIN + 4, y: PLACEMENT_MARGIN + 4 };
 /** Arrow keys on the grip move the palette this far, in CSS pixels. */
 const KEY_STEP = 24;
-const ARROWS: Record<string, readonly [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+const ARROWS: Record<string, readonly [number, number]> = {
+  ArrowLeft: [-1, 0],
+  ArrowRight: [1, 0],
+  ArrowUp: [0, -1],
+  ArrowDown: [0, 1],
+};
 
 interface ToolPaletteProps {
   /** The document area's size; the palette always stays inside it. */
@@ -72,7 +89,9 @@ export function ToolPalette({ area, keysEnabled, phone = false }: ToolPalettePro
   const editable = status === "clean" || status === "dirty";
   const upright = !phone && layout.toolOrientation === "vertical";
   // Phones start centred above the bottom bar; elsewhere near the top-left corner.
-  const start = phone ? { x: (area.width - size.width) / 2, y: area.height - size.height - PLACEMENT_MARGIN } : DEFAULT_POSITION;
+  const start = phone
+    ? { x: (area.width - size.width) / 2, y: area.height - size.height - PLACEMENT_MARGIN }
+    : DEFAULT_POSITION;
   const placed = placeInside(dragged ?? savedPosition ?? start, size, area);
 
   const pick = (next: Tool) => {
@@ -81,7 +100,10 @@ export function ToolPalette({ area, keysEnabled, phone = false }: ToolPalettePro
   };
 
   useShortcuts(
-    [...TOOLS.map(({ tool: next, key }) => [{ key }, () => pick(next)] as const), [{ key: "escape" }, () => setTool("select")] as const],
+    [
+      ...TOOLS.map(({ tool: next, key }) => [{ key }, () => pick(next)] as const),
+      [{ key: "escape" }, () => setTool("select")] as const,
+    ],
     keysEnabled && editable,
   );
 
@@ -93,7 +115,13 @@ export function ToolPalette({ area, keysEnabled, phone = false }: ToolPalettePro
   const onGripMove = (event: PointerEvent<HTMLButtonElement>) => {
     const state = drag.current;
     if (state?.pointerId !== event.pointerId) return;
-    setDragged(placeInside({ x: state.start.x + event.clientX - state.from.x, y: state.start.y + event.clientY - state.from.y }, size, area));
+    setDragged(
+      placeInside(
+        { x: state.start.x + event.clientX - state.from.x, y: state.start.y + event.clientY - state.from.y },
+        size,
+        area,
+      ),
+    );
   };
   const onGripUp = (event: PointerEvent<HTMLButtonElement>) => {
     if (drag.current?.pointerId !== event.pointerId) return;
@@ -108,7 +136,12 @@ export function ToolPalette({ area, keysEnabled, phone = false }: ToolPalettePro
     moveTools(placeInside({ x: placed.x + arrow[0] * KEY_STEP, y: placed.y + arrow[1] * KEY_STEP }, size, area));
   };
 
-  const divider = <span className={upright ? "my-1 h-px w-6 shrink-0 bg-divider" : "mx-1 h-6 w-px shrink-0 bg-divider"} aria-hidden="true" />;
+  const divider = (
+    <span
+      className={upright ? "my-1 h-px w-6 shrink-0 bg-divider" : "mx-1 h-6 w-px shrink-0 bg-divider"}
+      aria-hidden="true"
+    />
+  );
 
   return (
     <nav
@@ -116,7 +149,7 @@ export function ToolPalette({ area, keysEnabled, phone = false }: ToolPalettePro
       aria-label="Tools"
       aria-orientation={upright ? "vertical" : "horizontal"}
       style={{ transform: `translate(${placed.x}px, ${placed.y}px)`, maxWidth: area.width - 2 * PLACEMENT_MARGIN }}
-      className={`absolute top-0 left-0 z-10 flex items-center gap-0.5 rounded-md bg-raised p-1 shadow-2 ring-1 ring-line/50 ${upright ? "flex-col" : "overflow-x-auto [scrollbar-width:none]"} ${
+      className={`absolute top-0 left-0 z-10 flex items-center gap-0.5 bg-raised p-1 shadow-2 ring-1 ring-line/50 ${upright ? "flex-col" : "overflow-x-auto scrollbar-width-none"} ${
         dragged ? "" : "transition-transform duration-(--duration-pop) ease-out motion-reduce:transition-none"
       }`}
     >
@@ -124,7 +157,7 @@ export function ToolPalette({ area, keysEnabled, phone = false }: ToolPalettePro
         type="button"
         aria-label="Move the tools (drag, or press the arrow keys)"
         title="Drag to move"
-        className={`group grid shrink-0 cursor-grab touch-none place-items-center rounded-xs active:cursor-grabbing ${upright ? "h-3.5 w-full" : "h-8 w-3.5"}`}
+        className={`group grid shrink-0 cursor-grab touch-none place-items-center active:cursor-grabbing ${upright ? "h-3.5 w-full" : "h-8 w-3.5"}`}
         onPointerDown={onGripDown}
         onPointerMove={onGripMove}
         onPointerUp={onGripUp}
@@ -134,20 +167,50 @@ export function ToolPalette({ area, keysEnabled, phone = false }: ToolPalettePro
         }}
         onKeyDown={onGripKeyDown}
       >
-        <span className={`rounded-pill bg-line transition-colors group-hover:bg-muted ${upright ? "h-1 w-6" : "h-6 w-1"}`} aria-hidden="true" />
+        <span
+          className={`rounded-pill bg-line transition-colors group-hover:bg-muted ${upright ? "h-1 w-6" : "h-6 w-1"}`}
+          aria-hidden="true"
+        />
       </button>
-      <PaletteButton icon={Undo2} label={undoLabel ? `Undo ${undoLabel.toLowerCase()}` : "Undo"} disabled={!editable || !undoLabel} onClick={actions.undo} />
-      <PaletteButton icon={Redo2} label={redoLabel ? `Redo ${redoLabel.toLowerCase()}` : "Redo"} disabled={!editable || !redoLabel} onClick={actions.redo} />
+      <PaletteButton
+        icon={Undo2}
+        label={undoLabel ? `Undo ${undoLabel.toLowerCase()}` : "Undo"}
+        disabled={!editable || !undoLabel}
+        onClick={actions.undo}
+      />
+      <PaletteButton
+        icon={Redo2}
+        label={redoLabel ? `Redo ${redoLabel.toLowerCase()}` : "Redo"}
+        disabled={!editable || !redoLabel}
+        onClick={actions.redo}
+      />
       {divider}
-      <div role="group" aria-label="Annotation tools" className={`flex items-center gap-0.5 ${upright ? "flex-col" : ""}`}>
+      <div
+        role="group"
+        aria-label="Annotation tools"
+        className={`flex items-center gap-0.5 ${upright ? "flex-col" : ""}`}
+      >
         {TOOLS.map(({ tool: option, label, key, icon }) => (
-          <PaletteButton key={option} icon={icon} label={label} shortcut={key.toUpperCase()} pressed={option === tool} disabled={!editable} onClick={() => pick(option)} />
+          <PaletteButton
+            key={option}
+            icon={icon}
+            label={label}
+            shortcut={key.toUpperCase()}
+            pressed={option === tool}
+            disabled={!editable}
+            onClick={() => pick(option)}
+          />
         ))}
       </div>
       {!phone && (
         <>
           {divider}
-          <PaletteButton icon={upright ? RectangleHorizontal : RectangleVertical} label={upright ? "Turn the tools flat" : "Turn the tools upright"} muted onClick={layout.turnTools} />
+          <PaletteButton
+            icon={upright ? RectangleHorizontal : RectangleVertical}
+            label={upright ? "Turn the tools flat" : "Turn the tools upright"}
+            muted
+            onClick={layout.turnTools}
+          />
         </>
       )}
     </nav>
@@ -171,7 +234,15 @@ interface PaletteButtonProps {
  * @param props Icon, label, shortcut, pressed state and click handler.
  * @returns The button.
  */
-function PaletteButton({ icon: Icon, label, shortcut, pressed, disabled = false, muted = false, onClick }: PaletteButtonProps) {
+function PaletteButton({
+  icon: Icon,
+  label,
+  shortcut,
+  pressed,
+  disabled = false,
+  muted = false,
+  onClick,
+}: PaletteButtonProps) {
   return (
     <button
       type="button"

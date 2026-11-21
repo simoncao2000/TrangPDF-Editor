@@ -6,7 +6,14 @@ import { BitmapCache, type ClosableBitmap } from "./bitmap-cache";
  * @returns The fake bitmap.
  */
 function bitmap(): ClosableBitmap & { closed: boolean } {
-  return { width: 10, height: 10, closed: false, close() { this.closed = true; } };
+  return {
+    width: 10,
+    height: 10,
+    closed: false,
+    close() {
+      this.closed = true;
+    },
+  };
 }
 
 describe("BitmapCache", () => {

@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import fc from "fast-check";
-import { type Annotation, boundsOf, type InkAnnotation, isEditable, moveAnnotation, resizeAnnotation } from "./annotation";
+import {
+  type Annotation,
+  boundsOf,
+  type InkAnnotation,
+  isEditable,
+  moveAnnotation,
+  resizeAnnotation,
+} from "./annotation";
 
 const BLACK = { r: 0, g: 0, b: 0 };
 
@@ -32,7 +39,14 @@ describe("moveAnnotation", () => {
   });
 
   test("moves every line of a highlight", () => {
-    const highlight: Annotation = { kind: "highlight", id: "h", rect: { x: 0, y: 0, width: 10, height: 20 }, color: BLACK, opacity: 0.5, lines: [{ x: 0, y: 10, width: 10, height: 10 }] };
+    const highlight: Annotation = {
+      kind: "highlight",
+      id: "h",
+      rect: { x: 0, y: 0, width: 10, height: 20 },
+      color: BLACK,
+      opacity: 0.5,
+      lines: [{ x: 0, y: 10, width: 10, height: 10 }],
+    };
     const moved = moveAnnotation(highlight, 5, 5);
     expect(moved.kind === "highlight" && moved.lines).toEqual([{ x: 5, y: 15, width: 10, height: 10 }]);
   });
@@ -63,7 +77,14 @@ describe("resizeAnnotation", () => {
   });
 
   test("keeps a highlight the size of its text", () => {
-    const highlight: Annotation = { kind: "highlight", id: "h", rect: { x: 0, y: 0, width: 10, height: 10 }, color: BLACK, opacity: 0.5, lines: [] };
+    const highlight: Annotation = {
+      kind: "highlight",
+      id: "h",
+      rect: { x: 0, y: 0, width: 10, height: 10 },
+      color: BLACK,
+      opacity: 0.5,
+      lines: [],
+    };
     expect(resizeAnnotation(highlight, { x: 0, y: 0, width: 99, height: 99 })).toBe(highlight);
   });
 });

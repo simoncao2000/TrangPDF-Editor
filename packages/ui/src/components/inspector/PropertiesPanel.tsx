@@ -1,18 +1,31 @@
 import { annotationRevisionOf, editAnnotation, isEditable, type EditableAnnotation } from "@pdf-editor/core";
 import { useDocument, useEditorServices } from "../../editor/hooks";
-import { isDrawingTool, SWATCHES, useAnnotationUi, type DrawingTool, type SelectedAnnotation, type ToolStyle } from "../../state/annotation-store";
+import {
+  isDrawingTool,
+  SWATCHES,
+  useAnnotationUi,
+  type DrawingTool,
+  type SelectedAnnotation,
+  type ToolStyle,
+} from "../../state/annotation-store";
 import { ANNOTATION_NAMES } from "../annotations/annotation-display";
 import { usePageAnnotations } from "../annotations/use-page-annotations";
 import { ColorSwatches } from "../primitives/ColorSwatches";
 import { PaperBoat } from "../primitives/PaperBoat";
 import { RangeField } from "../primitives/RangeField";
 
-const TOOL_NAMES: Record<DrawingTool, string> = { highlight: "Highlight", ink: "Draw", square: "Shape", textBox: "Text" };
+const TOOL_NAMES: Record<DrawingTool, string> = {
+  highlight: "Highlight",
+  ink: "Draw",
+  square: "Shape",
+  textBox: "Text",
+};
 const TOOL_HINTS: Record<DrawingTool, string> = {
   highlight: "Drag across text to highlight it.",
   ink: "Drag on the page to draw. Each stroke is its own drawing.",
   square: "Drag on the page to draw a rectangle.",
-  textBox: "Click on the page and type. The text becomes part of the page, like its other text: change it later with Edit text. Enter starts a new line; click away to finish.",
+  textBox:
+    "Click on the page and type. The text becomes part of the page, like its other text: change it later with Edit text. Enter starts a new line; click away to finish.",
 };
 
 /** The style fields a kind of annotation has. */
@@ -46,7 +59,10 @@ export function PropertiesPanel() {
         <h3 id="edit-text-title" className="font-hand text-xl">
           Edit text
         </h3>
-        <p className="text-sm text-muted">Click any outlined text on the page to change it. Enter keeps the change; Esc cancels. If the original font lacks a letter you type, the line uses the closest standard font.</p>
+        <p className="text-sm text-muted">
+          Click any outlined text on the page to change it. Enter keeps the change; Esc cancels. If the original font
+          lacks a letter you type, the line uses the closest standard font.
+        </p>
       </section>
     );
   }
@@ -140,12 +156,47 @@ function StyleControls({ fields, style, onChange }: StyleControlsProps) {
       {fields.includes("color") && (
         <div className="grid gap-2">
           <span className="text-xs font-semibold text-muted">Colour</span>
-          <ColorSwatches label="Colour" swatches={SWATCHES} value={style.color} onChange={(color) => onChange({ color })} />
+          <ColorSwatches
+            label="Colour"
+            swatches={SWATCHES}
+            value={style.color}
+            onChange={(color) => onChange({ color })}
+          />
         </div>
       )}
-      {fields.includes("opacity") && <RangeField label="Opacity" value={style.opacity} min={0.1} max={1} step={0.05} format={percent} onCommit={(opacity) => onChange({ opacity })} />}
-      {fields.includes("lineWidth") && <RangeField label="Line width" value={style.lineWidth} min={0.5} max={12} step={0.5} format={points} onCommit={(lineWidth) => onChange({ lineWidth })} />}
-      {fields.includes("fontSize") && <RangeField label="Font size" value={style.fontSize} min={8} max={48} step={1} format={points} onCommit={(fontSize) => onChange({ fontSize })} />}
+      {fields.includes("opacity") && (
+        <RangeField
+          label="Opacity"
+          value={style.opacity}
+          min={0.1}
+          max={1}
+          step={0.05}
+          format={percent}
+          onCommit={(opacity) => onChange({ opacity })}
+        />
+      )}
+      {fields.includes("lineWidth") && (
+        <RangeField
+          label="Line width"
+          value={style.lineWidth}
+          min={0.5}
+          max={12}
+          step={0.5}
+          format={points}
+          onCommit={(lineWidth) => onChange({ lineWidth })}
+        />
+      )}
+      {fields.includes("fontSize") && (
+        <RangeField
+          label="Font size"
+          value={style.fontSize}
+          min={8}
+          max={48}
+          step={1}
+          format={points}
+          onCommit={(fontSize) => onChange({ fontSize })}
+        />
+      )}
     </>
   );
 }

@@ -8,7 +8,10 @@ import { PropertiesPanel } from "./PropertiesPanel";
  */
 export function Inspector() {
   return (
-    <aside aria-labelledby="properties-title" className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] border-l border-divider bg-rail">
+    <aside
+      aria-labelledby="properties-title"
+      className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] border-l border-divider bg-rail"
+    >
       <PanelHeader id="properties-title" title="Properties" />
       <div className="overflow-y-auto p-4">
         <PropertiesPanel />

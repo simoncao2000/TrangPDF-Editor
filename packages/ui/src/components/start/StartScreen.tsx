@@ -38,13 +38,22 @@ export function StartScreen({ dragging }: StartScreenProps) {
             data-state={dragging ? "drag-over" : undefined}
             className="relative grid justify-items-center gap-3 rounded-sm border border-divider bg-raised px-4 py-8 text-center transition-[scale,border-color] duration-(--duration-enter) ease-out data-[state=drag-over]:scale-[1.01] data-[state=drag-over]:border-signal"
           >
-            <span aria-hidden="true" className="pointer-events-none absolute inset-2 rounded-sm border-[1.5px] border-dashed border-divider in-data-[state=drag-over]:border-signal" />
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-2 rounded-sm border-[1.5px] border-dashed border-divider in-data-[state=drag-over]:border-signal"
+            />
             <span className="grid size-13 place-items-center rounded-[48%_43%_50%_46%] border border-line bg-signal-soft text-signal">
               <Upload className="size-6" aria-hidden="true" />
             </span>
             <h2 className="font-hand text-[1.44rem] font-normal">{dragging ? "Drop to open" : "Drop a PDF here"}</h2>
             <p className="text-sm text-muted">or choose one from this device</p>
-            <Button variant="primary" size="lg" icon={FolderOpen} shortcut={isMac ? "⌘O" : "Ctrl O"} onClick={openFromPicker}>
+            <Button
+              variant="primary"
+              size="lg"
+              icon={FolderOpen}
+              shortcut={isMac ? "⌘O" : "Ctrl O"}
+              onClick={openFromPicker}
+            >
               Choose a file
             </Button>
           </div>

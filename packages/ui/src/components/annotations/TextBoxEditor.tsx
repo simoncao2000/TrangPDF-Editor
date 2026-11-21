@@ -35,7 +35,11 @@ export function TextBoxEditor({ annotation, frame, onDone }: TextBoxEditorProps)
   };
 
   return (
-    <div data-annotation="" className="absolute" style={{ left: box.left, top: box.top, width: box.width, height: box.height }}>
+    <div
+      data-annotation=""
+      className="absolute"
+      style={{ left: box.left, top: box.top, width: box.width, height: box.height }}
+    >
       <textarea
         // The box was just made or double-clicked: typing should start at once.
         autoFocus

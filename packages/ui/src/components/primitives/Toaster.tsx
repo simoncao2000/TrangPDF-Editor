@@ -18,7 +18,11 @@ export function Toaster() {
   }, [toast, paused, dismiss]);
 
   return (
-    <div role="status" aria-live="polite" className="pointer-events-none fixed inset-x-0 bottom-20 z-40 flex justify-center px-4">
+    <div
+      role="status"
+      aria-live="polite"
+      className="pointer-events-none fixed inset-x-0 bottom-20 z-40 flex justify-center px-4"
+    >
       {toast && (
         <div
           key={toast.id}
@@ -40,7 +44,12 @@ export function Toaster() {
               {toast.action.label}
             </button>
           )}
-          <button type="button" aria-label="Dismiss" onClick={() => dismiss(toast.id)} className="grid size-8 place-items-center rounded-xs opacity-80 hover:bg-on-inverse/15 hover:opacity-100">
+          <button
+            type="button"
+            aria-label="Dismiss"
+            onClick={() => dismiss(toast.id)}
+            className="grid size-8 place-items-center rounded-xs opacity-80 hover:bg-on-inverse/15 hover:opacity-100"
+          >
             <X className="size-4" aria-hidden="true" />
           </button>
         </div>

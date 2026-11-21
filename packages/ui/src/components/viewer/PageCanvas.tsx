@@ -1,4 +1,11 @@
-import { bitmapSize, EngineCallError, RenderCancelledError, type DocId, type RenderTicket, type Rotation } from "@pdf-editor/core";
+import {
+  bitmapSize,
+  EngineCallError,
+  RenderCancelledError,
+  type DocId,
+  type RenderTicket,
+  type Rotation,
+} from "@pdf-editor/core";
 import { useEffect, useRef, useState } from "react";
 import { useEditorServices } from "../../editor/hooks";
 
@@ -29,7 +36,9 @@ interface PageCanvasProps {
  * @returns Whether to ignore it.
  */
 function isCancellation(error: unknown): boolean {
-  return error instanceof RenderCancelledError || (error instanceof EngineCallError && error.detail.code === "cancelled");
+  return (
+    error instanceof RenderCancelledError || (error instanceof EngineCallError && error.detail.code === "cancelled")
+  );
 }
 
 /**
@@ -38,7 +47,17 @@ function isCancellation(error: unknown): boolean {
  * @param props Which page, its CSS size and its render priority.
  * @returns A `<canvas>` sized in CSS pixels.
  */
-export function PageCanvas({ docId, pageIndex, rotation, revision, hideEditable = false, width, height, priority, className = "" }: PageCanvasProps) {
+export function PageCanvas({
+  docId,
+  pageIndex,
+  rotation,
+  revision,
+  hideEditable = false,
+  width,
+  height,
+  priority,
+  className = "",
+}: PageCanvasProps) {
   const { renderer } = useEditorServices();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const ticketRef = useRef<RenderTicket | null>(null);
@@ -79,15 +98,18 @@ export function PageCanvas({ docId, pageIndex, rotation, revision, hideEditable 
       active = false;
       ticket.cancel();
     };
-  }, [renderer, docId, pageIndex, rotation, hideEditable, revision, settled.width, settled.height]); // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [renderer, docId, pageIndex, rotation, hideEditable, revision, settled.width, settled.height]);
 
   useEffect(() => ticketRef.current?.setPriority(priority), [priority]);
 
   return (
     <div className={`relative bg-paper ${className}`} style={{ width, height }}>
-      <canvas ref={canvasRef} className="block size-full" aria-hidden="true" />
+      <canvas ref={canvasRef} data-page-canvas="" className="block size-full" aria-hidden="true" />
       {failedSize === `${settled.width}x${settled.height}` && (
-        <p className="absolute inset-0 grid place-items-center p-4 text-center text-sm text-paper-muted">This page couldn’t be drawn.</p>
+        <p className="absolute inset-0 grid place-items-center p-4 text-center text-sm text-paper-muted">
+          This page couldn’t be drawn.
+        </p>
       )}
     </div>
   );

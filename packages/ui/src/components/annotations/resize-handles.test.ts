@@ -13,7 +13,12 @@ describe("resizeRect", () => {
   });
 
   test("stops at the minimum size instead of flipping", () => {
-    expect(resizeRect(box, "ne", -500, 500)).toEqual({ left: 100, top: 140 - MIN_SIZE, width: MIN_SIZE, height: MIN_SIZE });
+    expect(resizeRect(box, "ne", -500, 500)).toEqual({
+      left: 100,
+      top: 140 - MIN_SIZE,
+      width: MIN_SIZE,
+      height: MIN_SIZE,
+    });
   });
 });
 

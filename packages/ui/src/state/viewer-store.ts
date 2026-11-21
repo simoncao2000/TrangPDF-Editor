@@ -41,7 +41,14 @@ export interface ViewSnapshot {
   readonly currentPage: number;
 }
 
-const INITIAL = { mode: "read" as ViewerMode, zoomMode: { kind: "fit-width" } as ZoomMode, zoom: 1, currentPage: 0, scrollRequest: null, searchHit: null };
+const INITIAL = {
+  mode: "read" as ViewerMode,
+  zoomMode: { kind: "fit-width" } as ZoomMode,
+  zoom: 1,
+  currentPage: 0,
+  scrollRequest: null,
+  searchHit: null,
+};
 
 export const useViewer = create<ViewerState>((set, get) => ({
   ...INITIAL,
@@ -59,5 +66,6 @@ export const useViewer = create<ViewerState>((set, get) => ({
     const { mode, zoomMode, currentPage } = get();
     return { mode, zoomMode, currentPage };
   },
-  restore: (snapshot) => set({ ...snapshot, scrollRequest: { page: snapshot.currentPage, nonce: (get().scrollRequest?.nonce ?? 0) + 1 } }),
+  restore: (snapshot) =>
+    set({ ...snapshot, scrollRequest: { page: snapshot.currentPage, nonce: (get().scrollRequest?.nonce ?? 0) + 1 } }),
 }));

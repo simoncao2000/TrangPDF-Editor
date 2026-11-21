@@ -84,7 +84,11 @@ function download(name: string, bytes: ArrayBuffer): void {
  * @returns True when both File System Access pickers exist.
  */
 function supportsFileHandles(): boolean {
-  return typeof window !== "undefined" && typeof window.showOpenFilePicker === "function" && typeof window.showSaveFilePicker === "function";
+  return (
+    typeof window !== "undefined" &&
+    typeof window.showOpenFilePicker === "function" &&
+    typeof window.showSaveFilePicker === "function"
+  );
 }
 
 /**
@@ -95,7 +99,11 @@ export function createWebFileAdapter(): FileAdapter {
   /** File handles seen this session, by file id: for the recent list and for saving in place. */
   const handles = new Map<string, FileSystemFileHandle>();
 
-  const readFile = async (file: File, handle?: FileSystemFileHandle, fileId: string = crypto.randomUUID()): Promise<OpenedFile> => {
+  const readFile = async (
+    file: File,
+    handle?: FileSystemFileHandle,
+    fileId: string = crypto.randomUUID(),
+  ): Promise<OpenedFile> => {
     if (handle) handles.set(fileId, handle);
     return { name: file.name, bytes: await file.arrayBuffer(), fileId };
   };
@@ -143,7 +151,13 @@ export function createWebFileAdapter(): FileAdapter {
 
     async listRecent(): Promise<RecentFile[]> {
       const records = await readRecent();
-      return records.map(({ id, name, openedAt, pageCount, handle }) => ({ id, name, openedAt, pageCount, canReopen: Boolean(handle) }));
+      return records.map(({ id, name, openedAt, pageCount, handle }) => ({
+        id,
+        name,
+        openedAt,
+        pageCount,
+        canReopen: Boolean(handle),
+      }));
     },
 
     async openRecent(id) {

@@ -218,7 +218,11 @@ export class PageAnnotations {
    */
   private needsRecreating(annot: number, next: EditableAnnotation): boolean {
     if (this.pdfium.FPDFAnnot_GetSubtype(annot) !== SUBTYPE_OF[next.kind]) return true;
-    return next.kind === "highlight" && this.pdfium.FPDFAnnot_CountAttachmentPoints(annot) !== next.lines.length && this.pdfium.FPDFAnnot_CountAttachmentPoints(annot) > 0;
+    return (
+      next.kind === "highlight" &&
+      this.pdfium.FPDFAnnot_CountAttachmentPoints(annot) !== next.lines.length &&
+      this.pdfium.FPDFAnnot_CountAttachmentPoints(annot) > 0
+    );
   }
 
   /**
@@ -288,7 +292,9 @@ export class PageAnnotations {
   private read(annot: number, subtype: number): Annotation {
     const base = {
       id: this.ensureName(annot),
-      rect: this.heap.withBuffer(RECT_BYTES, (ptr) => (this.pdfium.FPDFAnnot_GetRect(annot, ptr) ? this.heap.readRect(ptr) : { x: 0, y: 0, width: 0, height: 0 })),
+      rect: this.heap.withBuffer(RECT_BYTES, (ptr) =>
+        this.pdfium.FPDFAnnot_GetRect(annot, ptr) ? this.heap.readRect(ptr) : { x: 0, y: 0, width: 0, height: 0 },
+      ),
       color: this.readColor(annot) ?? DEFAULT_COLOR,
       opacity: this.readOpacity(annot),
     };
@@ -300,7 +306,12 @@ export class PageAnnotations {
       case SUBTYPE.square:
         return { ...base, kind: "square", lineWidth: this.readBorderWidth(annot) };
       case SUBTYPE.freeText:
-        return { ...base, ...this.readTextAppearance(annot), kind: "textBox", text: this.getString(annot, CONTENTS_KEY) };
+        return {
+          ...base,
+          ...this.readTextAppearance(annot),
+          kind: "textBox",
+          text: this.getString(annot, CONTENTS_KEY),
+        };
       default:
         return { ...base, kind: "other", subtype };
     }
@@ -338,7 +349,9 @@ export class PageAnnotations {
    * @returns 0 to 1; 1 when unset.
    */
   private readOpacity(annot: number): number {
-    return this.heap.withBuffer(INT_BYTES, (ptr) => (this.pdfium.EPDFAnnot_GetOpacity(annot, ptr) ? this.heap.int(ptr) / MAX_CHANNEL : 1));
+    return this.heap.withBuffer(INT_BYTES, (ptr) =>
+      this.pdfium.EPDFAnnot_GetOpacity(annot, ptr) ? this.heap.int(ptr) / MAX_CHANNEL : 1,
+    );
   }
 
   /**
@@ -347,7 +360,11 @@ export class PageAnnotations {
    * @returns The width in points; 1 when unset.
    */
   private readBorderWidth(annot: number): number {
-    return this.heap.withBuffer(3 * FLOAT_BYTES, (ptr) => (this.pdfium.FPDFAnnot_GetBorder(annot, ptr, ptr + FLOAT_BYTES, ptr + 2 * FLOAT_BYTES) ? this.heap.float(ptr + 2 * FLOAT_BYTES) : 1));
+    return this.heap.withBuffer(3 * FLOAT_BYTES, (ptr) =>
+      this.pdfium.FPDFAnnot_GetBorder(annot, ptr, ptr + FLOAT_BYTES, ptr + 2 * FLOAT_BYTES)
+        ? this.heap.float(ptr + 2 * FLOAT_BYTES)
+        : 1,
+    );
   }
 
   /**
@@ -389,8 +406,12 @@ export class PageAnnotations {
     // Out params: font (int), size (float), r, g, b (ints).
     return this.heap.withBuffer(5 * INT_BYTES, (ptr) => {
       const at = (slot: number) => ptr + slot * INT_BYTES;
-      if (!this.pdfium.EPDFAnnot_GetDefaultAppearance(annot, at(0), at(1), at(2), at(3), at(4))) return { fontSize: 12, color: DEFAULT_COLOR };
-      return { fontSize: this.heap.float(at(1)), color: { r: this.heap.int(at(2)), g: this.heap.int(at(3)), b: this.heap.int(at(4)) } };
+      if (!this.pdfium.EPDFAnnot_GetDefaultAppearance(annot, at(0), at(1), at(2), at(3), at(4)))
+        return { fontSize: 12, color: DEFAULT_COLOR };
+      return {
+        fontSize: this.heap.float(at(1)),
+        color: { r: this.heap.int(at(2)), g: this.heap.int(at(3)), b: this.heap.int(at(4)) },
+      };
     });
   }
 

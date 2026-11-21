@@ -11,7 +11,10 @@ import type { EngineError } from "./protocol";
  * @returns The engine error it rejected with.
  */
 async function rejection(promise: Promise<unknown>): Promise<EngineError> {
-  const error = await promise.then(() => null, (e: unknown) => e);
+  const error = await promise.then(
+    () => null,
+    (e: unknown) => e,
+  );
   expect(error).toBeInstanceOf(EngineCallError);
   return (error as EngineCallError).detail;
 }
@@ -66,7 +69,9 @@ describe("engine protocol", () => {
     expect(first.code).toBe("password-required");
     expect(first.lockedId).toBeTruthy();
 
-    const wrong = await rejection(engine.call("open", { source: { lockedId: first.lockedId! }, password: "nope" }).promise);
+    const wrong = await rejection(
+      engine.call("open", { source: { lockedId: first.lockedId! }, password: "nope" }).promise,
+    );
     expect(wrong.code).toBe("wrong-password");
 
     const opened = await engine.call("open", { source: { lockedId: first.lockedId! }, password: "harbour" }).promise;
@@ -94,7 +99,8 @@ describe("engine protocol", () => {
 
   it("renders a page turned by an extra rotation", async () => {
     const { docId } = await engine.call("open", { source: { bytes: corpusFile("three-pages.pdf") } }).promise;
-    const rendered = await engine.call("renderPage", { docId, pageIndex: 0, width: 129, height: 100, rotation: 90 }).promise;
+    const rendered = await engine.call("renderPage", { docId, pageIndex: 0, width: 129, height: 100, rotation: 90 })
+      .promise;
     const bitmap = rendered.bitmap as unknown as FakeBitmap;
     // Page 1 has its blue band at the bottom; turned clockwise the band is on the left.
     const leftMiddle = (50 * 129 + 20) * 4;
@@ -109,7 +115,8 @@ describe("assemble (save pipeline)", () => {
    * Opens a corpus file.
    * @returns Its docId.
    */
-  const openThreePages = async () => (await engine.call("open", { source: { bytes: corpusFile("three-pages.pdf") } }).promise).docId;
+  const openThreePages = async () =>
+    (await engine.call("open", { source: { bytes: corpusFile("three-pages.pdf") } }).promise).docId;
 
   /**
    * Reopens built bytes and reads their page sizes.
@@ -148,9 +155,12 @@ describe("assemble (save pipeline)", () => {
   });
 
   it("keeps an encrypted file encrypted when building, and verifies it with its password", async () => {
-    const first = await rejection(engine.call("open", { source: { bytes: corpusFile("encrypted-harbour.pdf") } }).promise);
+    const first = await rejection(
+      engine.call("open", { source: { bytes: corpusFile("encrypted-harbour.pdf") } }).promise,
+    );
     const opened = await engine.call("open", { source: { lockedId: first.lockedId! }, password: "harbour" }).promise;
-    const { bytes } = await engine.call("assemble", { parts: [{ docId: opened.docId, pageIndex: 1, rotation: 0 }] }).promise;
+    const { bytes } = await engine.call("assemble", { parts: [{ docId: opened.docId, pageIndex: 1, rotation: 0 }] })
+      .promise;
     const locked = await rejection(engine.call("open", { source: { bytes } }).promise);
     expect(locked.code).toBe("password-required"); // still protected after saving
     const reopened = await engine.call("open", { source: { lockedId: locked.lockedId! }, password: "harbour" }).promise;
@@ -160,7 +170,9 @@ describe("assemble (save pipeline)", () => {
   it("refuses parts from a closed document", async () => {
     const a = await openThreePages();
     await engine.call("close", { docId: a }).promise;
-    const error = await rejection(engine.call("assemble", { parts: [{ docId: a, pageIndex: 0, rotation: 0 }] }).promise);
+    const error = await rejection(
+      engine.call("assemble", { parts: [{ docId: a, pageIndex: 0, rotation: 0 }] }).promise,
+    );
     expect(error.code).toBe("unknown-document");
   });
 });

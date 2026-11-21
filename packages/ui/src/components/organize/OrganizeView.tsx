@@ -43,7 +43,12 @@ const KEYBOARD_OPTIONS = {
  * @param overId The page it was dropped on.
  * @returns The index among the pages that are not moving, or `null` for no move.
  */
-function dropIndex(order: readonly string[], moving: ReadonlySet<string>, activeId: string, overId: string): number | null {
+function dropIndex(
+  order: readonly string[],
+  moving: ReadonlySet<string>,
+  activeId: string,
+  overId: string,
+): number | null {
   if (moving.has(overId)) return null;
   const rest = order.filter((id) => !moving.has(id));
   const movingDown = order.indexOf(activeId) < order.indexOf(overId);
@@ -74,7 +79,10 @@ export function OrganizeView() {
   const sensors = useSensors(useSensor(PointerSensor, POINTER_OPTIONS), useSensor(KeyboardSensor, KEYBOARD_OPTIONS));
 
   // Stable handlers (they read the latest selection from the store) so memoised tiles stay put.
-  const select = useCallback((id: string) => session.select(clickSelection(session.store.getState().selection, id)), [session]);
+  const select = useCallback(
+    (id: string) => session.select(clickSelection(session.store.getState().selection, id)),
+    [session],
+  );
   const open = useCallback(
     (index: number) => {
       setMode("read");
@@ -130,11 +138,27 @@ export function OrganizeView() {
         </Button>
       </header>
 
-      <div className="min-h-0 overflow-y-auto px-3 pt-4 pb-28 sm:px-6" onClick={(event) => event.target === event.currentTarget && session.select([])}>
-        <p className="mb-3 text-sm text-muted max-sm:hidden">Drag pages to reorder. Click or press Space to toggle selection. Press M to move or Enter to open.</p>
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setDragging(null)}>
+      <div
+        className="min-h-0 overflow-y-auto px-3 pt-4 pb-28 sm:px-6"
+        onClick={(event) => event.target === event.currentTarget && session.select([])}
+      >
+        <p className="mb-3 text-sm text-muted max-sm:hidden">
+          Drag pages to reorder. Click or press Space to toggle selection. Press M to move or Enter to open.
+        </p>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+          onDragCancel={() => setDragging(null)}
+        >
           <SortableContext items={order} strategy={rectSortingStrategy}>
-            <ul role="listbox" aria-multiselectable="true" aria-label="Pages" className="grid grid-cols-[repeat(auto-fill,minmax(142px,1fr))] gap-x-2 gap-y-4 sm:grid-cols-[repeat(auto-fill,minmax(150px,1fr))]">
+            <ul
+              role="listbox"
+              aria-multiselectable="true"
+              aria-label="Pages"
+              className="grid grid-cols-[repeat(auto-fill,minmax(142px,1fr))] gap-x-2 gap-y-4 sm:grid-cols-[repeat(auto-fill,minmax(150px,1fr))]"
+            >
               {pages.map((page, index) => (
                 <PageTile
                   key={page.id}
@@ -185,7 +209,6 @@ export function OrganizeView() {
           />
         </div>
       )}
-
     </section>
   );
 }

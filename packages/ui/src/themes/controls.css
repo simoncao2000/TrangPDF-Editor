@@ -24,7 +24,9 @@
   border: 0;
   border-radius: 50%;
   background: var(--surface-raised);
-  box-shadow: 0 0 0 1px rgb(var(--shadow-rgb) / 22%), var(--elevation-1);
+  box-shadow:
+    0 0 0 1px rgb(var(--shadow-rgb) / 22%),
+    var(--elevation-1);
   appearance: none;
   transition: transform var(--duration-press) ease-out;
 }
@@ -34,7 +36,9 @@
   border: 0;
   border-radius: 50%;
   background: var(--surface-raised);
-  box-shadow: 0 0 0 1px rgb(var(--shadow-rgb) / 22%), var(--elevation-1);
+  box-shadow:
+    0 0 0 1px rgb(var(--shadow-rgb) / 22%),
+    var(--elevation-1);
 }
 .range-field:active::-webkit-slider-thumb {
   transform: scale(1.12);
@@ -43,21 +47,43 @@
   outline: none;
 }
 .range-field:focus-visible::-webkit-slider-thumb {
-  box-shadow: 0 0 0 2px var(--surface-raised), 0 0 0 4px var(--focus);
+  box-shadow:
+    0 0 0 2px var(--surface-raised),
+    0 0 0 4px var(--focus);
 }
 .range-field:focus-visible::-moz-range-thumb {
-  box-shadow: 0 0 0 2px var(--surface-raised), 0 0 0 4px var(--focus);
+  box-shadow:
+    0 0 0 2px var(--surface-raised),
+    0 0 0 4px var(--focus);
 }
 
 /* A search match picked in the command palette pulses once so the eye finds it. */
 @keyframes search-hit {
-  0% { opacity: 0; transform: scale(1.25); transform-box: fill-box; transform-origin: center; }
-  60% { opacity: 1; }
-  100% { opacity: 1; transform: scale(1); transform-box: fill-box; transform-origin: center; }
+  0% {
+    opacity: 0;
+    transform: scale(1.25);
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+  60% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+    transform-box: fill-box;
+    transform-origin: center;
+  }
 }
 
 /* The tool palette settles in when it lands on an edge: quick, from slightly small. */
 @keyframes tools-in {
-  from { opacity: 0; transform: scale(0.96); }
-  to { opacity: 1; transform: scale(1); }
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }

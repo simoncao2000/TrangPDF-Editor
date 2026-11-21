@@ -6,28 +6,45 @@
  * and inserts a replacement after it; added text is switched off for undo. Undo and redo switch
  * objects on and off by id, so nothing is lost. Ids map to object handles, which only stay valid
  * while the page stays loaded, so the engine keeps such pages open (see `PdfiumEngine`).
+ *
+ * A line is usually one text object. A line whose font cannot draw spaces is written one object
+ * per word (`pdfium-text-words.ts`); an id then stands for all of its words.
  */
 import type { WrappedPdfiumModule } from "@embedpdf/pdfium";
 import type { PdfPoint, PdfRect } from "@pdf-editor/shared";
-import { fontStyleOf, standardFontFor, type NewTextLine, type NewTextStyle, type PageTextObject } from "../page-text/page-text";
-import { FLOAT_BYTES, INT_BYTES, PdfiumHeap } from "./pdfium-heap";
+import { standardFontFor, type NewTextLine, type NewTextStyle, type PageTextObject } from "../page-text/page-text";
+import { PdfiumHeap } from "./pdfium-heap";
+import { LineMarks } from "./pdfium-line-marks";
+import { MATRIX_BYTES, TextMeasure } from "./pdfium-text-measure";
+import { TextObjectAccess, type TextPixels, type TextPlacement } from "./pdfium-text-object";
+import { WordWriter } from "./pdfium-text-words";
 
-/** FPDF_PAGEOBJ_TEXT. */
-const TEXT_OBJECT = 1;
 /** A point this close to a text object's box (in points) still hits it. */
 const HIT_TOLERANCE = 2;
-/** FS_MATRIX: a, b, c, d, e, f. */
-const MATRIX_BYTES = 6 * FLOAT_BYTES;
 const OPAQUE = 255;
 /** The font new text is written in; every viewer has it. */
 const NEW_TEXT_FONT = "Helvetica";
-/** A space narrower than this (in em) counts as missing; real fonts' spaces are about 0.25 em. */
-const MIN_SPACE_EM = 0.1;
+/** How far (in points, both ways) switched-off objects are moved: well off any page. */
+const PARKING_OFFSET = -100_000;
 
-/** Ids for the text objects of one document's loaded pages. */
+/** The page being edited: its document, the loaded page and the document's text ids. */
+export interface PageContext {
+  /** The document handle; new objects belong to it. */
+  readonly doc: number;
+  /** A loaded (held) page handle. */
+  readonly page: number;
+  readonly ids: TextObjectIds;
+}
+
+/**
+ * Ids for the text of one document's loaded pages (an id stands for one object or a line of
+ * words), and where switched-off objects really belong.
+ */
 export class TextObjectIds {
   private readonly byHandle = new Map<number, string>();
-  private readonly byId = new Map<string, number>();
+  private readonly byId = new Map<string, readonly number[]>();
+  /** Switched-off objects' own matrices, while they are parked off the page. */
+  private readonly parked = new Map<number, readonly number[]>();
   private next = 1;
 
   /**
@@ -39,34 +56,58 @@ export class TextObjectIds {
     let id = this.byHandle.get(handle);
     if (!id) {
       id = `text-${this.next++}`;
-      this.register(id, handle);
+      this.register(id, [handle]);
     }
     return id;
   }
 
   /**
-   * Records an id chosen by the caller for a new object.
+   * Records an id for one object or for the words of a line.
    * @param id The id.
-   * @param handle The object's handle.
+   * @param handles The objects it stands for, in drawing order.
    */
-  register(id: string, handle: number): void {
-    this.byHandle.set(handle, id);
-    this.byId.set(id, handle);
+  register(id: string, handles: readonly number[]): void {
+    for (const handle of handles) this.byHandle.set(handle, id);
+    this.byId.set(id, handles);
   }
 
   /**
-   * The object with an id.
+   * The objects an id stands for.
    * @param id An id.
-   * @returns Its handle, or 0 if unknown.
+   * @returns Their handles; empty if the id is unknown.
    */
-  handleOf(id: string): number {
-    return this.byId.get(id) ?? 0;
+  handlesOf(id: string): readonly number[] {
+    return this.byId.get(id) ?? [];
+  }
+
+  /**
+   * Remembers a switched-off object's matrix before it is moved off the page.
+   * @param handle The object.
+   * @param matrix Its matrix.
+   */
+  park(handle: number, matrix: readonly number[]): void {
+    this.parked.set(handle, matrix);
+  }
+
+  /**
+   * Takes back a parked object's matrix.
+   * @param handle The object.
+   * @returns Its own matrix, or `undefined` if it was not parked.
+   */
+  unpark(handle: number): readonly number[] | undefined {
+    const matrix = this.parked.get(handle);
+    this.parked.delete(handle);
+    return matrix;
   }
 }
 
 export class PageTextObjects {
   private readonly pdfium: WrappedPdfiumModule;
   private readonly heap: PdfiumHeap;
+  private readonly objects: TextObjectAccess;
+  private readonly measure: TextMeasure;
+  private readonly marks: LineMarks;
+  private readonly words: WordWriter;
 
   /**
    * @param pdfium An initialised PDFium module.
@@ -74,363 +115,358 @@ export class PageTextObjects {
   constructor(pdfium: WrappedPdfiumModule) {
     this.pdfium = pdfium;
     this.heap = new PdfiumHeap(pdfium);
+    this.objects = new TextObjectAccess(pdfium);
+    this.measure = new TextMeasure(pdfium);
+    this.marks = new LineMarks(pdfium);
+    this.words = new WordWriter(pdfium);
   }
 
   /**
-   * The text object under a point; the topmost one when they overlap.
-   * @param page A loaded page.
-   * @param ids The document's id registry.
+   * The line under a point; the topmost one when they overlap.
+   * @param page The page.
    * @param point A point in PDF space.
-   * @returns The text object, or `null` when there is no visible text there.
+   * @returns The line, or `null` when there is no visible text there.
    */
-  objectAt(page: number, ids: TextObjectIds, point: PdfPoint): PageTextObject | null {
-    for (let index = this.pdfium.FPDFPage_CountObjects(page) - 1; index >= 0; index--) {
-      const object = this.pdfium.FPDFPage_GetObject(page, index);
-      if (!this.isActiveText(object)) continue;
-      const bounds = this.boundsOf(object);
-      const hit =
-        point.x >= bounds.x - HIT_TOLERANCE && point.x <= bounds.x + bounds.width + HIT_TOLERANCE && point.y >= bounds.y - HIT_TOLERANCE && point.y <= bounds.y + bounds.height + HIT_TOLERANCE;
-      if (hit) return this.withTextPage(page, (textPage) => this.describe(textPage, object, ids.idOf(object), bounds));
+  objectAt(page: PageContext, point: PdfPoint): PageTextObject | null {
+    for (let index = this.pdfium.FPDFPage_CountObjects(page.page) - 1; index >= 0; index--) {
+      const object = this.pdfium.FPDFPage_GetObject(page.page, index);
+      if (!this.objects.isActiveText(object) || !hits(this.objects.boundsOf(object), point)) continue;
+      const lineId = this.marks.lineOf(object)?.id;
+      const members = lineId ? this.membersOf(page.page, lineId) : [object];
+      const id = lineId ?? page.ids.idOf(object);
+      return this.objects.withTextPage(page.page, (textPage) => this.describeLine(textPage, page.ids, id, members));
     }
     return null;
   }
 
   /**
-   * Every visible text object on a page, in drawing order. Objects with no text (spacing only) are
-   * left out.
-   * @param page A loaded page.
-   * @param ids The document's id registry.
-   * @returns The text objects.
+   * Every visible line on a page, in drawing order. Objects with no text (spacing only) are left out.
+   * @param page The page.
+   * @returns The lines.
    */
-  list(page: number, ids: TextObjectIds): PageTextObject[] {
-    return this.withTextPage(page, (textPage) => {
-      const result: PageTextObject[] = [];
-      const count = this.pdfium.FPDFPage_CountObjects(page);
-      for (let index = 0; index < count; index++) {
-        const object = this.pdfium.FPDFPage_GetObject(page, index);
-        if (!this.isActiveText(object)) continue;
-        const described = this.describe(textPage, object, ids.idOf(object), this.boundsOf(object));
-        if (described.text.trim()) result.push(described);
+  list(page: PageContext): PageTextObject[] {
+    // One pass groups marked words into their lines, keeping each line where its first word is.
+    const order: { readonly id: string | null; readonly object: number }[] = [];
+    const lines = new Map<string, number[]>();
+    for (let index = 0; index < this.pdfium.FPDFPage_CountObjects(page.page); index++) {
+      const object = this.pdfium.FPDFPage_GetObject(page.page, index);
+      if (!this.objects.isActiveText(object)) continue;
+      const lineId = this.marks.lineOf(object)?.id ?? null;
+      if (!lineId) order.push({ id: null, object });
+      else if (lines.has(lineId)) lines.get(lineId)!.push(object);
+      else {
+        lines.set(lineId, [object]);
+        order.push({ id: lineId, object });
       }
-      return result;
-    });
+    }
+    return this.objects.withTextPage(page.page, (textPage) =>
+      order
+        .map(({ id, object }) =>
+          this.describeLine(textPage, page.ids, id ?? page.ids.idOf(object), id ? lines.get(id)! : [object]),
+        )
+        .filter((line) => line.text.trim()),
+    );
   }
 
   /**
-   * Replaces a text object's text: switches the original off and inserts a replacement right after
-   * it, in the same font when the font can write the new text, otherwise in the closest standard font.
-   * @param doc The document handle (new objects belong to it).
-   * @param page A loaded page.
-   * @param ids The document's id registry.
-   * @param id The text object's id.
+   * Replaces a line's text: switches the original off and inserts a replacement right after it.
+   * Tries, in order: the original font; the original font one object per word, with the original
+   * gaps (for fonts whose space has no width); the closest standard font.
+   * @param page The page.
+   * @param id The line's id.
    * @param newId The id to give the replacement.
    * @param text The new text.
-   * @returns False if `id` is not a visible text object on this page or PDFium refused the text.
+   * @returns False if `id` is not visible text on this page or PDFium refused the text.
    */
-  replace(doc: number, page: number, ids: TextObjectIds, id: string, newId: string, text: string): boolean {
-    const original = ids.handleOf(id);
-    const index = original ? this.indexOf(page, original) : -1;
-    if (index < 0 || !this.isActiveText(original)) return false;
-    const font = this.pdfium.FPDFTextObj_GetFont(original);
-    const size = this.fontSizeOf(original);
-
-    // First try the original font. It cannot write the text if it lacks a glyph (the text reads back
-    // differently) or if its space has no width (subset fonts from pdfTeX: the words would run together).
-    let replacement = this.insertLike(page, index + 1, original, this.pdfium.FPDFPageObj_CreateTextObj(doc, font, size), text);
-    if (replacement && (this.withTextPage(page, (textPage) => this.readText(textPage, replacement)) !== text || this.spacesCollapse(doc, font, size, text))) {
-      this.pdfium.FPDFPage_RemoveObject(page, replacement);
-      this.pdfium.FPDFPageObj_Destroy(replacement);
-      replacement = 0;
+  replace(page: PageContext, id: string, newId: string, text: string): boolean {
+    const originals = page.ids.handlesOf(id);
+    const indexes = originals.map((handle) => this.objects.indexOf(page.page, handle));
+    const visible = originals.every((handle) => this.objects.isActiveText(handle));
+    if (originals.length === 0 || indexes.some((index) => index < 0) || !visible) return false;
+    // Read while the original still shows: PDFium cannot read the text of a switched-off object,
+    // and parking moves it.
+    const first = originals[0]!;
+    const placement: TextPlacement = {
+      at: Math.max(...indexes) + 1,
+      model: { object: first, matrix: this.measure.matrixOf(first) },
+    };
+    const gap = this.words.gapOf(page, originals);
+    // Off before writing, so the replacement is read on its own.
+    for (const original of originals) this.switchOff(page.ids, original);
+    const inFont = this.writeInFont(page, placement, text);
+    const made =
+      inFont.made ??
+      (inFont.lettersFit ? this.words.write(page, placement, { id: newId, gap }, text) : null) ??
+      this.writeInStandardFont(page, placement, text);
+    if (!made) {
+      for (const original of originals) this.switchOn(page.ids, original);
+      return false;
     }
-    if (!replacement) {
-      const fallback = standardFontFor(fontStyleOf(this.fontName(font), this.pdfium.FPDFFont_GetFlags(font)));
-      replacement = this.insertLike(page, index + 1, original, this.pdfium.FPDFPageObj_NewTextObj(doc, fallback, size), text);
-    }
-    if (!replacement) return false;
-    this.pdfium.FPDFPageObj_SetIsActive(original, false);
-    ids.register(newId, replacement);
+    page.ids.register(newId, made);
     return true;
   }
 
   /**
    * Adds lines of text to the page, in Helvetica, after everything else on it.
-   * @param doc The document handle.
-   * @param page A loaded page.
-   * @param ids The document's id registry.
+   * @param page The page.
    * @param lines The lines, each with where its baseline starts.
    * @param style Size, colour and angle.
    * @param newIds One id per line.
    * @returns False if PDFium refused a line (none are added then).
    */
-  add(doc: number, page: number, ids: TextObjectIds, lines: readonly NewTextLine[], style: NewTextStyle, newIds: readonly string[]): boolean {
+  add(page: PageContext, lines: readonly NewTextLine[], style: NewTextStyle, newIds: readonly string[]): boolean {
     const radians = (style.angle * Math.PI) / 180;
     const [cos, sin] = [Math.cos(radians), Math.sin(radians)];
     const created: number[] = [];
     for (const line of lines) {
-      const object = this.pdfium.FPDFPageObj_NewTextObj(doc, NEW_TEXT_FONT, style.fontSize);
+      const object = this.pdfium.FPDFPageObj_NewTextObj(page.doc, NEW_TEXT_FONT, style.fontSize);
       const written = object && this.heap.withWideString(line.text, (ptr) => this.pdfium.FPDFText_SetText(object, ptr));
       if (!written) {
         if (object) this.pdfium.FPDFPageObj_Destroy(object);
-        created.forEach((done) => {
-          this.pdfium.FPDFPage_RemoveObject(page, done);
-          this.pdfium.FPDFPageObj_Destroy(done);
-        });
+        this.objects.discard(page.page, created);
         return false;
       }
       this.pdfium.FPDFPageObj_Transform(object, cos, sin, -sin, cos, line.origin.x, line.origin.y);
       this.pdfium.FPDFPageObj_SetFillColor(object, style.color.r, style.color.g, style.color.b, OPAQUE);
-      this.pdfium.FPDFPage_InsertObject(page, object);
+      this.pdfium.FPDFPage_InsertObject(page.page, object);
       created.push(object);
     }
-    created.forEach((object, i) => ids.register(newIds[i]!, object));
+    created.forEach((object, i) => page.ids.register(newIds[i]!, [object]));
     return true;
   }
 
   /**
-   * Switches text objects on and off (undo and redo).
-   * @param page A loaded page.
-   * @param ids The document's id registry.
+   * Switches lines on and off (undo and redo).
+   * @param page The page.
    * @param show Ids to switch on.
    * @param hide Ids to switch off.
-   * @returns False if an id is not an object on this page.
+   * @returns False if an id is not on this page.
    */
-  show(page: number, ids: TextObjectIds, show: readonly string[], hide: readonly string[]): boolean {
-    const handles = [...show, ...hide].map((id) => ids.handleOf(id));
-    if (handles.some((handle) => !handle || this.indexOf(page, handle) < 0)) return false;
-    hide.forEach((id) => this.pdfium.FPDFPageObj_SetIsActive(ids.handleOf(id), false));
-    show.forEach((id) => this.pdfium.FPDFPageObj_SetIsActive(ids.handleOf(id), true));
+  show(page: PageContext, show: readonly string[], hide: readonly string[]): boolean {
+    if (![...show, ...hide].every((id) => this.onPage(page, id))) return false;
+    for (const id of hide) for (const handle of page.ids.handlesOf(id)) this.switchOff(page.ids, handle);
+    for (const id of show) for (const handle of page.ids.handlesOf(id)) this.switchOn(page.ids, handle);
     return true;
   }
 
   /**
-   * Moves a text object.
-   * @param page A loaded page.
-   * @param ids The document's id registry.
-   * @param id The text object's id.
+   * Moves a line.
+   * @param page The page.
+   * @param id The line's id.
    * @param dx Distance along x, in points.
    * @param dy Distance along y, in points (positive is up).
-   * @returns False if `id` is not an object on this page.
+   * @returns False if `id` is not on this page.
    */
-  move(page: number, ids: TextObjectIds, id: string, dx: number, dy: number): boolean {
-    const object = ids.handleOf(id);
-    if (!object || this.indexOf(page, object) < 0) return false;
-    this.pdfium.FPDFPageObj_Transform(object, 1, 0, 0, 1, dx, dy);
+  move(page: PageContext, id: string, dx: number, dy: number): boolean {
+    if (!this.onPage(page, id)) return false;
+    for (const handle of page.ids.handlesOf(id)) this.pdfium.FPDFPageObj_Transform(handle, 1, 0, 0, 1, dx, dy);
     return true;
   }
 
   /**
-   * Draws one text object on its own, on a transparent background, tightly cropped to its bounds.
-   * @param doc The document handle.
-   * @param page A loaded page.
-   * @param ids The document's id registry.
-   * @param id The text object's id.
+   * Draws a line on its own, on a transparent background, tightly cropped to its bounds.
+   * @param page The page.
+   * @param id The line's id.
    * @param scale Device pixels per point.
-   * @returns RGBA pixels, or `null` if `id` is not an object on this page.
+   * @returns RGBA pixels, or `null` if `id` is not on this page.
    */
-  render(doc: number, page: number, ids: TextObjectIds, id: string, scale: number): { width: number; height: number; pixels: Uint8ClampedArray<ArrayBuffer> } | null {
-    const object = ids.handleOf(id);
-    if (!object || this.indexOf(page, object) < 0) return null;
-    const bitmap = this.pdfium.FPDFTextObj_GetRenderedBitmap(doc, page, object, scale);
-    if (!bitmap) return null;
-    try {
-      const width = this.pdfium.FPDFBitmap_GetWidth(bitmap);
-      const height = this.pdfium.FPDFBitmap_GetHeight(bitmap);
-      const stride = this.pdfium.FPDFBitmap_GetStride(bitmap);
-      const source = this.pdfium.pdfium.HEAPU8.subarray(this.pdfium.FPDFBitmap_GetBuffer(bitmap), this.pdfium.FPDFBitmap_GetBuffer(bitmap) + stride * height);
-      // PDFium writes BGRA rows padded to `stride`; the page renderer wants tight RGBA.
-      const pixels = new Uint8ClampedArray(width * height * 4);
-      for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-          const from = y * stride + x * 4;
-          const to = (y * width + x) * 4;
-          pixels[to] = source[from + 2]!;
-          pixels[to + 1] = source[from + 1]!;
-          pixels[to + 2] = source[from]!;
-          pixels[to + 3] = source[from + 3]!;
-        }
-      }
-      return { width, height, pixels };
-    } finally {
-      this.pdfium.FPDFBitmap_Destroy(bitmap);
+  render(page: PageContext, id: string, scale: number): TextPixels | null {
+    if (!this.onPage(page, id)) return null;
+    const handles = page.ids.handlesOf(id);
+    if (handles.length === 1) return this.objects.render(page.doc, page.page, handles[0]!, scale);
+    // A line of words: draw each word and lay the pictures out where the words are on the page.
+    const words = handles.map((handle) => ({
+      bounds: this.objects.boundsOf(handle),
+      drawn: this.objects.render(page.doc, page.page, handle, scale),
+    }));
+    if (words.some((word) => !word.drawn)) return null;
+    const area = unionOf(words.map((word) => word.bounds));
+    const width = Math.ceil(area.width * scale);
+    const height = Math.ceil(area.height * scale);
+    const line = { width, height, pixels: new Uint8ClampedArray(width * height * 4) };
+    for (const { bounds, drawn } of words) {
+      const left = Math.round((bounds.x - area.x) * scale);
+      const top = Math.round((area.y + area.height - bounds.y - bounds.height) * scale);
+      copyInto(line, drawn!, { left, top });
     }
+    return line;
   }
 
   /**
-   * Whether a font draws the spaces between words with (almost) no width. pdfTeX makes word gaps by
-   * moving the pen, not with a space glyph, and gives unused codes, the space among them, a width
-   * of 0; text written with real spaces in such a font runs together.
-   * @param doc The document handle.
-   * @param font The font.
-   * @param size Font size in points.
-   * @param text The text to be written.
-   * @returns True when the spaces inside the text would be narrower than `MIN_SPACE_EM` each.
+   * Whether an id stands for objects on a page.
+   * @param page The page.
+   * @param id An id.
+   * @returns True when the id is known and all its objects are on the page.
    */
-  private spacesCollapse(doc: number, font: number, size: number, text: string): boolean {
-    const inner = text.trim();
-    const spaces = inner.match(/\s/g)?.length ?? 0;
-    if (spaces === 0) return false;
-    // Trailing and leading spaces have no ink, so only spaces between words change the width.
-    const spacing = this.widthIn(doc, font, size, inner) - this.widthIn(doc, font, size, inner.replace(/\s/g, ""));
-    return spacing < spaces * size * MIN_SPACE_EM;
+  private onPage(page: PageContext, id: string): boolean {
+    const handles = page.ids.handlesOf(id);
+    return handles.length > 0 && handles.every((handle) => this.objects.indexOf(page.page, handle) >= 0);
   }
 
   /**
-   * How wide a text would be in a font, measured on a scratch object that is never inserted.
-   * @param doc The document handle.
-   * @param font The font.
-   * @param size Font size in points.
-   * @param text The text.
-   * @returns Its width in points, or 0 if PDFium cannot write it.
+   * Switches an object off (not drawn, not saved) and parks it off the page. PDFium's text reader
+   * still sees switched-off objects when it drops text drawn twice in the same place, so a
+   * replacement identical to the original (an unchanged word, a line typed back as it was) would
+   * otherwise vanish from search, selection and the line list.
+   * @param ids The document's registry, which remembers where the object belongs.
+   * @param handle The object.
    */
-  private widthIn(doc: number, font: number, size: number, text: string): number {
-    const scratch = this.pdfium.FPDFPageObj_CreateTextObj(doc, font, size);
-    if (!scratch) return 0;
-    try {
-      if (!this.heap.withWideString(text, (ptr) => this.pdfium.FPDFText_SetText(scratch, ptr))) return 0;
-      return this.boundsOf(scratch).width;
-    } finally {
-      this.pdfium.FPDFPageObj_Destroy(scratch);
-    }
+  private switchOff(ids: TextObjectIds, handle: number): void {
+    if (!this.objects.isActiveText(handle)) return;
+    const matrix = this.measure.matrixOf(handle);
+    ids.park(handle, matrix);
+    const [a = 1, b = 0, c = 0, d = 1, e = 0, f = 0] = matrix;
+    this.setMatrix(handle, [a, b, c, d, e + PARKING_OFFSET, f + PARKING_OFFSET]);
+    this.pdfium.FPDFPageObj_SetIsActive(handle, false);
   }
 
   /**
-   * Fills in a new text object like the original (position, scale, colour) and inserts it.
-   * @param page A loaded page.
-   * @param at Index to insert at.
-   * @param original The object being replaced.
-   * @param created A new, empty text object (0 if PDFium could not make one).
-   * @param text Its text.
-   * @returns The inserted object, or 0.
+   * Switches an object back on, exactly where it was.
+   * @param ids The document's registry.
+   * @param handle The object.
    */
-  private insertLike(page: number, at: number, original: number, created: number, text: string): number {
-    if (!created) return 0;
-    const set = this.heap.withWideString(text, (ptr) => this.pdfium.FPDFText_SetText(created, ptr));
+  private switchOn(ids: TextObjectIds, handle: number): void {
+    const matrix = ids.unpark(handle);
+    if (matrix) this.setMatrix(handle, matrix);
+    this.pdfium.FPDFPageObj_SetIsActive(handle, true);
+  }
+
+  /**
+   * Sets a page object's matrix.
+   * @param handle The object.
+   * @param matrix [a, b, c, d, e, f].
+   */
+  private setMatrix(handle: number, matrix: readonly number[]): void {
     this.heap.withBuffer(MATRIX_BYTES, (ptr) => {
-      if (this.pdfium.FPDFPageObj_GetMatrix(original, ptr)) this.pdfium.FPDFPageObj_SetMatrix(created, ptr);
+      this.heap.writeFloats(ptr, matrix);
+      this.pdfium.FPDFPageObj_SetMatrix(handle, ptr);
     });
-    this.heap.withBuffer(4 * INT_BYTES, (ptr) => {
-      const slot = (n: number) => ptr + n * INT_BYTES;
-      if (this.pdfium.FPDFPageObj_GetFillColor(original, slot(0), slot(1), slot(2), slot(3))) {
-        this.pdfium.FPDFPageObj_SetFillColor(created, this.heap.int(slot(0)), this.heap.int(slot(1)), this.heap.int(slot(2)), this.heap.int(slot(3)));
-      }
-    });
-    if (!set || !this.pdfium.FPDFPage_InsertObjectAtIndex(page, created, at)) {
-      this.pdfium.FPDFPageObj_Destroy(created);
-      return 0;
-    }
-    return created;
   }
 
   /**
-   * Describes a text object for the editor.
-   * @param textPage The page's loaded text page.
-   * @param object The text object.
-   * @param id Its id.
-   * @param bounds Its bounds.
-   * @returns The record.
+   * Writes text as one object in the model's font.
+   * @param page The page.
+   * @param placement Where it goes and what it is modelled on.
+   * @param text The new text.
+   * @returns The new object (`null` if the font lacks a glyph or its spaces have no width), and
+   *   whether the font has every letter of the text, so its words could be written one by one.
    */
-  private describe(textPage: number, object: number, id: string, bounds: PdfRect): PageTextObject {
-    const font = this.pdfium.FPDFTextObj_GetFont(object);
-    // The text matrix may scale the font (LaTeX writes "1 Tf" and scales the matrix).
-    const scale = this.heap.withBuffer(MATRIX_BYTES, (ptr) => {
-      if (!this.pdfium.FPDFPageObj_GetMatrix(object, ptr)) return 1;
-      return Math.hypot(this.heap.float(ptr + 2 * FLOAT_BYTES), this.heap.float(ptr + 3 * FLOAT_BYTES)) || 1;
-    });
-    const color = this.heap.withBuffer(4 * INT_BYTES, (ptr) =>
-      this.pdfium.FPDFPageObj_GetFillColor(object, ptr, ptr + INT_BYTES, ptr + 2 * INT_BYTES, ptr + 3 * INT_BYTES)
-        ? { r: this.heap.int(ptr), g: this.heap.int(ptr + INT_BYTES), b: this.heap.int(ptr + 2 * INT_BYTES) }
-        : { r: 0, g: 0, b: 0 },
-    );
-    return { id, text: this.readText(textPage, object), bounds, fontSize: this.fontSizeOf(object) * scale, color, style: fontStyleOf(this.fontName(font), this.pdfium.FPDFFont_GetFlags(font)) };
+  private writeInFont(
+    page: PageContext,
+    placement: TextPlacement,
+    text: string,
+  ): { made: number[] | null; lettersFit: boolean } {
+    const face = this.words.faceOf(page.doc, placement.model.object);
+    const created = this.pdfium.FPDFPageObj_CreateTextObj(face.doc, face.font, face.size);
+    const made = this.objects.insertLike(page.page, placement, created, text);
+    if (!made) return { made: null, lettersFit: false };
+    // A missing glyph makes the text read back differently.
+    const readBack = this.objects.withTextPage(page.page, (textPage) => this.objects.readText(textPage, made));
+    if (readBack === text && !this.measure.spacesCollapse(face, text)) return { made: [made], lettersFit: true };
+    this.objects.discard(page.page, [made]);
+    return { made: null, lettersFit: withoutSpaces(readBack) === withoutSpaces(text) };
   }
 
   /**
-   * A text object's font size, before the text matrix scales it.
-   * @param object A text object.
-   * @returns The size in points (12 if PDFium cannot say).
+   * Writes text as one object in the standard font closest to the model's.
+   * @param page The page.
+   * @param placement Where it goes and what it is modelled on.
+   * @param text The new text.
+   * @returns The new object, or `null` if PDFium refused the text.
    */
-  private fontSizeOf(object: number): number {
-    return this.heap.withBuffer(FLOAT_BYTES, (ptr) => (this.pdfium.FPDFTextObj_GetFontSize(object, ptr) ? this.heap.float(ptr) : 12));
+  private writeInStandardFont(page: PageContext, placement: TextPlacement, text: string): number[] | null {
+    const original = placement.model.object;
+    const fallback = standardFontFor(this.objects.styleOf(this.pdfium.FPDFTextObj_GetFont(original)));
+    const created = this.pdfium.FPDFPageObj_NewTextObj(page.doc, fallback, this.objects.fontSizeOf(original));
+    const made = this.objects.insertLike(page.page, placement, created, text);
+    return made ? [made] : null;
   }
 
   /**
-   * Where an object sits in the page's object list.
+   * The active words of a line on a page.
    * @param page A loaded page.
-   * @param object A page object handle.
-   * @returns Its index, or -1 if it is not on this page.
+   * @param lineId The line's id.
+   * @returns Its objects in drawing order.
    */
-  private indexOf(page: number, object: number): number {
-    const count = this.pdfium.FPDFPage_CountObjects(page);
-    for (let index = 0; index < count; index++) if (this.pdfium.FPDFPage_GetObject(page, index) === object) return index;
-    return -1;
-  }
-
-  /**
-   * Whether an object is a text object that is drawn.
-   * @param object A page object handle (0 for none).
-   * @returns True for an active text object.
-   */
-  private isActiveText(object: number): boolean {
-    if (!object || this.pdfium.FPDFPageObj_GetType(object) !== TEXT_OBJECT) return false;
-    return this.heap.withBuffer(INT_BYTES, (ptr) => {
-      this.pdfium.pdfium.setValue(ptr, 1, "i32");
-      // If PDFium cannot say, the object counts as active.
-      return !this.pdfium.FPDFPageObj_GetIsActive(object, ptr) || this.heap.int(ptr) !== 0;
-    });
-  }
-
-  /**
-   * A page object's bounding box.
-   * @param object A page object handle.
-   * @returns Its bounds in PDF space.
-   */
-  private boundsOf(object: number): PdfRect {
-    return this.heap.withBuffer(4 * FLOAT_BYTES, (ptr) => {
-      const slot = (n: number) => ptr + n * FLOAT_BYTES;
-      if (!this.pdfium.FPDFPageObj_GetBounds(object, slot(0), slot(1), slot(2), slot(3))) return { x: 0, y: 0, width: 0, height: 0 };
-      // FPDFPageObj_GetBounds writes left, bottom, right, top.
-      const [left, bottom, right, top] = [0, 1, 2, 3].map((n) => this.heap.float(slot(n))) as [number, number, number, number];
-      return { x: left, y: bottom, width: right - left, height: top - bottom };
-    });
-  }
-
-  /**
-   * The Unicode text of a text object.
-   * @param textPage The page's loaded text page.
-   * @param object The text object.
-   * @returns Its text.
-   */
-  private readText(textPage: number, object: number): string {
-    return this.heap.readWideString((ptr, bytes) => this.pdfium.FPDFTextObj_GetText(object, textPage, ptr, bytes));
-  }
-
-  /**
-   * Loads a page's text page, runs `work`, and closes it.
-   * @param page A loaded page.
-   * @param work What to do with the text page.
-   * @returns `work`'s result.
-   */
-  private withTextPage<T>(page: number, work: (textPage: number) => T): T {
-    const textPage = this.pdfium.FPDFText_LoadPage(page);
-    try {
-      return work(textPage);
-    } finally {
-      this.pdfium.FPDFText_ClosePage(textPage);
+  private membersOf(page: number, lineId: string): number[] {
+    const members: number[] = [];
+    for (let index = 0; index < this.pdfium.FPDFPage_CountObjects(page); index++) {
+      const object = this.pdfium.FPDFPage_GetObject(page, index);
+      if (this.objects.isActiveText(object) && this.marks.lineOf(object)?.id === lineId) members.push(object);
     }
+    return members;
   }
 
   /**
-   * A font's /BaseFont name.
-   * @param font A font handle.
-   * @returns The name (UTF-8), or "" when unknown.
+   * Describes a line (one object, or a line of words) for the editor, and records its id.
+   * @param textPage The page's loaded text page.
+   * @param ids The document's id registry.
+   * @param id The line's id.
+   * @param members Its objects in drawing order.
+   * @returns The record: the first object's look, all the words, the bounds around them.
    */
-  private fontName(font: number): string {
-    if (!font) return "";
-    const bytes = this.pdfium.FPDFFont_GetBaseFontName(font, 0, 0);
-    if (bytes <= 1) return "";
-    return this.heap.withBuffer(bytes, (ptr) => {
-      this.pdfium.FPDFFont_GetBaseFontName(font, ptr, bytes);
-      return this.pdfium.pdfium.UTF8ToString(ptr);
-    });
+  private describeLine(textPage: number, ids: TextObjectIds, id: string, members: readonly number[]): PageTextObject {
+    ids.register(id, members);
+    const bounds = unionOf(members.map((member) => this.objects.boundsOf(member)));
+    const first = this.objects.describe(textPage, members[0]!, id, bounds);
+    if (members.length === 1) return first;
+    // PDFium reads the gap after a word as a space at the end of it.
+    return { ...first, text: members.map((member) => this.objects.readText(textPage, member).trim()).join(" ") };
+  }
+}
+
+/**
+ * Whether a point is on (or within `HIT_TOLERANCE` of) a box.
+ * @param bounds A box in PDF space.
+ * @param point A point in PDF space.
+ * @returns True on a hit.
+ */
+function hits(bounds: PdfRect, point: PdfPoint): boolean {
+  return (
+    point.x >= bounds.x - HIT_TOLERANCE &&
+    point.x <= bounds.x + bounds.width + HIT_TOLERANCE &&
+    point.y >= bounds.y - HIT_TOLERANCE &&
+    point.y <= bounds.y + bounds.height + HIT_TOLERANCE
+  );
+}
+
+/**
+ * A text with its white space taken out.
+ * @param text Any text.
+ * @returns The text without spaces, tabs or line breaks.
+ */
+function withoutSpaces(text: string): string {
+  return text.replace(/\s/g, "");
+}
+
+/**
+ * The smallest box around some boxes.
+ * @param boxes At least one box.
+ * @returns Their union.
+ */
+function unionOf(boxes: readonly PdfRect[]): PdfRect {
+  const left = Math.min(...boxes.map((box) => box.x));
+  const bottom = Math.min(...boxes.map((box) => box.y));
+  const right = Math.max(...boxes.map((box) => box.x + box.width));
+  const top = Math.max(...boxes.map((box) => box.y + box.height));
+  return { x: left, y: bottom, width: right - left, height: top - bottom };
+}
+
+/**
+ * Copies a picture into a larger one, skipping clear pixels and anything that falls outside.
+ * @param target The larger picture.
+ * @param source The picture to copy.
+ * @param at Where the source's top-left corner goes, in the target's pixels.
+ */
+function copyInto(target: TextPixels, source: TextPixels, at: { readonly left: number; readonly top: number }): void {
+  for (let y = 0; y < source.height; y++) {
+    const row = at.top + y;
+    if (row < 0 || row >= target.height) continue;
+    for (let x = 0; x < source.width; x++) {
+      const column = at.left + x;
+      const from = (y * source.width + x) * 4;
+      if (column < 0 || column >= target.width || source.pixels[from + 3] === 0) continue;
+      target.pixels.set(source.pixels.subarray(from, from + 4), (row * target.width + column) * 4);
+    }
   }
 }

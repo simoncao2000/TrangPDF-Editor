@@ -23,7 +23,12 @@ export function InsertPagesFlow() {
   const after = lastSelected >= 0 ? lastSelected : currentPage;
   const positions: InsertPosition[] = [
     { id: "start", label: "At the start", detail: "Before page 1", index: 0 },
-    { id: "after", label: `After page ${after + 1}`, detail: lastSelected >= 0 ? "After the last selected page" : "After the page you were reading", index: after + 1 },
+    {
+      id: "after",
+      label: `After page ${after + 1}`,
+      detail: lastSelected >= 0 ? "After the last selected page" : "After the page you were reading",
+      index: after + 1,
+    },
     { id: "end", label: "At the end", detail: `After page ${pages.length}`, index: pages.length },
   ];
   return (

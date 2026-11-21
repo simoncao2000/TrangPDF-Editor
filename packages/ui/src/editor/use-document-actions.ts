@@ -73,7 +73,10 @@ export function useDocumentActions(): DocumentActions {
     [session],
   );
 
-  const confirm = useCallback((message: string) => show(message, { action: { label: "Undo", run: () => session.undo() } }), [session, show]);
+  const confirm = useCallback(
+    (message: string) => show(message, { action: { label: "Undo", run: () => session.undo() } }),
+    [session, show],
+  );
 
   const writeWith = useCallback(
     async (getTarget: () => Promise<SaveTarget | null>) => {
@@ -87,8 +90,10 @@ export function useDocumentActions(): DocumentActions {
       if (!target) return false;
       const result = await session.save((bytes) => target.write(bytes));
       if (result.saved) show(`Saved ${result.file.name}`);
-      else if (result.reason === "build-failed") show("The PDF couldn’t be built, so nothing was written. Your changes are still open.", { tone: "error" });
-      else if (result.reason === "write-failed") show("Couldn’t write the file. Your changes are still open; try Save as.", { tone: "error" });
+      else if (result.reason === "build-failed")
+        show("The PDF couldn’t be built, so nothing was written. Your changes are still open.", { tone: "error" });
+      else if (result.reason === "write-failed")
+        show("Couldn’t write the file. Your changes are still open; try Save as.", { tone: "error" });
       return result.saved;
     },
     [session, show],
@@ -127,7 +132,10 @@ export function useDocumentActions(): DocumentActions {
         if (!file) return null;
         const imported = await session.importSource(file);
         if (!imported.ok) {
-          const reason = imported.error === "password-required" ? "it has a password. Remove the password and try again" : "it isn’t a PDF that can be read";
+          const reason =
+            imported.error === "password-required"
+              ? "it has a password. Remove the password and try again"
+              : "it isn’t a PDF that can be read";
           show(`Couldn’t insert ${file.name}: ${reason}.`, { tone: "error" });
           return null;
         }

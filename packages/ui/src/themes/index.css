@@ -78,6 +78,7 @@
   --font-doc: var(--primitive-font-doc);
   --font-mono: var(--primitive-font-mono);
   --default-font-family: var(--primitive-font-ui);
+  --default-mono-font-family: var(--primitive-font-ui);
   --text-2xs: var(--type-2xs);
   --text-xs: var(--type-xs);
   --text-sm: var(--type-sm);

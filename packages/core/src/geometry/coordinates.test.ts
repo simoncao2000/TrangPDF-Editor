@@ -1,7 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import fc from "fast-check";
 import type { Rotation } from "../engine/protocol";
-import { displayedSize, type PageFrame, pageFrame, pageSizeOf, pdfRectToScreen, pdfToScreen, screenDeltaToPdf, screenRectToPdf, screenToPdf } from "./coordinates";
+import {
+  displayedSize,
+  type PageFrame,
+  pageFrame,
+  pageSizeOf,
+  pdfRectToScreen,
+  pdfToScreen,
+  screenDeltaToPdf,
+  screenRectToPdf,
+  screenToPdf,
+} from "./coordinates";
 
 const LETTER: PageFrame = { cropBox: { x: 0, y: 0, width: 612, height: 792 }, rotation: 0, zoom: 1 };
 const ROTATIONS: readonly Rotation[] = [0, 90, 180, 270];
@@ -12,7 +22,9 @@ const ROTATIONS: readonly Rotation[] = [0, 90, 180, 270];
  * @returns The same keys with rounded values.
  */
 function rounded<T extends object>(value: T): T {
-  return Object.fromEntries(Object.entries(value).map(([key, number]) => [key, Math.round((number as number) * 100) / 100])) as T;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, number]) => [key, Math.round((number as number) * 100) / 100]),
+  ) as T;
 }
 
 describe("pdfRectToScreen", () => {
@@ -35,7 +47,12 @@ describe("pdfRectToScreen", () => {
   test("measures from the crop box, not the media box", () => {
     const cropped: PageFrame = { cropBox: { x: 50, y: 100, width: 500, height: 600 }, rotation: 0, zoom: 0.75 };
     // The crop box's top-left corner is the screen origin.
-    expect(rounded(pdfRectToScreen({ x: 50, y: 690, width: 10, height: 10 }, cropped))).toEqual({ left: 0, top: 0, width: 10, height: 10 });
+    expect(rounded(pdfRectToScreen({ x: 50, y: 690, width: 10, height: 10 }, cropped))).toEqual({
+      left: 0,
+      top: 0,
+      width: 10,
+      height: 10,
+    });
   });
 
   test.each([
@@ -67,7 +84,12 @@ describe("pdfToScreen", () => {
     ].map((corner) => rounded(pdfToScreen(corner, frame)));
     const xs = corners.map((corner) => corner.x).sort((a, b) => a - b);
     const ys = corners.map((corner) => corner.y).sort((a, b) => a - b);
-    expect([xs[0], xs[3], ys[0], ys[3]]).toEqual([0, Math.round(size.width * 100) / 100, 0, Math.round(size.height * 100) / 100]);
+    expect([xs[0], xs[3], ys[0], ys[3]]).toEqual([
+      0,
+      Math.round(size.width * 100) / 100,
+      0,
+      Math.round(size.height * 100) / 100,
+    ]);
   });
 });
 
@@ -93,11 +115,16 @@ describe("round trips", () => {
 
   test("screenToPdf undoes pdfToScreen for any point, rotation, crop box and zoom", () => {
     fc.assert(
-      fc.property(frames, fc.double({ min: -3000, max: 3000, noNaN: true }), fc.double({ min: -3000, max: 3000, noNaN: true }), (frame, x, y) => {
-        const back = screenToPdf(pdfToScreen({ x, y }, frame), frame);
-        expect(back.x).toBeCloseTo(x, 6);
-        expect(back.y).toBeCloseTo(y, 6);
-      }),
+      fc.property(
+        frames,
+        fc.double({ min: -3000, max: 3000, noNaN: true }),
+        fc.double({ min: -3000, max: 3000, noNaN: true }),
+        (frame, x, y) => {
+          const back = screenToPdf(pdfToScreen({ x, y }, frame), frame);
+          expect(back.x).toBeCloseTo(x, 6);
+          expect(back.y).toBeCloseTo(y, 6);
+        },
+      ),
     );
   });
 

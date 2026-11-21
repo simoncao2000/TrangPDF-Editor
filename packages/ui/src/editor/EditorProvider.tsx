@@ -21,7 +21,8 @@ interface EditorProviderProps {
  */
 export function EditorProvider({ services, children }: EditorProviderProps) {
   const activeId = useStore(services.workspace.store, (state) => state.activeId);
-  const value = useMemo(() => ({ ...services, session: services.workspace.activeSession() }), [services, activeId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const value = useMemo(() => ({ ...services, session: services.workspace.activeSession() }), [services, activeId]);
   useTabViewMemory(activeId);
   return <EditorContext.Provider value={value}>{children}</EditorContext.Provider>;
 }

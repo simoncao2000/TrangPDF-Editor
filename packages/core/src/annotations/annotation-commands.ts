@@ -26,13 +26,10 @@ const KIND_LABELS: Record<AnnotationKind, string> = {
  * @returns The command.
  */
 export function addAnnotation(content: DocumentContent, pageId: string, annotation: EditableAnnotation): Command {
-  return pageEditCommand(
-    content,
-    pageId,
-    `Add ${KIND_LABELS[annotation.kind]}`,
-    (engine, at) => engine("putAnnotation", { ...at, annotation }),
-    (engine, at) => engine("removeAnnotation", { ...at, id: annotation.id }),
-  );
+  return pageEditCommand(content, pageId, `Add ${KIND_LABELS[annotation.kind]}`, {
+    apply: (engine, at) => engine("putAnnotation", { ...at, annotation }),
+    undo: (engine, at) => engine("removeAnnotation", { ...at, id: annotation.id }),
+  });
 }
 
 /**
@@ -43,14 +40,16 @@ export function addAnnotation(content: DocumentContent, pageId: string, annotati
  * @param after The annotation as it should be, with the same id.
  * @returns The command.
  */
-export function editAnnotation(content: DocumentContent, pageId: string, before: EditableAnnotation, after: EditableAnnotation): Command {
-  return pageEditCommand(
-    content,
-    pageId,
-    `Edit ${KIND_LABELS[after.kind]}`,
-    (engine, at) => engine("putAnnotation", { ...at, annotation: after }),
-    (engine, at) => engine("putAnnotation", { ...at, annotation: before }),
-  );
+export function editAnnotation(
+  content: DocumentContent,
+  pageId: string,
+  before: EditableAnnotation,
+  after: EditableAnnotation,
+): Command {
+  return pageEditCommand(content, pageId, `Edit ${KIND_LABELS[after.kind]}`, {
+    apply: (engine, at) => engine("putAnnotation", { ...at, annotation: after }),
+    undo: (engine, at) => engine("putAnnotation", { ...at, annotation: before }),
+  });
 }
 
 /**
@@ -60,17 +59,21 @@ export function editAnnotation(content: DocumentContent, pageId: string, before:
  * @param annotations The annotations to delete.
  * @returns The command.
  */
-export function deleteAnnotations(content: DocumentContent, pageId: string, annotations: readonly Annotation[]): Command {
+export function deleteAnnotations(
+  content: DocumentContent,
+  pageId: string,
+  annotations: readonly Annotation[],
+): Command {
   const ids = annotations.map((annotation) => annotation.id);
-  const label = annotations.length === 1 ? `Delete ${KIND_LABELS[annotations[0]!.kind]}` : `Delete ${annotations.length} annotations`;
+  const label =
+    annotations.length === 1
+      ? `Delete ${KIND_LABELS[annotations[0]!.kind]}`
+      : `Delete ${annotations.length} annotations`;
   // Every call is sent before any is awaited, so they reach the worker in order.
   const each = (engine: CommandEngine, at: PageAddress, method: "removeAnnotation" | "restoreAnnotation") =>
     Promise.all(ids.map((id) => engine(method, { ...at, id })));
-  return pageEditCommand(
-    content,
-    pageId,
-    label,
-    (engine, at) => each(engine, at, "removeAnnotation"),
-    (engine, at) => each(engine, at, "restoreAnnotation"),
-  );
+  return pageEditCommand(content, pageId, label, {
+    apply: (engine, at) => each(engine, at, "removeAnnotation"),
+    undo: (engine, at) => each(engine, at, "restoreAnnotation"),
+  });
 }

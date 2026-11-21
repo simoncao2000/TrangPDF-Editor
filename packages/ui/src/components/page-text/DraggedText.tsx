@@ -1,4 +1,10 @@
-import { CSS_PIXELS_PER_POINT, pdfRectToScreen, type PageFrame, type PageTextObject, type ScreenPoint } from "@pdf-editor/core";
+import {
+  CSS_PIXELS_PER_POINT,
+  pdfRectToScreen,
+  type PageFrame,
+  type PageTextObject,
+  type ScreenPoint,
+} from "@pdf-editor/core";
 import { useEffect, useRef } from "react";
 import { useEditorServices } from "../../editor/hooks";
 
@@ -53,7 +59,13 @@ export function DraggedText({ pageId, object, offset, frame }: DraggedTextProps)
       <div
         aria-hidden="true"
         className="pointer-events-none absolute"
-        style={{ left: box.left - COVER_BLEED, top: box.top - COVER_BLEED, width: box.width + 2 * COVER_BLEED, height: box.height + 2 * COVER_BLEED, backgroundColor: PAGE_WHITE }}
+        style={{
+          left: box.left - COVER_BLEED,
+          top: box.top - COVER_BLEED,
+          width: box.width + 2 * COVER_BLEED,
+          height: box.height + 2 * COVER_BLEED,
+          backgroundColor: PAGE_WHITE,
+        }}
       />
       <canvas
         ref={canvasRef}

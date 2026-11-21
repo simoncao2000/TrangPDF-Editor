@@ -62,17 +62,29 @@ export const PageTile = memo(function PageTile({ page, number, selected, carried
         <span
           className={`relative block border border-paper-line transition-transform duration-(--duration-enter) ease-out ${selected ? "scale-[0.94] outline-2 outline-offset-2 outline-signal" : "group-hover:shadow-2"}`}
         >
-          <PageCanvas docId={page.docId} pageIndex={page.sourceIndex} rotation={page.rotation} revision={page.revision} width={TILE_PAGE_WIDTH} height={height} priority={TILE_PRIORITY + number} />
+          <PageCanvas
+            docId={page.docId}
+            pageIndex={page.sourceIndex}
+            rotation={page.rotation}
+            revision={page.revision}
+            width={TILE_PAGE_WIDTH}
+            height={height}
+            priority={TILE_PRIORITY + number}
+          />
         </span>
         <span
           aria-hidden="true"
           className={`pointer-events-none absolute inset-0 m-auto grid size-5.5 place-items-center rounded-full border-[1.5px] transition-[opacity,scale] duration-(--duration-pop) ease-out ${
-            selected ? "border-signal bg-signal text-raised opacity-100" : "border-paper-muted bg-paper/85 opacity-0 group-hover:opacity-100"
+            selected
+              ? "border-signal bg-signal text-raised opacity-100"
+              : "border-paper-muted bg-paper/85 opacity-0 group-hover:opacity-100"
           }`}
         >
           {selected && <Check className="size-3.5" strokeWidth={3} />}
         </span>
-        <span className={`rounded-pill px-1.5 font-mono text-xs ${selected ? "bg-signal text-raised" : "text-muted"}`}>{number}</span>
+        <span className={`rounded-pill px-1.5 font-mono text-xs ${selected ? "bg-signal text-raised" : "text-muted"}`}>
+          {number}
+        </span>
       </div>
     </li>
   );

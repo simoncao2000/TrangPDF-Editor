@@ -23,7 +23,12 @@ export function SearchHighlight({ page, zoom, width, height }: SearchHighlightPr
   if (!hit) return null;
   const frame = pageFrame(page.sourceGeometry, page.rotation, zoom);
   return (
-    <svg className="pointer-events-none absolute inset-0 overflow-visible" width={width} height={height} aria-hidden="true">
+    <svg
+      className="pointer-events-none absolute inset-0 overflow-visible"
+      width={width}
+      height={height}
+      aria-hidden="true"
+    >
       {hit.rects.map((rect, index) => {
         const box = pdfRectToScreen(rect, frame);
         return (

@@ -37,12 +37,24 @@ export function MenuBar() {
  * @param commands Every command.
  * @returns Per menu: its entries and how to run each one.
  */
-function groupByMenu(commands: readonly Command[]): Map<MenuName, { entries: MenuEntry<string>[]; run: Map<string, () => void> }> {
+function groupByMenu(
+  commands: readonly Command[],
+): Map<MenuName, { entries: MenuEntry<string>[]; run: Map<string, () => void> }> {
   const menus = new Map<MenuName, { entries: MenuEntry<string>[]; run: Map<string, () => void>; lastGroup: number }>();
   for (const command of commands) {
-    const menu = menus.get(command.menu) ?? { entries: [] as MenuEntry<string>[], run: new Map<string, () => void>(), lastGroup: command.group };
+    const menu = menus.get(command.menu) ?? {
+      entries: [] as MenuEntry<string>[],
+      run: new Map<string, () => void>(),
+      lastGroup: command.group,
+    };
     if (menu.entries.length > 0 && command.group !== menu.lastGroup) menu.entries.push("separator");
-    menu.entries.push({ value: command.id, label: command.title, icon: command.icon, shortcut: command.shortcut, disabled: !command.enabled });
+    menu.entries.push({
+      value: command.id,
+      label: command.title,
+      icon: command.icon,
+      shortcut: command.shortcut,
+      disabled: !command.enabled,
+    });
     menu.run.set(command.id, command.run);
     menu.lastGroup = command.group;
     menus.set(command.menu, menu);

@@ -3,27 +3,59 @@
  * §7.3). Talks to the engine worker; never imports React or a platform. The UI reads `store` and calls
  * the methods; every edit goes through `dispatch` so it can be undone.
  */
-import { err, ok, type OpenErrorKind, type OpenedFile, type PdfPoint, type PdfRect, type Result, type SavedFile } from "@pdf-editor/shared";
+import {
+  err,
+  ok,
+  type OpenErrorKind,
+  type OpenedFile,
+  type PdfPoint,
+  type PdfRect,
+  type Result,
+  type SavedFile,
+} from "@pdf-editor/shared";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { Annotation } from "../annotations/annotation";
 import type { PageTextObject, TextMatch } from "../page-text/page-text";
 import { EngineCallError } from "../engine/engine-client";
-import type { AssemblePart, EngineErrorCode, EngineMethod, EngineParams, EngineResult, OpenSource, PageAddress } from "../engine/protocol";
+import type {
+  AssemblePart,
+  EngineErrorCode,
+  EngineMethod,
+  EngineParams,
+  EngineResult,
+  OpenSource,
+  PageAddress,
+} from "../engine/protocol";
 import type { CancellableWork } from "../render/render-queue";
 import { inspectPdfBytes } from "../validate";
 import type { Command, CommandEngine } from "./commands";
-import { annotationRevisionOf, EMPTY_DOCUMENT, docIdOf, pageAddressOf, type DocumentContent, type DocumentState, type PageRef, type SourceDoc } from "./document-state";
+import {
+  annotationRevisionOf,
+  EMPTY_DOCUMENT,
+  docIdOf,
+  pageAddressOf,
+  type DocumentContent,
+  type DocumentState,
+  type PageRef,
+  type SourceDoc,
+} from "./document-state";
 import { EMPTY_HISTORY, execute, isDirty, markSaved, redo, undo, type History } from "./history";
 
 /** The engine calls the session needs; `EngineClient` provides them. */
 export interface SessionEngine {
-  call<M extends EngineMethod>(method: M, params: EngineParams<M>, transfer?: Transferable[]): CancellableWork<EngineResult<M>>;
+  call<M extends EngineMethod>(
+    method: M,
+    params: EngineParams<M>,
+    transfer?: Transferable[],
+  ): CancellableWork<EngineResult<M>>;
 }
 
 /** Writes finished bytes somewhere (the UI passes a FileAdapter call). Resolves `null` if cancelled. */
 export type SaveWriter = (bytes: ArrayBuffer) => Promise<SavedFile | null>;
 
-export type SaveResult = { readonly saved: true; readonly file: SavedFile } | { readonly saved: false; readonly reason: "cancelled" | "build-failed" | "write-failed" };
+export type SaveResult =
+  | { readonly saved: true; readonly file: SavedFile }
+  | { readonly saved: false; readonly reason: "cancelled" | "build-failed" | "write-failed" };
 
 /** A command, or a function that builds one from the current content (for commands that remember it). */
 export type CommandInput = Command | ((content: DocumentContent) => Command);
@@ -143,6 +175,14 @@ export interface DocumentSession {
 /** Page reads (annotations, text objects) × revisions kept; older ones are read again if needed. */
 const PAGE_READ_CACHE_SIZE = 200;
 
+/** An open call for the engine: the bytes (or held bytes), a password, and what to move to the worker. */
+interface OpenRequest {
+  readonly source: OpenSource;
+  readonly password?: string;
+  /** Moved to the worker instead of copied (the file's bytes). */
+  readonly transfer: Transferable[];
+}
+
 /**
  * Maps an engine failure to what the user is told.
  * @param code The engine's error code.
@@ -159,7 +199,12 @@ function toOpenError(code: EngineErrorCode): OpenErrorKind {
  * @returns One reference per page.
  */
 function pagesOf(source: SourceDoc): PageRef[] {
-  return Array.from({ length: source.pageCount }, (_, sourceIndex) => ({ id: `${source.id}:${sourceIndex}`, source: source.id, sourceIndex, rotation: 0 }));
+  return Array.from({ length: source.pageCount }, (_, sourceIndex) => ({
+    id: `${source.id}:${sourceIndex}`,
+    source: source.id,
+    sourceIndex,
+    rotation: 0,
+  }));
 }
 
 /**
@@ -169,7 +214,11 @@ function pagesOf(source: SourceDoc): PageRef[] {
  * @returns One part per page.
  */
 function partsOf(content: DocumentContent, pages: readonly PageRef[]): AssemblePart[] {
-  return pages.map((page) => ({ docId: docIdOf(content, page) ?? "", pageIndex: page.sourceIndex, rotation: page.rotation }));
+  return pages.map((page) => ({
+    docId: docIdOf(content, page) ?? "",
+    pageIndex: page.sourceIndex,
+    rotation: page.rotation,
+  }));
 }
 
 /**
@@ -201,7 +250,11 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
    * @param read Reads it from the engine.
    * @returns The cached or fresh result; an empty list for an unknown page.
    */
-  const readPage = <T>(kind: "annotations" | "text", pageId: string, read: (at: PageAddress) => Promise<readonly T[]>): Promise<readonly T[]> => {
+  const readPage = <T>(
+    kind: "annotations" | "text",
+    pageId: string,
+    read: (at: PageAddress) => Promise<readonly T[]>,
+  ): Promise<readonly T[]> => {
     const state = store.getState();
     const at = pageAddressOf(state, pageId);
     if (!at) return Promise.resolve([]);
@@ -215,8 +268,10 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
     if (pageReads.size > PAGE_READ_CACHE_SIZE) pageReads.delete(pageReads.keys().next().value!);
     return result;
   };
-  const readAnnotations = (pageId: string) => readPage("annotations", pageId, (at) => engine.call("getAnnotations", at).promise);
-  const readTextObjects = (pageId: string) => readPage("text", pageId, (at) => engine.call("getTextObjects", at).promise);
+  const readAnnotations = (pageId: string) =>
+    readPage("annotations", pageId, (at) => engine.call("getAnnotations", at).promise);
+  const readTextObjects = (pageId: string) =>
+    readPage("text", pageId, (at) => engine.call("getTextObjects", at).promise);
 
   /**
    * Starts a command's engine work. The calls are sent right away, so they reach the worker before
@@ -250,7 +305,11 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
     });
   };
 
-  const contentOf = (state: DocumentState): DocumentContent => ({ sources: state.sources, pages: state.pages, annotationRevisions: state.annotationRevisions });
+  const contentOf = (state: DocumentState): DocumentContent => ({
+    sources: state.sources,
+    pages: state.pages,
+    annotationRevisions: state.annotationRevisions,
+  });
   /** Edits are allowed only on an open document that is not being saved. */
   const editable = (): boolean => {
     const { status } = store.getState();
@@ -258,7 +317,9 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
   };
 
   const closeSources = async (sources: Readonly<Record<string, SourceDoc>>): Promise<void> => {
-    await Promise.allSettled(Object.values(sources).map((source) => engine.call("close", { docId: source.docId }).promise));
+    await Promise.allSettled(
+      Object.values(sources).map((source) => engine.call("close", { docId: source.docId }).promise),
+    );
   };
 
   const buildPdf = async (pageIds?: readonly string[]): Promise<ArrayBuffer> => {
@@ -269,25 +330,50 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
     return bytes;
   };
 
-  const openInEngine = (source: OpenSource, password: string | undefined, transfer: Transferable[]) =>
+  const openInEngine = ({ source, password, transfer }: OpenRequest) =>
     engine.call("open", { source, password }, transfer).promise;
 
-  const open = async (name: string, fileId: string | null, source: OpenSource, password: string | undefined, transfer: Transferable[]): Promise<void> => {
+  /**
+   * Opens a file as the document, replacing whatever was open.
+   * @param file The file's name and platform id.
+   * @param request What to send to the engine.
+   */
+  const open = async (
+    file: { readonly name: string; readonly fileId: string | null },
+    request: OpenRequest,
+  ): Promise<void> => {
+    const { name, fileId } = file;
     const attempt = ++generation;
     store.setState({ ...EMPTY_DOCUMENT, status: "loading", fileName: name, fileId });
     try {
-      const opened = await openInEngine(source, password, transfer);
+      const opened = await openInEngine(request);
       if (attempt !== generation) return void engine.call("close", { docId: opened.docId });
-      const sourceDoc: SourceDoc = { id: `source-${nextSourceNumber++}`, name, pageCount: opened.pageCount, pages: opened.pages, docId: opened.docId };
+      const sourceDoc: SourceDoc = {
+        id: `source-${nextSourceNumber++}`,
+        name,
+        pageCount: opened.pageCount,
+        pages: opened.pages,
+        docId: opened.docId,
+      };
       locked = null;
-      commit({ sources: { [sourceDoc.id]: sourceDoc }, pages: pagesOf(sourceDoc), annotationRevisions: {} }, EMPTY_HISTORY, { fileName: name, fileId, selection: [], error: null });
+      commit(
+        { sources: { [sourceDoc.id]: sourceDoc }, pages: pagesOf(sourceDoc), annotationRevisions: {} },
+        EMPTY_HISTORY,
+        { fileName: name, fileId, selection: [], error: null },
+      );
     } catch (error) {
       if (attempt !== generation) return;
       const detail = error instanceof EngineCallError ? error.detail : null;
       const kind = toOpenError(detail?.code ?? "engine-failed");
       if (detail?.lockedId && (kind === "password-required" || kind === "wrong-password")) {
         locked = { lockedId: detail.lockedId, name, fileId };
-        store.setState({ ...EMPTY_DOCUMENT, status: "needsPassword", fileName: name, fileId, error: kind === "wrong-password" ? kind : null });
+        store.setState({
+          ...EMPTY_DOCUMENT,
+          status: "needsPassword",
+          fileName: name,
+          fileId,
+          error: kind === "wrong-password" ? kind : null,
+        });
         return;
       }
       store.setState({ ...EMPTY_DOCUMENT, status: "failed", fileName: name, fileId, error: kind });
@@ -308,12 +394,15 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
         store.setState({ ...EMPTY_DOCUMENT, status: "failed", fileName: file.name, error: problem });
         return;
       }
-      await open(file.name, file.fileId ?? null, { bytes: file.bytes }, undefined, [file.bytes]);
+      await open(
+        { name: file.name, fileId: file.fileId ?? null },
+        { source: { bytes: file.bytes }, transfer: [file.bytes] },
+      );
     },
 
     async submitPassword(password) {
       if (!locked) return;
-      await open(locked.name, locked.fileId, { lockedId: locked.lockedId }, password, []);
+      await open(locked, { source: { lockedId: locked.lockedId }, password, transfer: [] });
     },
 
     async close() {
@@ -384,7 +473,12 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
       const matches: DocumentMatch[] = [];
       for (const run of runs) {
         if (matches.length >= limit) break;
-        const found = await engine.call("findText", { docId: run.docId, pageIndexes: run.pages.map((page) => page.sourceIndex), query, limit: limit - matches.length }).promise;
+        const found = await engine.call("findText", {
+          docId: run.docId,
+          pageIndexes: run.pages.map((page) => page.sourceIndex),
+          query,
+          limit: limit - matches.length,
+        }).promise;
         for (const { pageIndex, ...match } of found) {
           const page = run.pages.find((candidate) => candidate.sourceIndex === pageIndex)!;
           matches.push({ ...match, pageId: page.id, pageNumber: pages.indexOf(page) + 1 });
@@ -401,7 +495,10 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
 
     select(pageIds) {
       const wanted = new Set(pageIds);
-      const selection = store.getState().pages.filter((page) => wanted.has(page.id)).map((page) => page.id);
+      const selection = store
+        .getState()
+        .pages.filter((page) => wanted.has(page.id))
+        .map((page) => page.id);
       const current = store.getState().selection;
       // Same selection: skip the update so nothing re-renders.
       if (selection.length === current.length && selection.every((id, i) => id === current[i])) return;
@@ -412,8 +509,14 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
       const problem = inspectPdfBytes(file.bytes);
       if (problem) return err(problem);
       try {
-        const opened = await openInEngine({ bytes: file.bytes }, undefined, [file.bytes]);
-        return ok({ id: `source-${nextSourceNumber++}`, name: file.name, pageCount: opened.pageCount, pages: opened.pages, docId: opened.docId });
+        const opened = await openInEngine({ source: { bytes: file.bytes }, transfer: [file.bytes] });
+        return ok({
+          id: `source-${nextSourceNumber++}`,
+          name: file.name,
+          pageCount: opened.pageCount,
+          pages: opened.pages,
+          docId: opened.docId,
+        });
       } catch (error) {
         return err(toOpenError(error instanceof EngineCallError ? error.detail.code : "engine-failed"));
       }

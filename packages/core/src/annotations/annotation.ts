@@ -107,7 +107,11 @@ export function moveAnnotation<A extends Annotation>(annotation: A, dx: number, 
     case "highlight":
       return { ...annotation, rect, lines: annotation.lines.map((line) => shiftRect(line, dx, dy)) };
     case "ink":
-      return { ...annotation, rect, strokes: annotation.strokes.map((stroke) => stroke.map((point) => shiftPoint(point, dx, dy))) };
+      return {
+        ...annotation,
+        rect,
+        strokes: annotation.strokes.map((stroke) => stroke.map((point) => shiftPoint(point, dx, dy))),
+      };
     default:
       return { ...annotation, rect };
   }

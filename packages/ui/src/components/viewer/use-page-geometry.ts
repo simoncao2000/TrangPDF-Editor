@@ -1,4 +1,15 @@
-import { annotationRevisionOf, cssPageSize, displayedPageSize, docIdOf, layoutPages, resolveZoom, type PageGeometry as PageBoxes, type PageLayout, type Rotation, type ZoomMode } from "@pdf-editor/core";
+import {
+  annotationRevisionOf,
+  cssPageSize,
+  displayedPageSize,
+  docIdOf,
+  layoutPages,
+  resolveZoom,
+  type PageGeometry as PageBoxes,
+  type PageLayout,
+  type Rotation,
+  type ZoomMode,
+} from "@pdf-editor/core";
 import type { PageSize } from "@pdf-editor/shared";
 import { useMemo } from "react";
 import { useDocument } from "../../editor/hooks";
@@ -59,17 +70,35 @@ export function usePageDrawInfo(): readonly PageDrawInfo[] {
  * @param fitPage Index of the page to fit in fit-page mode (the current page).
  * @returns Everything the viewport needs to place pages.
  */
-export function usePageGeometry(zoomMode: ZoomMode, viewport: { width: number; height: number }, spacing: { gap: number; padding: number }, fitPage: number): PageGeometry {
+export function usePageGeometry(
+  zoomMode: ZoomMode,
+  viewport: { width: number; height: number },
+  spacing: { gap: number; padding: number },
+  fitPage: number,
+): PageGeometry {
   const pages = usePageDrawInfo();
 
   const reference = useMemo(() => {
     if (zoomMode.kind === "fit-page") return pages[fitPage]?.size ?? pages[0]?.size;
-    return pages.reduce<PageSize | undefined>((widest, page) => (!widest || page.size.width > widest.width ? page.size : widest), undefined);
+    return pages.reduce<PageSize | undefined>(
+      (widest, page) => (!widest || page.size.width > widest.width ? page.size : widest),
+      undefined,
+    );
   }, [pages, zoomMode.kind, fitPage]);
 
-  const available = { width: Math.max(1, viewport.width - spacing.padding * 2), height: Math.max(1, viewport.height - spacing.padding * 2) };
+  const available = {
+    width: Math.max(1, viewport.width - spacing.padding * 2),
+    height: Math.max(1, viewport.height - spacing.padding * 2),
+  };
   const zoom = reference ? resolveZoom(zoomMode, available, reference) : 1;
-  const layout = useMemo(() => layoutPages(pages.map((page) => cssPageSize(page.size, zoom)), spacing), [pages, zoom, spacing]);
+  const layout = useMemo(
+    () =>
+      layoutPages(
+        pages.map((page) => cssPageSize(page.size, zoom)),
+        spacing,
+      ),
+    [pages, zoom, spacing],
+  );
 
   return { pages, zoom, layout };
 }

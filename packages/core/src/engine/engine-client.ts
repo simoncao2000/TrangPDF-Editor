@@ -63,7 +63,11 @@ export class EngineClient {
    * @param transfer Objects to move to the worker instead of copying (file bytes).
    * @returns The pending call; its promise rejects with `EngineCallError`.
    */
-  call<M extends EngineMethod>(method: M, params: EngineParams<M>, transfer: Transferable[] = []): EngineCall<EngineResult<M>> {
+  call<M extends EngineMethod>(
+    method: M,
+    params: EngineParams<M>,
+    transfer: Transferable[] = [],
+  ): EngineCall<EngineResult<M>> {
     const requestId = this.nextRequestId++;
     const promise = new Promise<EngineResult<M>>((resolve, reject) => {
       if (this.crashed) {
@@ -105,7 +109,8 @@ export class EngineClient {
    */
   private failAll(message: string): void {
     this.crashed = true;
-    for (const pending of this.pending.values()) pending.reject(new EngineCallError({ code: "engine-failed", message }));
+    for (const pending of this.pending.values())
+      pending.reject(new EngineCallError({ code: "engine-failed", message }));
     this.pending.clear();
   }
 }

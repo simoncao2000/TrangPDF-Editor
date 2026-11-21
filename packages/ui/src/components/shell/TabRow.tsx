@@ -63,7 +63,11 @@ export function TabRow() {
             <ChevronDown className="size-3.5" aria-hidden="true" />
           </>
         )}
-        entries={tabs.map((tab) => ({ value: tab.id, label: tab.session.store.getState().fileName ?? "Untitled", icon: FileText }))}
+        entries={tabs.map((tab) => ({
+          value: tab.id,
+          label: tab.session.store.getState().fileName ?? "Untitled",
+          icon: FileText,
+        }))}
         value={activeId}
         onSelect={(id) => workspace.activate(id)}
       />

@@ -48,7 +48,16 @@ function BarButton({ label, onClick, disabled, tone, title, children }: BarButto
  * @param props Selection size, what is allowed, and the actions.
  * @returns The toolbar.
  */
-export function SelectionBar({ count, canDelete, busy, onRotateLeft, onRotateRight, onExtract, onDelete, onClear }: SelectionBarProps) {
+export function SelectionBar({
+  count,
+  canDelete,
+  busy,
+  onRotateLeft,
+  onRotateRight,
+  onExtract,
+  onDelete,
+  onClear,
+}: SelectionBarProps) {
   return (
     <div
       role="toolbar"
@@ -56,7 +65,9 @@ export function SelectionBar({ count, canDelete, busy, onRotateLeft, onRotateRig
       className="flex items-center gap-0.5 rounded-sm border border-line bg-raised p-1 shadow-3 transition-[opacity,translate] duration-(--duration-enter) ease-out starting:translate-y-2 starting:opacity-0 motion-reduce:transition-opacity"
     >
       <span className="mr-1 inline-flex h-9 items-center gap-2 rounded-xs bg-signal-soft pr-3 pl-2 text-sm font-semibold">
-        <span className="grid min-w-5.5 place-items-center rounded-pill bg-signal px-1.5 font-mono text-xs text-raised">{count}</span>
+        <span className="grid min-w-5.5 place-items-center rounded-pill bg-signal px-1.5 font-mono text-xs text-raised">
+          {count}
+        </span>
         <span className="max-sm:sr-only">selected</span>
       </span>
       <BarButton label="Rotate left" onClick={onRotateLeft} disabled={busy}>
@@ -68,11 +79,23 @@ export function SelectionBar({ count, canDelete, busy, onRotateLeft, onRotateRig
       <BarButton label="Extract" onClick={onExtract} disabled={busy} title="Save the selected pages as a new PDF">
         <FileOutput className="size-4" aria-hidden="true" />
       </BarButton>
-      <BarButton label="Delete" onClick={onDelete} disabled={busy || !canDelete} tone="danger" title={canDelete ? "Delete" : "A PDF needs at least one page"}>
+      <BarButton
+        label="Delete"
+        onClick={onDelete}
+        disabled={busy || !canDelete}
+        tone="danger"
+        title={canDelete ? "Delete" : "A PDF needs at least one page"}
+      >
         <Trash2 className="size-4" aria-hidden="true" />
       </BarButton>
       <span className="mx-1 h-5 w-px bg-divider" aria-hidden="true" />
-      <button type="button" aria-label="Clear selection" title="Clear selection (Esc)" onClick={onClear} className="grid size-9 place-items-center rounded-sm text-muted hover:bg-hover hover:text-ink">
+      <button
+        type="button"
+        aria-label="Clear selection"
+        title="Clear selection (Esc)"
+        onClick={onClear}
+        className="grid size-9 place-items-center rounded-sm text-muted hover:bg-hover hover:text-ink"
+      >
         <X className="size-4" aria-hidden="true" />
       </button>
     </div>

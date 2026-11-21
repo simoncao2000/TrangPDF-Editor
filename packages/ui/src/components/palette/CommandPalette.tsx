@@ -73,8 +73,15 @@ function PaletteDialog({ initialQuery, onClose }: PaletteDialogProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-40 flex items-start justify-center bg-scrim/20 px-4 pt-14" onPointerDown={(event) => event.target === event.currentTarget && onClose()}>
-      <div role="dialog" aria-label="Command palette" className="flex max-h-[min(70vh,32rem)] w-full max-w-160 flex-col overflow-hidden rounded-md border border-line bg-raised shadow-3">
+    <div
+      className="fixed inset-0 z-40 flex items-start justify-center bg-scrim/20 px-4 pt-14"
+      onPointerDown={(event) => event.target === event.currentTarget && onClose()}
+    >
+      <div
+        role="dialog"
+        aria-label="Command palette"
+        className="flex max-h-[min(70vh,32rem)] w-full max-w-160 flex-col overflow-hidden rounded-md border border-line bg-raised shadow-3"
+      >
         <div className="flex items-center gap-2 border-b border-divider px-3">
           <Search className="size-4 shrink-0 text-muted" aria-hidden="true" />
           <input
@@ -100,7 +107,9 @@ function PaletteDialog({ initialQuery, onClose }: PaletteDialogProps) {
             const heading = index === 0 || items[index - 1]!.section !== item.section ? item.section : null;
             return (
               <li key={item.id} role="presentation">
-                {heading && <p className="px-2.5 pt-2 pb-1 text-2xs font-semibold tracking-wide text-muted">{heading}</p>}
+                {heading && (
+                  <p className="px-2.5 pt-2 pb-1 text-2xs font-semibold tracking-wide text-muted">{heading}</p>
+                )}
                 <div
                   id={`${listId}-${index}`}
                   data-index={index}
@@ -117,7 +126,9 @@ function PaletteDialog({ initialQuery, onClose }: PaletteDialogProps) {
               </li>
             );
           })}
-          {items.length === 0 && <li className="px-3 py-6 text-center text-sm text-muted">{emptyMessage(query.mode)}</li>}
+          {items.length === 0 && (
+            <li className="px-3 py-6 text-center text-sm text-muted">{emptyMessage(query.mode)}</li>
+          )}
         </ul>
       </div>
     </div>
@@ -161,17 +172,35 @@ function usePaletteItems(query: ReturnType<typeof parseQuery>, close: () => void
         .map((command) => ({ command, score: matchScore(command.title, query.text) }))
         .filter(({ score }) => score > 0)
         .sort((a, b) => b.score - a.score)
-        .map(({ command }) => ({ id: command.id, section: "Commands", content: command.title, hint: command.shortcut, run: then(command.run) }));
+        .map(({ command }) => ({
+          id: command.id,
+          section: "Commands",
+          content: command.title,
+          hint: command.shortcut,
+          run: then(command.run),
+        }));
     }
     if (query.mode === "page") {
       if (query.page === null || query.page > pageCount) return [];
       const page = query.page;
-      return [{ id: "go-page", section: "Go to", content: <IconRow icon={<ArrowRight className="size-4" />}>Go to page {page}</IconRow>, run: then(() => goToPage(page - 1)) }];
+      return [
+        {
+          id: "go-page",
+          section: "Go to",
+          content: <IconRow icon={<ArrowRight className="size-4" />}>Go to page {page}</IconRow>,
+          run: then(() => goToPage(page - 1)),
+        },
+      ];
     }
     const files = tabs
       .map((tab) => ({ tab, name: tab.session.store.getState().fileName ?? "Untitled" }))
       .filter(({ name }) => matchScore(name, query.text) > 0)
-      .map(({ tab, name }) => ({ id: `tab-${tab.id}`, section: "Open files", content: <IconRow icon={<FileText className="size-4" />}>{name}</IconRow>, run: then(() => workspace.activate(tab.id)) }));
+      .map(({ tab, name }) => ({
+        id: `tab-${tab.id}`,
+        section: "Open files",
+        content: <IconRow icon={<FileText className="size-4" />}>{name}</IconRow>,
+        run: then(() => workspace.activate(tab.id)),
+      }));
     const found = matches.map((match, index) => ({
       id: `match-${index}`,
       section: `In ${fileName ?? "this file"}`,
@@ -184,9 +213,21 @@ function usePaletteItems(query: ReturnType<typeof parseQuery>, close: () => void
     }));
     const commandHint = query.text
       ? []
-      : [{ id: "hint-commands", section: "Commands", content: <IconRow icon={<TextSearch className="size-4" />}>Type &gt; to run a command, or :12 to go to page 12</IconRow>, run: () => {} }];
+      : [
+          {
+            id: "hint-commands",
+            section: "Commands",
+            content: (
+              <IconRow icon={<TextSearch className="size-4" />}>
+                Type &gt; to run a command, or :12 to go to page 12
+              </IconRow>
+            ),
+            run: () => {},
+          },
+        ];
     return [...files, ...found, ...commandHint];
-  }, [query, commands, tabs, pageCount, fileName, matches, workspace, session, goToPage, showSearchHit, close]); // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, commands, tabs, pageCount, fileName, matches, workspace, session, goToPage, showSearchHit, close]);
 }
 
 /**

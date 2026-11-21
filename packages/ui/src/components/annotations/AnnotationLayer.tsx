@@ -41,7 +41,12 @@ const HANDLE_SIZE = 9;
 /** Arrow keys move a selected annotation this far, in screen pixels (Shift: ten times). */
 const NUDGE = 1;
 const NUDGE_FAR = 10;
-const ARROWS: Record<string, readonly [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+const ARROWS: Record<string, readonly [number, number]> = {
+  ArrowLeft: [-1, 0],
+  ArrowRight: [1, 0],
+  ArrowUp: [0, -1],
+  ArrowDown: [0, 1],
+};
 
 /**
  * Whether the annotation's box can be resized. Highlights follow their text; annotations from other
@@ -52,7 +57,6 @@ const ARROWS: Record<string, readonly [number, number]> = { ArrowLeft: [-1, 0], 
 function isResizable(annotation: Annotation): annotation is Exclude<EditableAnnotation, { kind: "highlight" }> {
   return annotation.kind === "ink" || annotation.kind === "square" || annotation.kind === "textBox";
 }
-
 
 /**
  * The annotation layer over one page (architecture §9): draws the annotations the editor
@@ -66,7 +70,10 @@ function isResizable(annotation: Annotation): annotation is Exclude<EditableAnno
 export function AnnotationLayer({ page, zoom, width, height }: AnnotationLayerProps) {
   const { session } = useEditorServices();
   const annotations = usePageAnnotations(page.id, page.revision);
-  const frame = useMemo(() => pageFrame(page.sourceGeometry, page.rotation, zoom), [page.sourceGeometry, page.rotation, zoom]);
+  const frame = useMemo(
+    () => pageFrame(page.sourceGeometry, page.rotation, zoom),
+    [page.sourceGeometry, page.rotation, zoom],
+  );
   const selectedId = useAnnotationUi((state) => (state.selected?.pageId === page.id ? state.selected.id : null));
   const select = useAnnotationUi((state) => state.select);
   const tool = useAnnotationUi((state) => state.tool);
@@ -76,14 +83,18 @@ export function AnnotationLayer({ page, zoom, width, height }: AnnotationLayerPr
   /** Where new page text is being typed (the Text box tool). */
   const [newTextAt, setNewTextAt] = useState<ScreenPoint | null>(null);
   const commit = useCallback(
-    (before: EditableAnnotation, after: EditableAnnotation) => session.dispatch((content) => editAnnotation(content, page.id, before, after)),
+    (before: EditableAnnotation, after: EditableAnnotation) =>
+      session.dispatch((content) => editAnnotation(content, page.id, before, after)),
     [session, page.id],
   );
   const { preview, clearPreview, start, handlers } = useAnnotationDrag(frame, commit);
   // A fresh list from the engine replaces whatever was shown while it loaded.
   useEffect(clearPreview, [annotations, clearPreview]);
 
-  const create = useCallback((annotation: EditableAnnotation) => session.dispatch((content) => addAnnotation(content, page.id, annotation)), [session, page.id]);
+  const create = useCallback(
+    (annotation: EditableAnnotation) => session.dispatch((content) => addAnnotation(content, page.id, annotation)),
+    [session, page.id],
+  );
 
   const finishText = (text: string | null, height: number) => {
     const draft = textDraft;
@@ -100,10 +111,14 @@ export function AnnotationLayer({ page, zoom, width, height }: AnnotationLayerPr
     setNewTextAt(null);
     if (!at || !text?.trim() || !toolStyle) return;
     const { lines, angle } = newTextLines(text, at, toolStyle.fontSize, frame);
-    session.dispatch((content) => addPageText(content, page.id, lines, { fontSize: toolStyle.fontSize, color: toolStyle.color, angle }));
+    session.dispatch((content) =>
+      addPageText(content, page.id, lines, { fontSize: toolStyle.fontSize, color: toolStyle.color, angle }),
+    );
   };
 
-  const withPreview = preview ? annotations.map((annotation) => (annotation.id === preview.id ? preview : annotation)) : annotations;
+  const withPreview = preview
+    ? annotations.map((annotation) => (annotation.id === preview.id ? preview : annotation))
+    : annotations;
   // The text box being typed in is shown by the editor instead.
   const shown = textDraft ? withPreview.filter((annotation) => annotation.id !== textDraft.id) : withPreview;
   const selected = shown.find((annotation) => annotation.id === selectedId) ?? null;
@@ -125,36 +140,49 @@ export function AnnotationLayer({ page, zoom, width, height }: AnnotationLayerPr
 
   return (
     <>
-      <svg className="pointer-events-none absolute inset-0 overflow-visible" width={width} height={height} aria-hidden={shown.length === 0} {...handlers}>
+      <svg
+        className="pointer-events-none absolute inset-0 overflow-visible"
+        width={width}
+        height={height}
+        aria-hidden={shown.length === 0}
+        {...handlers}
+      >
         {shown.map((annotation) => (
           <AnnotationShape key={annotation.id} annotation={annotation} frame={frame} />
         ))}
-        {tool === "select" && shown.map((annotation) => {
-          const box = pdfRectToScreen(annotation.rect, frame);
-          const isSelected = annotation.id === selectedId;
-          return (
-            <rect
-              key={annotation.id}
-              data-annotation=""
-              role="button"
-              tabIndex={0}
-              aria-label={ANNOTATION_NAMES[annotation.kind]}
-              aria-pressed={isSelected}
-              x={box.left - HIT_SLOP}
-              y={box.top - HIT_SLOP}
-              width={box.width + 2 * HIT_SLOP}
-              height={box.height + 2 * HIT_SLOP}
-              fill="transparent"
-              className={`pointer-events-auto outline-none ${isSelected && isEditable(annotation) ? "cursor-move" : "cursor-pointer"}`}
-              onPointerDown={(event) => onPress(event, annotation)}
-              onDoubleClick={() => annotation.kind === "textBox" && setTextDraft(annotation)}
-              onFocus={() => select({ pageId: page.id, id: annotation.id })}
-              onKeyDown={(event) => onKeyDown(event, annotation)}
-            />
-          );
-        })}
-        {tool === "select" && selected && <SelectionFrame annotation={selected} frame={frame} onHandleDown={(event, handle) => isResizable(selected) && start(event, selected, handle)} />}
-          {isDrawingTool(tool) && toolStyle && !textDraft && !newTextAt && (
+        {tool === "select" &&
+          shown.map((annotation) => {
+            const box = pdfRectToScreen(annotation.rect, frame);
+            const isSelected = annotation.id === selectedId;
+            return (
+              <rect
+                key={annotation.id}
+                data-annotation=""
+                role="button"
+                tabIndex={0}
+                aria-label={ANNOTATION_NAMES[annotation.kind]}
+                aria-pressed={isSelected}
+                x={box.left - HIT_SLOP}
+                y={box.top - HIT_SLOP}
+                width={box.width + 2 * HIT_SLOP}
+                height={box.height + 2 * HIT_SLOP}
+                fill="transparent"
+                className={`pointer-events-auto outline-none ${isSelected && isEditable(annotation) ? "cursor-move" : "cursor-pointer"}`}
+                onPointerDown={(event) => onPress(event, annotation)}
+                onDoubleClick={() => annotation.kind === "textBox" && setTextDraft(annotation)}
+                onFocus={() => select({ pageId: page.id, id: annotation.id })}
+                onKeyDown={(event) => onKeyDown(event, annotation)}
+              />
+            );
+          })}
+        {tool === "select" && selected && (
+          <SelectionFrame
+            annotation={selected}
+            frame={frame}
+            onHandleDown={(event, handle) => isResizable(selected) && start(event, selected, handle)}
+          />
+        )}
+        {isDrawingTool(tool) && toolStyle && !textDraft && !newTextAt && (
           <DrawingSurface
             pageId={page.id}
             tool={tool}
@@ -168,7 +196,15 @@ export function AnnotationLayer({ page, zoom, width, height }: AnnotationLayerPr
         )}
       </svg>
       {textDraft && <TextBoxEditor annotation={textDraft} frame={frame} onDone={finishText} />}
-      {newTextAt && toolStyle && <NewTextEditor at={newTextAt} frame={frame} fontSize={toolStyle.fontSize} color={toolStyle.color} onDone={finishNewText} />}
+      {newTextAt && toolStyle && (
+        <NewTextEditor
+          at={newTextAt}
+          frame={frame}
+          fontSize={toolStyle.fontSize}
+          color={toolStyle.color}
+          onDone={finishNewText}
+        />
+      )}
     </>
   );
 }
@@ -186,10 +222,24 @@ interface SelectionFrameProps {
  */
 function SelectionFrame({ annotation, frame, onHandleDown }: SelectionFrameProps) {
   const box = pdfRectToScreen(annotation.rect, frame);
-  const outline = { left: box.left - HIT_SLOP, top: box.top - HIT_SLOP, width: box.width + 2 * HIT_SLOP, height: box.height + 2 * HIT_SLOP };
+  const outline = {
+    left: box.left - HIT_SLOP,
+    top: box.top - HIT_SLOP,
+    width: box.width + 2 * HIT_SLOP,
+    height: box.height + 2 * HIT_SLOP,
+  };
   return (
     <g>
-      <rect x={outline.left} y={outline.top} width={outline.width} height={outline.height} fill="none" className="stroke-paper-focus" strokeWidth={1.5} strokeDasharray="5 3" />
+      <rect
+        x={outline.left}
+        y={outline.top}
+        width={outline.width}
+        height={outline.height}
+        fill="none"
+        className="stroke-paper-focus"
+        strokeWidth={1.5}
+        strokeDasharray="5 3"
+      />
       {isResizable(annotation) &&
         HANDLES.map((handle) => {
           const { x, y } = handlePosition(outline, handle);

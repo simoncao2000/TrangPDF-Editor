@@ -17,7 +17,14 @@ const content: DocumentContent = {
   annotationRevisions: {},
 };
 
-const square: SquareAnnotation = { kind: "square", id: "sq", rect: { x: 10, y: 10, width: 50, height: 50 }, color: { r: 255, g: 0, b: 0 }, opacity: 1, lineWidth: 2 };
+const square: SquareAnnotation = {
+  kind: "square",
+  id: "sq",
+  rect: { x: 10, y: 10, width: 50, height: 50 },
+  color: { r: 255, g: 0, b: 0 },
+  opacity: 1,
+  lineWidth: 2,
+};
 
 /**
  * A fake engine that records every call.
@@ -84,11 +91,23 @@ describe("editAnnotation", () => {
 describe("deleteAnnotations", () => {
   it("removes each annotation, and restores each on undo", async () => {
     const { call, log } = recordingEngine();
-    const stamp: OtherAnnotation = { kind: "other", id: "stamp", subtype: 13, rect: square.rect, color: square.color, opacity: 1 };
+    const stamp: OtherAnnotation = {
+      kind: "other",
+      id: "stamp",
+      subtype: 13,
+      rect: square.rect,
+      color: square.color,
+      opacity: 1,
+    };
     const command = deleteAnnotations(content, "a:0", [square, stamp]);
     await command.applyInEngine?.(call);
     await command.undoInEngine?.(call);
-    expect(log).toEqual(["removeAnnotation doc-a#0 sq", "removeAnnotation doc-a#0 stamp", "restoreAnnotation doc-a#0 sq", "restoreAnnotation doc-a#0 stamp"]);
+    expect(log).toEqual([
+      "removeAnnotation doc-a#0 sq",
+      "removeAnnotation doc-a#0 stamp",
+      "restoreAnnotation doc-a#0 sq",
+      "restoreAnnotation doc-a#0 stamp",
+    ]);
     expect(command.label).toBe("Delete 2 annotations");
   });
 });

@@ -54,7 +54,10 @@ export function ZoomMenu() {
       renderTrigger={(open) => (
         <>
           <span className="min-w-11 text-center">{percent}</span>
-          <ChevronDown className={`size-3.5 text-muted transition-transform duration-(--duration-pop) ease-out ${open ? "rotate-180" : ""}`} aria-hidden="true" />
+          <ChevronDown
+            className={`size-3.5 text-muted transition-transform duration-(--duration-pop) ease-out ${open ? "rotate-180" : ""}`}
+            aria-hidden="true"
+          />
         </>
       )}
     />
