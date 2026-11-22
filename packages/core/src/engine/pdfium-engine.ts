@@ -6,11 +6,21 @@ import { init, type WrappedPdfiumModule } from "@embedpdf/pdfium";
 import { err, ok, type PdfPoint, type PdfRect, type Result } from "@pdf-editor/shared";
 import type { Annotation, EditableAnnotation } from "../annotations/annotation";
 import type { CommentReply } from "../annotations/comment";
+import type { FormField } from "../forms/form-field";
 import type { NewTextLine, NewTextStyle, PageTextObject, TextMatch, TextSelection } from "../page-text/page-text";
 import { PageAnnotations } from "./pdfium-annotations";
+import { PdfiumForms, type FormEnvironment, type FormFieldWriteError } from "./pdfium-forms";
 import { PageTextObjects, TextObjectIds, type PageContext } from "./pdfium-page-text";
 import { PageText } from "./pdfium-text";
-import type { AssemblePart, DocId, EngineErrorCode, PageAddress, PageGeometry, Rotation } from "./protocol";
+import type {
+  AssembleOptions,
+  AssemblePart,
+  DocId,
+  EngineErrorCode,
+  PageAddress,
+  PageGeometry,
+  Rotation,
+} from "./protocol";
 
 /** FPDF_GetLastError code for a missing or wrong password. Every other failure is treated as damage. */
 const PDFIUM_ERROR_PASSWORD = 4;
@@ -36,6 +46,7 @@ export interface PagePixels {
 
 interface OpenDoc {
   readonly handle: number;
+  readonly form: FormEnvironment;
   /** PDFium reads the file lazily from this buffer, so it lives until the document closes. */
   readonly bufferPtr: number;
   /** Password the document was opened with, needed to open it a second time when saving. */
@@ -50,6 +61,8 @@ interface OpenDoc {
 }
 
 const QUARTER_TURN = 90;
+/** FLAT_NORMALDISPLAY: flatten annotations as they show on screen (hidden and no-view ones are left out). */
+const FLATTEN_AS_SHOWN = 0;
 /** Box types for EPDF_GetPageBoxByIndex. */
 const BOX_MEDIA = 0;
 const BOX_CROP = 1;
@@ -65,6 +78,7 @@ export class PdfiumEngine {
   private nextDocNumber = 1;
   private readonly pdfium: WrappedPdfiumModule;
   private readonly annotations: PageAnnotations;
+  private readonly forms: PdfiumForms;
   private readonly text: PageText;
   private readonly textObjects: PageTextObjects;
 
@@ -75,6 +89,7 @@ export class PdfiumEngine {
   private constructor(pdfium: WrappedPdfiumModule) {
     this.pdfium = pdfium;
     this.annotations = new PageAnnotations(pdfium);
+    this.forms = new PdfiumForms(pdfium);
     this.text = new PageText(pdfium);
     this.textObjects = new PageTextObjects(pdfium);
   }
@@ -104,9 +119,16 @@ export class PdfiumEngine {
       return err("damaged");
     }
     const { handle, bufferPtr } = loaded;
+    const form = this.forms.open(handle);
+    if (!form) {
+      this.pdfium.FPDF_CloseDocument(handle);
+      this.pdfium.pdfium.wasmExports.free(bufferPtr);
+      return err("damaged");
+    }
     const docId = `doc-${this.nextDocNumber++}`;
     this.docs.set(docId, {
       handle,
+      form,
       bufferPtr,
       password: password ?? "",
       held: new Map(),
@@ -122,7 +144,8 @@ export class PdfiumEngine {
   close(docId: DocId): void {
     const doc = this.docs.get(docId);
     if (!doc) return;
-    for (const page of doc.held.values()) this.pdfium.FPDF_ClosePage(page);
+    for (const page of doc.held.values()) this.closePage(page, doc.form);
+    this.forms.close(doc.form);
     this.pdfium.FPDF_CloseDocument(doc.handle);
     this.pdfium.pdfium.wasmExports.free(doc.bufferPtr);
     this.docs.delete(docId);
@@ -145,13 +168,15 @@ export class PdfiumEngine {
   ): Result<PagePixels, "unknown-document"> {
     const opened = this.openPage(at);
     if (!opened) return err("unknown-document");
-    const { page } = opened;
+    const { page, form } = opened;
     const { width, height } = size;
+    const quarterTurns = rotation / QUARTER_TURN;
     const bitmap = this.pdfium.FPDFBitmap_CreateEx(width, height, BITMAP_FORMAT_BGRA, 0, 0);
     if (hideEditable) this.annotations.setEditableHidden(page, true);
     try {
       this.pdfium.FPDFBitmap_FillRect(bitmap, 0, 0, width, height, WHITE);
-      this.pdfium.FPDF_RenderPageBitmap(bitmap, page, 0, 0, width, height, rotation / QUARTER_TURN, RENDER_FLAGS);
+      this.pdfium.FPDF_RenderPageBitmap(bitmap, page, 0, 0, width, height, quarterTurns, RENDER_FLAGS);
+      this.forms.draw(page, form, { bitmap, width, height, quarterTurns, flags: RENDER_FLAGS });
       const start = this.pdfium.FPDFBitmap_GetBuffer(bitmap);
       const length = width * height * BYTES_PER_PIXEL;
       const pixels = new Uint8ClampedArray(this.pdfium.pdfium.HEAPU8.buffer, start, length).slice();
@@ -173,6 +198,30 @@ export class PdfiumEngine {
   }
 
   /**
+   * Lists an open page's form widgets.
+   * @param at An open document's page.
+   * @returns The widgets in page order, or an error if the page or a widget could not be read.
+   */
+  getFormFields(at: PageAddress): Result<FormField[], "unknown-document" | "engine-failed"> {
+    const doc = this.docs.get(at.docId);
+    if (!doc) return err("unknown-document");
+    return this.withPage(at, (page) => this.forms.list(page, doc.form));
+  }
+
+  /**
+   * Sets an open page's form field through its widget.
+   * @param at An open document's page.
+   * @param id The widget id.
+   * @param value The new field value.
+   * @returns Null on success, or an error if the page or widget is unavailable or the write fails.
+   */
+  setFormField(at: PageAddress, id: string, value: string): Result<null, "unknown-document" | FormFieldWriteError> {
+    const doc = this.docs.get(at.docId);
+    if (!doc) return err("unknown-document");
+    return this.withPage(at, (page) => this.forms.setValue(page, doc.form, id, value));
+  }
+
+  /**
    * Creates or updates an annotation the editor draws itself.
    * @param at An open document's page.
    * @param annotation The annotation; its id decides whether it is new.
@@ -182,8 +231,9 @@ export class PdfiumEngine {
     at: PageAddress,
     annotation: EditableAnnotation,
   ): Result<Annotation, "unknown-document" | "annotation-failed"> {
+    const doc = this.docs.get(at.docId)?.handle ?? 0;
     return this.withPage(at, (page) => {
-      const stored = this.annotations.put(page, annotation);
+      const stored = this.annotations.put(doc, page, annotation);
       return stored ? ok(stored) : err("annotation-failed");
     });
   }
@@ -407,13 +457,24 @@ export class PdfiumEngine {
    * @param at An open document's page.
    * @returns The page and how to let go of it, or `null` if it does not exist.
    */
-  private openPage(at: PageAddress): { page: number; release(): void } | null {
+  private openPage(at: PageAddress): { page: number; form: FormEnvironment; release(): void } | null {
     const doc = this.docs.get(at.docId);
     if (!doc) return null;
     const held = doc.held.get(at.pageIndex);
-    if (held) return { page: held, release: () => {} };
+    if (held) return { page: held, form: doc.form, release: () => {} };
     const page = this.pdfium.FPDF_LoadPage(doc.handle, at.pageIndex);
-    return page ? { page, release: () => this.pdfium.FPDF_ClosePage(page) } : null;
+    return page ? { page, form: doc.form, release: () => this.closePage(page, doc.form) } : null;
+  }
+
+  /**
+   * Closes a loaded page and releases any form state for it first.
+   * @param page The loaded page handle.
+   * @param form Its document's form environment.
+   * @returns Nothing.
+   */
+  private closePage(page: number, form: FormEnvironment): void {
+    this.forms.beforeClosePage(page, form);
+    this.pdfium.FPDF_ClosePage(page);
   }
 
   /**
@@ -465,9 +526,14 @@ export class PdfiumEngine {
    * imported, then everything is put in order, unused pages and removed annotations are dropped.
    * The result is reopened to check it before it is returned.
    * @param parts The pages of the new file, in order.
+   * @param options `flatten`: draw annotations and form fields into the pages, so they can no
+   *   longer be edited (for a copy to send).
    * @returns The new file's bytes, or why it could not be built.
    */
-  assemble(parts: readonly AssemblePart[]): Result<ArrayBuffer, "unknown-document" | "assemble-failed"> {
+  assemble(
+    parts: readonly AssemblePart[],
+    options: AssembleOptions = {},
+  ): Result<ArrayBuffer, "unknown-document" | "assemble-failed"> {
     const first = parts[0];
     const base = first ? this.docs.get(first.docId) : undefined;
     if (!first || !base || parts.some((part) => !this.docs.has(part.docId))) return err("unknown-document");
@@ -479,7 +545,7 @@ export class PdfiumEngine {
     try {
       const order = this.importForeignPages(dest.handle, first.docId, parts);
       if (!order || !this.arrange(dest.handle, order)) return err("assemble-failed");
-      parts.forEach((part, index) => this.finishPage(dest.handle, index, part.rotation));
+      parts.forEach((part, index) => this.finishPage(dest.handle, index, part.rotation, options.flatten ?? false));
       const bytes = this.saveCopy(dest.handle);
       // An encrypted file stays encrypted when saved, so it is checked with the same password.
       if (!bytes || this.countPages(bytes, base.password) !== parts.length) return err("assemble-failed");
@@ -563,11 +629,13 @@ export class PdfiumEngine {
    * @param dest The document being built.
    * @param pageIndex The page.
    * @param rotation Extra rotation.
+   * @param flatten Draw the annotations into the page.
    */
-  private finishPage(dest: number, pageIndex: number, rotation: Rotation): void {
+  private finishPage(dest: number, pageIndex: number, rotation: Rotation, flatten: boolean): void {
     const page = this.pdfium.FPDF_LoadPage(dest, pageIndex);
     if (!page) return;
     this.annotations.stripRemoved(page);
+    if (flatten) this.pdfium.FPDFPage_Flatten(page, FLATTEN_AS_SHOWN);
     if (rotation !== 0) {
       const quarterTurns = (this.pdfium.FPDFPage_GetRotation(page) + rotation / QUARTER_TURN) % 4;
       this.pdfium.FPDFPage_SetRotation(page, quarterTurns);

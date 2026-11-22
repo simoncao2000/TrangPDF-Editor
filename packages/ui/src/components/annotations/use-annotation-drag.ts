@@ -10,7 +10,8 @@ import {
   type ScreenRect,
 } from "@pdf-editor/core";
 import { useCallback, useRef, useState, type PointerEvent } from "react";
-import { resizeRect, type Handle } from "./resize-handles";
+import { useImageTool } from "../../state/image-store";
+import { keepAspect, resizeRect, type Handle } from "./resize-handles";
 
 /** A press that moves less than this (CSS pixels) is a click, not a drag. */
 const DRAG_THRESHOLD = 3;
@@ -84,7 +85,10 @@ export function useAnnotationDrag(
       const delta = screenDeltaToPdf({ x: dx, y: dy }, frame);
       return moveAnnotation(state.original, delta.x, delta.y);
     }
-    return resizeAnnotation(state.original, screenRectToPdf(resizeRect(state.originalBox, state.mode, dx, dy), frame));
+    const resized = resizeRect(state.originalBox, state.mode, dx, dy);
+    const keep = state.original.kind === "image" && useImageTool.getState().keepProportions;
+    const box = keep ? keepAspect(resized, state.originalBox, state.mode) : resized;
+    return resizeAnnotation(state.original, screenRectToPdf(box, frame));
   };
 
   const onPointerMove = (event: PointerEvent<Element>) => {

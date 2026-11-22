@@ -1,5 +1,14 @@
-import { deleteReply, isEditable, replyTo, setComment, type Annotation, type CommentReply } from "@pdf-editor/core";
+import {
+  deleteAnnotations,
+  deleteReply,
+  isEditable,
+  replyTo,
+  setComment,
+  type Annotation,
+  type CommentReply,
+} from "@pdf-editor/core";
 import { useEditorServices } from "../../editor/hooks";
+import { useAnnotationUi } from "../../state/annotation-store";
 import { useProfile } from "../../state/profile-store";
 
 /** What can be done to one annotation's comment thread. */
@@ -21,6 +30,8 @@ export interface ThreadActions {
    * @param reply The reply.
    */
   remove(reply: CommentReply): void;
+  /** Deletes the mark itself, with its whole thread (undo brings both back). */
+  deleteMark(): void;
 }
 
 /**
@@ -47,5 +58,9 @@ export function useThreadActions(pageId: string, annotation: Annotation): Thread
       session.dispatch((content) => replyTo(content, pageId, annotation.id, reply));
     },
     remove: (reply) => session.dispatch((content) => deleteReply(content, pageId, reply)),
+    deleteMark: () => {
+      useAnnotationUi.getState().select(null);
+      session.dispatch((content) => deleteAnnotations(content, pageId, [annotation]));
+    },
   };
 }

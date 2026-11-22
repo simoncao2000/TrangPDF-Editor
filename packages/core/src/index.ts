@@ -11,6 +11,8 @@ export * from "./annotations/annotation";
 export * from "./annotations/comment";
 export * from "./annotations/annotation-commands";
 export * from "./annotations/comment-commands";
+export * from "./forms/form-field";
+export * from "./forms/form-commands";
 export * from "./page-text/page-text";
 export * from "./page-text/page-text-commands";
 export { isDirty, type History } from "./document/history";

@@ -14,6 +14,8 @@ import { useToast } from "../state/toast-store";
 import { useViewer } from "../state/viewer-store";
 import { OpenErrorDialog } from "./dialogs/OpenErrorDialog";
 import { PasswordDialog } from "./dialogs/PasswordDialog";
+import { ExportDialog } from "./dialogs/ExportDialog";
+import { SignaturePadDialog } from "./signatures/SignaturePadDialog";
 import { UnsavedChangesDialog } from "./dialogs/UnsavedChangesDialog";
 import { InsertPagesFlow } from "./organize/InsertPagesFlow";
 import { CommandPalette } from "./palette/CommandPalette";
@@ -109,6 +111,8 @@ export function EditorApp() {
       )}
       <CommandPalette />
       <InsertPagesFlow />
+      <ExportDialog />
+      <SignaturePadDialog />
       <UnsavedChangesDialog />
       <Toaster />
     </>

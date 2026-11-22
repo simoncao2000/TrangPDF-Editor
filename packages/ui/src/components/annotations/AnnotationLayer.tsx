@@ -3,6 +3,7 @@ import {
   addPageText,
   editAnnotation,
   isEditable,
+  isTextMarkup,
   moveAnnotation,
   pageFrame,
   pdfRectToScreen,
@@ -55,8 +56,8 @@ const ARROWS: Record<string, readonly [number, number]> = {
  * @param annotation An annotation.
  * @returns True for drawings, rectangles and text boxes.
  */
-function isResizable(annotation: Annotation): annotation is Exclude<EditableAnnotation, { kind: "highlight" }> {
-  return annotation.kind === "ink" || annotation.kind === "square" || annotation.kind === "textBox";
+function isResizable(annotation: Annotation): annotation is EditableAnnotation {
+  return isEditable(annotation) && !isTextMarkup(annotation) && annotation.kind !== "note";
 }
 
 /**

@@ -27,13 +27,19 @@ interface AnnotationBase {
   readonly replies?: readonly CommentReply[];
 }
 
-/** Highlighted text: one rectangle per line. */
-export interface HighlightAnnotation extends AnnotationBase {
-  readonly kind: "highlight";
+/** Marks laid over lines of text. */
+export type TextMarkupKind = "highlight" | "underline" | "strikeout" | "squiggly";
+
+/** Highlighted, underlined, struck-through or squiggly-underlined text: one rectangle per line. */
+export interface TextMarkupAnnotation extends AnnotationBase {
+  readonly kind: TextMarkupKind;
   readonly lines: readonly PdfRect[];
   /** The page text under it, read from the page (never written). */
   readonly quote?: string;
 }
+
+/** The text markups were all highlights once; the name stays for code that means any of them. */
+export type HighlightAnnotation = TextMarkupAnnotation;
 
 /** Freehand drawing, also used for drawn signatures. */
 export interface InkAnnotation extends AnnotationBase {
@@ -42,10 +48,39 @@ export interface InkAnnotation extends AnnotationBase {
   readonly lineWidth: number;
 }
 
-/** A rectangle outline. */
-export interface SquareAnnotation extends AnnotationBase {
-  readonly kind: "square";
+/** A rectangle or an ellipse, drawn as an outline inside `rect`. */
+export interface ShapeAnnotation extends AnnotationBase {
+  readonly kind: "square" | "circle";
   readonly lineWidth: number;
+}
+
+/** Kept for code written when rectangles were the only shape. */
+export type SquareAnnotation = ShapeAnnotation;
+
+/** A straight line, or an arrow (a line with an open arrowhead at its end). */
+export interface LineAnnotation extends AnnotationBase {
+  readonly kind: "line" | "arrow";
+  readonly start: PdfPoint;
+  readonly end: PdfPoint;
+  readonly lineWidth: number;
+}
+
+/** A picture file embedded in the PDF. */
+export interface ImageFile {
+  readonly bytes: ArrayBuffer;
+  readonly format: "png" | "jpeg";
+}
+
+/** A picture placed on the page, stretched to fill `rect`. PDFium draws it. */
+export interface ImageAnnotation extends AnnotationBase {
+  readonly kind: "image";
+  /** The picture, when the image is first written; read back records do not carry it. */
+  readonly image?: ImageFile;
+}
+
+/** A sticky note: an icon on the page whose text is its comment. */
+export interface NoteAnnotation extends AnnotationBase {
+  readonly kind: "note";
 }
 
 /** A text box. `color` is the text colour. */
@@ -65,7 +100,15 @@ export interface OtherAnnotation extends AnnotationBase {
   readonly subtype: number;
 }
 
-export type Annotation = HighlightAnnotation | InkAnnotation | SquareAnnotation | TextBoxAnnotation | OtherAnnotation;
+export type Annotation =
+  | TextMarkupAnnotation
+  | InkAnnotation
+  | ShapeAnnotation
+  | LineAnnotation
+  | NoteAnnotation
+  | ImageAnnotation
+  | TextBoxAnnotation
+  | OtherAnnotation;
 export type AnnotationKind = Annotation["kind"];
 /** The kinds the editor creates and draws itself. */
 export type EditableAnnotation = Exclude<Annotation, OtherAnnotation>;
@@ -73,10 +116,24 @@ export type EditableAnnotation = Exclude<Annotation, OtherAnnotation>;
 /**
  * Whether the editor draws and edits this annotation itself.
  * @param annotation Any annotation.
- * @returns True for highlights, ink, rectangles and text boxes.
+ * @returns True for text markups, ink, shapes, lines, notes and text boxes.
  */
 export function isEditable(annotation: Annotation): annotation is EditableAnnotation {
   return annotation.kind !== "other";
+}
+
+/**
+ * Whether an annotation marks lines of text (highlight, underline, strikethrough, squiggly).
+ * @param annotation Any annotation.
+ * @returns True for text markups.
+ */
+export function isTextMarkup(annotation: Annotation): annotation is TextMarkupAnnotation {
+  return (
+    annotation.kind === "highlight" ||
+    annotation.kind === "underline" ||
+    annotation.kind === "strikeout" ||
+    annotation.kind === "squiggly"
+  );
 }
 
 /**
@@ -112,7 +169,18 @@ export function moveAnnotation<A extends Annotation>(annotation: A, dx: number, 
   const rect = shiftRect(annotation.rect, dx, dy);
   switch (annotation.kind) {
     case "highlight":
+    case "underline":
+    case "strikeout":
+    case "squiggly":
       return { ...annotation, rect, lines: annotation.lines.map((line) => shiftRect(line, dx, dy)) };
+    case "line":
+    case "arrow":
+      return {
+        ...annotation,
+        rect,
+        start: shiftPoint(annotation.start, dx, dy),
+        end: shiftPoint(annotation.end, dx, dy),
+      };
     case "ink":
       return {
         ...annotation,
@@ -125,20 +193,24 @@ export function moveAnnotation<A extends Annotation>(annotation: A, dx: number, 
 }
 
 /**
- * Stretches an annotation into a new bounding box. Ink strokes are scaled with it; highlights are
- * tied to the text under them, so they keep their size.
+ * Stretches an annotation into a new bounding box. Ink strokes and line ends are scaled with it;
+ * text markups are tied to the text under them and notes are icons, so they keep their size.
  * @param annotation The annotation.
  * @param to The new bounding box, in PDF space.
  * @returns A resized copy.
  */
 export function resizeAnnotation<A extends Annotation>(annotation: A, to: PdfRect): A {
-  if (annotation.kind === "highlight") return annotation;
-  if (annotation.kind !== "ink") return { ...annotation, rect: to };
+  if (isTextMarkup(annotation) || annotation.kind === "note") return annotation;
   const from = annotation.rect;
   const sx = from.width === 0 ? 1 : to.width / from.width;
   const sy = from.height === 0 ? 1 : to.height / from.height;
   const map = (point: PdfPoint): PdfPoint => ({ x: to.x + (point.x - from.x) * sx, y: to.y + (point.y - from.y) * sy });
-  return { ...annotation, rect: to, strokes: annotation.strokes.map((stroke) => stroke.map(map)) };
+  if (annotation.kind === "ink")
+    return { ...annotation, rect: to, strokes: annotation.strokes.map((stroke) => stroke.map(map)) };
+  if (annotation.kind === "line" || annotation.kind === "arrow") {
+    return { ...annotation, rect: to, start: map(annotation.start), end: map(annotation.end) };
+  }
+  return { ...annotation, rect: to };
 }
 
 /**
@@ -170,6 +242,23 @@ export function boundsOfRects(rects: readonly PdfRect[]): PdfRect {
 }
 
 /**
+ * A new text markup over some lines of text.
+ * @param kind Highlight, underline, strikethrough or squiggly.
+ * @param id A fresh id.
+ * @param lines One rectangle per line, in PDF space.
+ * @param look Its colour and opacity.
+ * @returns The markup.
+ */
+export function newTextMarkup(
+  kind: TextMarkupKind,
+  id: string,
+  lines: readonly PdfRect[],
+  look: { readonly color: Rgb; readonly opacity: number },
+): TextMarkupAnnotation {
+  return { kind, id, lines, rect: boundsOfRects(lines), color: look.color, opacity: look.opacity };
+}
+
+/**
  * A new highlight over some lines of text.
  * @param id A fresh id.
  * @param lines One rectangle per line, in PDF space.
@@ -180,6 +269,6 @@ export function newHighlight(
   id: string,
   lines: readonly PdfRect[],
   look: { readonly color: Rgb; readonly opacity: number },
-): HighlightAnnotation {
-  return { kind: "highlight", id, lines, rect: boundsOfRects(lines), color: look.color, opacity: look.opacity };
+): TextMarkupAnnotation {
+  return newTextMarkup("highlight", id, lines, look);
 }

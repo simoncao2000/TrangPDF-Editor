@@ -1,3 +1,5 @@
+import { ImagePicker } from "../images/ImagePicker";
+import { SignatureList } from "../signatures/SignatureList";
 import { annotationRevisionOf, editAnnotation, isEditable, type EditableAnnotation } from "@pdf-editor/core";
 import { useDocument, useEditorServices } from "../../editor/hooks";
 import {
@@ -15,15 +17,33 @@ import { PaperBoat } from "../primitives/PaperBoat";
 import { RangeField } from "../primitives/RangeField";
 
 const TOOL_NAMES: Record<DrawingTool, string> = {
+  note: "Note",
   highlight: "Highlight",
+  underline: "Underline",
+  strikeout: "Strikethrough",
+  squiggly: "Squiggly",
   ink: "Draw",
-  square: "Shape",
+  square: "Rectangle",
+  circle: "Ellipse",
+  line: "Line",
+  arrow: "Arrow",
   textBox: "Text",
+  sign: "Sign",
+  image: "Image",
 };
 const TOOL_HINTS: Record<DrawingTool, string> = {
+  note: "Click on the page to stick a note there, then write in it.",
   highlight: "Drag across text to highlight it.",
+  underline: "Drag across text to underline it.",
+  strikeout: "Drag across text to strike it through.",
+  squiggly: "Drag across text to put a squiggly line under it.",
   ink: "Drag on the page to draw. Each stroke is its own drawing.",
   square: "Drag on the page to draw a rectangle.",
+  circle: "Drag on the page to draw an ellipse.",
+  line: "Drag on the page to draw a line.",
+  arrow: "Drag from where the arrow starts to where it points.",
+  sign: "Click on the page to place your signature, then drag its corners to size it.",
+  image: "Choose a picture, then drag a box on the page for it, or click to place it at its own size.",
   textBox:
     "Click on the page and type. The text becomes part of the page, like its other text: change it later with Edit text. Enter starts a new line; click away to finish.",
 };
@@ -31,14 +51,26 @@ const TOOL_HINTS: Record<DrawingTool, string> = {
 /** The style fields a kind of annotation has. */
 type StyleField = "color" | "opacity" | "lineWidth" | "fontSize";
 const FIELDS: Record<EditableAnnotation["kind"], readonly StyleField[]> = {
+  note: ["color"],
   highlight: ["color", "opacity"],
+  underline: ["color", "opacity"],
+  strikeout: ["color", "opacity"],
+  squiggly: ["color", "opacity"],
   ink: ["color", "opacity", "lineWidth"],
   square: ["color", "opacity", "lineWidth"],
+  circle: ["color", "opacity", "lineWidth"],
+  line: ["color", "opacity", "lineWidth"],
+  arrow: ["color", "opacity", "lineWidth"],
+  image: [],
   textBox: ["color", "opacity", "fontSize"],
 };
 
 /** The style fields each tool uses. New text is page text, so it has no opacity. */
-const TOOL_FIELDS: Record<DrawingTool, readonly StyleField[]> = { ...FIELDS, textBox: ["color", "fontSize"] };
+const TOOL_FIELDS: Record<DrawingTool, readonly StyleField[]> = {
+  ...FIELDS,
+  textBox: ["color", "fontSize"],
+  sign: ["color", "lineWidth"],
+};
 
 const percent = (value: number) => `${Math.round(value * 100)}%`;
 const points = (value: number) => `${value} pt`;
@@ -91,6 +123,8 @@ function ToolProperties({ tool }: { readonly tool: DrawingTool }) {
         </h3>
         <p className="text-sm text-muted">{TOOL_HINTS[tool]}</p>
       </div>
+      {tool === "sign" && <SignatureList />}
+      {tool === "image" && <ImagePicker />}
       <StyleControls fields={TOOL_FIELDS[tool]} style={style} onChange={(patch) => setStyle(tool, patch)} />
     </section>
   );

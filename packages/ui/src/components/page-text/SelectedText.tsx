@@ -63,7 +63,7 @@ interface SelectionMenuProps {
 function SelectionMenu({ selection, left, top }: SelectionMenuProps) {
   const { session } = useEditorServices();
   const style = useAnnotationUi((state) => state.styles.highlight);
-  const selectAnnotation = useAnnotationUi((state) => state.select);
+  const selectAnnotation = useAnnotationUi((state) => state.selectToComment);
   const clear = useTextSelection((state) => state.select);
   const showToast = useToast((state) => state.show);
 

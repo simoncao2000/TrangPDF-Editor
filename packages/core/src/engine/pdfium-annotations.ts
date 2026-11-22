@@ -8,23 +8,66 @@
  */
 import type { WrappedPdfiumModule } from "@embedpdf/pdfium";
 import type { PdfPoint, PdfRect } from "@pdf-editor/shared";
-import type { Annotation, AnnotationKind, EditableAnnotation, Rgb } from "../annotations/annotation";
+import {
+  isTextMarkup,
+  type Annotation,
+  type AnnotationKind,
+  type EditableAnnotation,
+  type Rgb,
+  type TextMarkupKind,
+} from "../annotations/annotation";
 import type { CommentNote, CommentReply } from "../annotations/comment";
 import { AnnotationComments, AnnotationStrings } from "./pdfium-comments";
+import { AnnotationImages } from "./pdfium-images";
 import { FLOAT_BYTES, INT_BYTES, POINT_BYTES, PdfiumHeap, QUAD_BYTES, RECT_BYTES } from "./pdfium-heap";
 
 /** FPDF_ANNOT_* subtypes the editor maps to its own kinds. */
-const SUBTYPE = { link: 2, freeText: 3, square: 5, highlight: 9, ink: 15, popup: 16, widget: 20 } as const;
+const SUBTYPE = {
+  text: 1,
+  link: 2,
+  freeText: 3,
+  line: 4,
+  square: 5,
+  circle: 6,
+  highlight: 9,
+  underline: 10,
+  squiggly: 11,
+  strikeout: 12,
+  stamp: 13,
+  ink: 15,
+  popup: 16,
+  widget: 20,
+} as const;
 const SUBTYPE_OF: Record<Exclude<AnnotationKind, "other">, number> = {
   highlight: SUBTYPE.highlight,
+  underline: SUBTYPE.underline,
+  strikeout: SUBTYPE.strikeout,
+  squiggly: SUBTYPE.squiggly,
   ink: SUBTYPE.ink,
   square: SUBTYPE.square,
+  circle: SUBTYPE.circle,
+  line: SUBTYPE.line,
+  arrow: SUBTYPE.line,
+  note: SUBTYPE.text,
+  image: SUBTYPE.stamp,
   textBox: SUBTYPE.freeText,
 };
+/** The text markup each subtype is. */
+const MARKUP_OF: Partial<Record<number, TextMarkupKind>> = {
+  [SUBTYPE.highlight]: "highlight",
+  [SUBTYPE.underline]: "underline",
+  [SUBTYPE.strikeout]: "strikeout",
+  [SUBTYPE.squiggly]: "squiggly",
+};
+/** Line ending styles for EPDFAnnot_SetLineEndings (/LE): none, and the open arrowhead of arrows. */
+const LINE_END_NONE = 0;
+const LINE_END_OPEN_ARROW = 4;
 /** Subtypes that are not shown as annotations: links and popups have no picture, widgets are form fields. */
 const NOT_LISTED = new Set<number>([SUBTYPE.link, SUBTYPE.popup, SUBTYPE.widget]);
 /** FPDF_ANNOT_FLAG_HIDDEN. */
 const FLAG_HIDDEN = 2;
+/** FPDF_ANNOT_FLAG_PRINT. */
+const FLAG_PRINT = 4;
 /** FPDFANNOT_COLORTYPE_Color. */
 const COLOR_STROKE = 0;
 /** Border style for EPDFAnnot_SetBorderStyle; with width 0 no border is drawn. */
@@ -32,6 +75,8 @@ const BORDER_STYLE_SOLID = 0;
 /** Helvetica in PDFium's standard font list. */
 const FONT_HELVETICA = 4;
 const MAX_CHANNEL = 255;
+/** Private key that marks a stamp as an image the editor placed (other stamps stay "other"). */
+const IMAGE_KEY = "TrangPDFImage";
 /** Private key that marks an annotation removed in the editor. */
 const REMOVED_KEY = "TrangPDFRemoved";
 const NAME_KEY = "NM";
@@ -43,6 +88,7 @@ export class PageAnnotations {
   private readonly heap: PdfiumHeap;
   private readonly comments: AnnotationComments;
   private readonly strings: AnnotationStrings;
+  private readonly images: AnnotationImages;
   private readonly newId: () => string;
 
   /**
@@ -54,6 +100,7 @@ export class PageAnnotations {
     this.heap = new PdfiumHeap(pdfium);
     this.comments = new AnnotationComments(pdfium);
     this.strings = new AnnotationStrings(pdfium);
+    this.images = new AnnotationImages(pdfium);
     this.newId = newId;
   }
 
@@ -76,7 +123,7 @@ export class PageAnnotations {
     });
     return result.map((annotation) => {
       const thread = replies.get(annotation.id);
-      const quote = annotation.kind === "highlight" ? this.comments.quote(page, annotation.lines) : "";
+      const quote = isTextMarkup(annotation) ? this.comments.quote(page, annotation.lines) : "";
       return { ...annotation, ...(thread ? { replies: thread } : {}), ...(quote ? { quote } : {}) };
     });
   }
@@ -110,11 +157,12 @@ export class PageAnnotations {
   /**
    * Writes an annotation: creates it if the page has none with its id, otherwise updates it (and
    * shows it again if it was removed).
+   * @param doc The document handle (new images belong to it).
    * @param page A loaded page.
    * @param annotation The annotation to write.
    * @returns The annotation as stored, or `null` if PDFium refused it.
    */
-  put(page: number, annotation: EditableAnnotation): Annotation | null {
+  put(doc: number, page: number, annotation: EditableAnnotation): Annotation | null {
     let annot = this.find(page, annotation.id);
     if (annot && this.needsRecreating(annot, annotation)) {
       this.removeHandle(page, annot);
@@ -124,11 +172,14 @@ export class PageAnnotations {
       annot = this.pdfium.FPDFPage_CreateAnnot(page, SUBTYPE_OF[annotation.kind]);
       if (!annot) return null;
       this.strings.set(annot, NAME_KEY, annotation.id);
+      // Printed like the rest of the page (other readers leave out marks without this flag).
+      this.pdfium.FPDFAnnot_SetFlags(annot, FLAG_PRINT);
     }
     try {
       this.unhide(annot);
-      this.write(annot, annotation);
-      this.pdfium.EPDFAnnot_GenerateAppearance(annot);
+      this.write(doc, annot, annotation);
+      // An image's appearance is its picture, which writing it already built.
+      if (annotation.kind !== "image") this.pdfium.EPDFAnnot_GenerateAppearance(annot);
       return this.read(annot, SUBTYPE_OF[annotation.kind]);
     } finally {
       this.pdfium.FPDFPage_CloseAnnot(annot);
@@ -178,7 +229,8 @@ export class PageAnnotations {
    * @param hidden True to hide, false to undo an earlier `setEditableHidden(page, true)`.
    */
   setEditableHidden(page: number, hidden: boolean): void {
-    const editable = new Set(Object.values(SUBTYPE_OF));
+    // Images (stamps) are drawn by PDFium, like stamps from other apps.
+    const editable = new Set(Object.values(SUBTYPE_OF).filter((subtype) => subtype !== SUBTYPE.stamp));
     this.forEach(page, (annot) => {
       if (!editable.has(this.pdfium.FPDFAnnot_GetSubtype(annot)) || this.isRemoved(annot)) return;
       const flags = this.pdfium.FPDFAnnot_GetFlags(annot);
@@ -259,7 +311,7 @@ export class PageAnnotations {
   private needsRecreating(annot: number, next: EditableAnnotation): boolean {
     if (this.pdfium.FPDFAnnot_GetSubtype(annot) !== SUBTYPE_OF[next.kind]) return true;
     return (
-      next.kind === "highlight" &&
+      isTextMarkup(next) &&
       this.pdfium.FPDFAnnot_CountAttachmentPoints(annot) !== next.lines.length &&
       this.pdfium.FPDFAnnot_CountAttachmentPoints(annot) > 0
     );
@@ -267,10 +319,11 @@ export class PageAnnotations {
 
   /**
    * Copies a record's properties onto an annotation.
+   * @param doc The document handle.
    * @param annot The annotation handle.
    * @param annotation The record.
    */
-  private write(annot: number, annotation: EditableAnnotation): void {
+  private write(doc: number, annot: number, annotation: EditableAnnotation): void {
     const { pdfium, heap } = this;
     heap.withBuffer(RECT_BYTES, (ptr) => {
       heap.writeRect(ptr, annotation.rect);
@@ -280,8 +333,32 @@ export class PageAnnotations {
     const { r, g, b } = annotation.color;
     switch (annotation.kind) {
       case "highlight":
+      case "underline":
+      case "strikeout":
+      case "squiggly":
         pdfium.EPDFAnnot_SetColor(annot, COLOR_STROKE, r, g, b);
         this.writeLines(annot, annotation.lines);
+        break;
+      case "line":
+      case "arrow":
+        pdfium.EPDFAnnot_SetColor(annot, COLOR_STROKE, r, g, b);
+        pdfium.FPDFAnnot_SetBorder(annot, 0, 0, annotation.lineWidth);
+        heap.withBuffer(2 * POINT_BYTES, (ptr) => {
+          heap.writePoints(ptr, [annotation.start, annotation.end]);
+          pdfium.EPDFAnnot_SetLine(annot, ptr, ptr + POINT_BYTES);
+        });
+        pdfium.EPDFAnnot_SetLineEndings(
+          annot,
+          LINE_END_NONE,
+          annotation.kind === "arrow" ? LINE_END_OPEN_ARROW : LINE_END_NONE,
+        );
+        break;
+      case "note":
+        pdfium.EPDFAnnot_SetColor(annot, COLOR_STROKE, r, g, b);
+        break;
+      case "image":
+        this.images.write(doc, annot, annotation);
+        this.strings.set(annot, IMAGE_KEY, "1");
         break;
       case "ink":
         pdfium.EPDFAnnot_SetColor(annot, COLOR_STROKE, r, g, b);
@@ -295,6 +372,7 @@ export class PageAnnotations {
         }
         break;
       case "square":
+      case "circle":
         pdfium.EPDFAnnot_SetColor(annot, COLOR_STROKE, r, g, b);
         pdfium.FPDFAnnot_SetBorder(annot, 0, 0, annotation.lineWidth);
         break;
@@ -341,13 +419,23 @@ export class PageAnnotations {
       opacity: this.readOpacity(annot),
       ...this.commentOf(annot, subtype),
     };
+    const markup = MARKUP_OF[subtype];
+    if (markup) return { ...base, kind: markup, lines: this.readLines(annot) };
     switch (subtype) {
-      case SUBTYPE.highlight:
-        return { ...base, kind: "highlight", lines: this.readLines(annot) };
       case SUBTYPE.ink:
         return { ...base, kind: "ink", strokes: this.readStrokes(annot), lineWidth: this.readBorderWidth(annot) };
       case SUBTYPE.square:
         return { ...base, kind: "square", lineWidth: this.readBorderWidth(annot) };
+      case SUBTYPE.circle:
+        return { ...base, kind: "circle", lineWidth: this.readBorderWidth(annot) };
+      case SUBTYPE.line:
+        return { ...base, ...this.readLine(annot), lineWidth: this.readBorderWidth(annot) };
+      case SUBTYPE.text:
+        return { ...base, kind: "note" };
+      case SUBTYPE.stamp:
+        return this.strings.get(annot, IMAGE_KEY) === "1"
+          ? { ...base, kind: "image" }
+          : { ...base, kind: "other", subtype };
       case SUBTYPE.freeText:
         return {
           ...base,
@@ -386,11 +474,7 @@ export class PageAnnotations {
    * @returns Its id.
    */
   private ensureName(annot: number): string {
-    const name = this.strings.get(annot, NAME_KEY);
-    if (name) return name;
-    const id = this.newId();
-    this.strings.set(annot, NAME_KEY, id);
-    return id;
+    return this.strings.ensureName(annot, this.newId).id;
   }
 
   /**
@@ -428,6 +512,30 @@ export class PageAnnotations {
         ? this.heap.float(ptr + 2 * FLOAT_BYTES)
         : 1,
     );
+  }
+
+  /**
+   * Reads a line's ends and whether it ends in an arrowhead.
+   * @param annot The annotation handle.
+   * @returns Its kind (line or arrow) and its two ends; the rectangle's diagonal when PDFium cannot say.
+   */
+  private readLine(annot: number): { kind: "line" | "arrow"; start: PdfPoint; end: PdfPoint } {
+    const ends = this.heap.withBuffer(2 * POINT_BYTES, (ptr) =>
+      this.pdfium.FPDFAnnot_GetLine(annot, ptr, ptr + POINT_BYTES) ? this.heap.readPoints(ptr, 2) : null,
+    );
+    const rect = this.heap.withBuffer(RECT_BYTES, (ptr) =>
+      this.pdfium.FPDFAnnot_GetRect(annot, ptr) ? this.heap.readRect(ptr) : { x: 0, y: 0, width: 0, height: 0 },
+    );
+    const [start, end] = ends ?? [
+      { x: rect.x, y: rect.y },
+      { x: rect.x + rect.width, y: rect.y + rect.height },
+    ];
+    const ending = this.heap.withBuffer(2 * INT_BYTES, (ptr) =>
+      this.pdfium.EPDFAnnot_GetLineEndings(annot, ptr, ptr + INT_BYTES)
+        ? this.heap.int(ptr + INT_BYTES)
+        : LINE_END_NONE,
+    );
+    return { kind: ending === LINE_END_NONE ? "line" : "arrow", start: start!, end: end! };
   }
 
   /**

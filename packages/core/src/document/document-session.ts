@@ -15,9 +15,11 @@ import {
 } from "@pdf-editor/shared";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { Annotation } from "../annotations/annotation";
+import type { FormField } from "../forms/form-field";
 import type { PageTextObject, TextMatch, TextSelection } from "../page-text/page-text";
 import { EngineCallError } from "../engine/engine-client";
 import type {
+  AssembleOptions,
   AssemblePart,
   EngineErrorCode,
   EngineMethod,
@@ -105,6 +107,12 @@ export interface DocumentSession {
    */
   readAnnotations(pageId: string): Promise<readonly Annotation[]>;
   /**
+   * A page's form widgets, read once per page revision.
+   * @param pageId A page id.
+   * @returns The widgets in page order; empty for an unknown page.
+   */
+  readFormFields(pageId: string): Promise<readonly FormField[]>;
+  /**
    * Every piece of the page's own text that can be edited, read once per page revision.
    * @param pageId A page id.
    * @returns The text objects in drawing order; empty for an unknown page.
@@ -166,11 +174,12 @@ export interface DocumentSession {
    */
   releaseSource(source: SourceDoc): Promise<void>;
   /**
-   * Builds a PDF from pages of the document, in document order (for Extract).
+   * Builds a PDF from pages of the document, in document order (for Export).
    * @param pageIds Pages to include; all pages when omitted.
+   * @param options `flatten`: draw annotations and form fields into the pages.
    * @returns The verified bytes.
    */
-  buildPdf(pageIds?: readonly string[]): Promise<ArrayBuffer>;
+  buildPdf(pageIds?: readonly string[], options?: AssembleOptions): Promise<ArrayBuffer>;
   /**
    * Builds the document, verifies it and hands it to `write` (architecture figure 6). On success the
    * current state becomes the saved point and the file name follows the written file.
@@ -246,7 +255,7 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
   const pendingEdits = new Set<Promise<unknown>>();
   let failures = 0;
 
-  /** Reads of a page's annotations and text, by page and revision; dropped when a document opens or closes. */
+  /** Page reads by revision; dropped when a document opens or closes. */
   const pageReads = new Map<string, Promise<unknown>>();
 
   const callEngine: CommandEngine = (method, params) => engine.call(method, params).promise;
@@ -259,7 +268,7 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
    * @returns The cached or fresh result; an empty list for an unknown page.
    */
   const readPage = <T>(
-    kind: "annotations" | "text",
+    kind: "annotations" | "forms" | "text",
     pageId: string,
     read: (at: PageAddress) => Promise<readonly T[]>,
   ): Promise<readonly T[]> => {
@@ -278,6 +287,8 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
   };
   const readAnnotations = (pageId: string) =>
     readPage("annotations", pageId, (at) => engine.call("getAnnotations", at).promise);
+  const readFormFields = (pageId: string) =>
+    readPage("forms", pageId, (at) => engine.call("getFormFields", at).promise);
   const readTextObjects = (pageId: string) =>
     readPage("text", pageId, (at) => engine.call("getTextObjects", at).promise);
 
@@ -330,11 +341,11 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
     );
   };
 
-  const buildPdf = async (pageIds?: readonly string[]): Promise<ArrayBuffer> => {
+  const buildPdf = async (pageIds?: readonly string[], options: AssembleOptions = {}): Promise<ArrayBuffer> => {
     const state = store.getState();
     const wanted = pageIds ? new Set(pageIds) : null;
     const pages = wanted ? state.pages.filter((page) => wanted.has(page.id)) : state.pages;
-    const { bytes } = await engine.call("assemble", { parts: partsOf(contentOf(state), pages) }).promise;
+    const { bytes } = await engine.call("assemble", { parts: partsOf(contentOf(state), pages), ...options }).promise;
     return bytes;
   };
 
@@ -453,6 +464,7 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
     },
 
     readAnnotations,
+    readFormFields,
     readTextObjects,
 
     async textRects(pageId, from, to) {

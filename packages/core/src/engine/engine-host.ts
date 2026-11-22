@@ -14,6 +14,8 @@ type EngineApi = Pick<
   | "renderPage"
   | "assemble"
   | "getAnnotations"
+  | "getFormFields"
+  | "setFormField"
   | "putAnnotation"
   | "putReply"
   | "removeAnnotation"
@@ -62,6 +64,7 @@ const FAILURE_MESSAGES: Partial<Record<EngineErrorCode, string>> = {
   "unknown-document": "The document or page is not open.",
   "unknown-annotation": "The page has no annotation with that id.",
   "annotation-failed": "The annotation could not be written.",
+  "form-field-write-failed": "PDFium could not set the form field value.",
   "text-edit-failed": "That text could not be changed.",
 };
 
@@ -135,6 +138,20 @@ export function createEngineHost(deps: EngineHostDeps): { receive(request: Engin
     async getAnnotations(at) {
       return [unwrap(requireEngine().getAnnotations(at))];
     },
+    /**
+     * @param at The page to inspect.
+     * @returns The widgets in page order.
+     */
+    async getFormFields(at) {
+      return [unwrap(requireEngine().getFormFields(at))];
+    },
+    /**
+     * @param params The page address, widget id, and new value.
+     * @returns Null in the response payload.
+     */
+    async setFormField({ id, value, ...at }) {
+      return [unwrap(requireEngine().setFormField(at, id, value))];
+    },
     async putAnnotation({ annotation, ...at }) {
       return [unwrap(requireEngine().putAnnotation(at, annotation))];
     },
@@ -179,8 +196,8 @@ export function createEngineHost(deps: EngineHostDeps): { receive(request: Engin
     async showPageText({ show, hide, ...at }) {
       return [unwrap(requireEngine().showPageText(at, show, hide))];
     },
-    async assemble({ parts }) {
-      const built = requireEngine().assemble(parts);
+    async assemble({ parts, flatten }) {
+      const built = requireEngine().assemble(parts, { flatten });
       if (!built.ok) {
         const code = built.error === "unknown-document" ? "unknown-document" : "assemble-failed";
         throw new HostError({ code, message: "The new file could not be built." });

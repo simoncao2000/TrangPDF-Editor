@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { handlePosition, MIN_SIZE, resizeRect } from "./resize-handles";
+import { handlePosition, MIN_SIZE, resizeRect, keepAspect } from "./resize-handles";
 
 const box = { left: 100, top: 100, width: 50, height: 40 };
 
@@ -26,5 +26,23 @@ describe("handlePosition", () => {
   test("puts each handle on its corner", () => {
     expect(handlePosition(box, "nw")).toEqual({ x: 100, y: 100 });
     expect(handlePosition(box, "se")).toEqual({ x: 150, y: 140 });
+  });
+});
+
+describe("keepAspect", () => {
+  test("keeps a box's proportions, stretching by its larger change, the opposite corner fixed", () => {
+    const original = { left: 10, top: 10, width: 100, height: 50 };
+    expect(keepAspect({ left: 10, top: 10, width: 200, height: 60 }, original, "se")).toEqual({
+      left: 10,
+      top: 10,
+      width: 200,
+      height: 100,
+    });
+    expect(keepAspect({ left: 60, top: 0, width: 50, height: 60 }, original, "nw")).toEqual({
+      left: -10,
+      top: 0,
+      width: 120,
+      height: 60,
+    });
   });
 });

@@ -4,8 +4,16 @@ import type { Annotation, Rgb } from "@pdf-editor/core";
 /** What each kind is called in labels, toasts and screen readers. */
 export const ANNOTATION_NAMES: Record<Annotation["kind"], string> = {
   highlight: "Highlight",
+  underline: "Underline",
+  strikeout: "Strikethrough",
+  squiggly: "Squiggly",
   ink: "Drawing",
   square: "Rectangle",
+  circle: "Ellipse",
+  line: "Line",
+  arrow: "Arrow",
+  note: "Note",
+  image: "Image",
   textBox: "Text box",
   other: "Annotation",
 };

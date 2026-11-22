@@ -9,15 +9,12 @@ import {
   FileInput,
   FileOutput,
   FolderOpen,
-  Highlighter,
   LayoutGrid,
   Monitor,
   Moon,
   Move,
-  MousePointer2,
   PanelLeft,
   PanelRight,
-  PenLine,
   RectangleHorizontal,
   Redo2,
   RotateCcw,
@@ -26,16 +23,15 @@ import {
   SaveAll,
   Scan,
   Search,
-  Square,
   Sun,
-  TextCursorInput,
-  Type,
   Undo2,
   X,
   ZoomIn,
   ZoomOut,
   type LucideIcon,
 } from "lucide-react";
+import { ALL_TOOLS } from "./tool-catalog";
+import { useExport } from "./use-export";
 import { useInsertPending, useStartInsertPages } from "./use-insert-pages";
 import { useAnnotationUi, type Tool } from "../state/annotation-store";
 import { useLayout } from "../state/layout-store";
@@ -68,15 +64,24 @@ export interface Command {
 
 const MOD = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl ";
 
-/** Tools, with their keys; markups and shapes are the variants the palette's flyouts offer. */
-const TOOL_COMMANDS: readonly (readonly [Tool, string, string, LucideIcon, number])[] = [
-  ["select", "Select", "V", MousePointer2, 0],
-  ["editText", "Edit text", "E", TextCursorInput, 0],
-  ["highlight", "Highlight", "H", Highlighter, 1],
-  ["ink", "Draw", "D", PenLine, 2],
-  ["square", "Rectangle", "S", Square, 2],
-  ["textBox", "Add text", "T", Type, 2],
-];
+/** Tools menu sections: select and edit, then marking text, then drawing on the page. */
+const TOOL_GROUPS: Record<Tool, number> = {
+  select: 0,
+  editText: 0,
+  note: 1,
+  highlight: 1,
+  underline: 1,
+  strikeout: 1,
+  squiggly: 1,
+  ink: 2,
+  square: 2,
+  circle: 2,
+  line: 2,
+  arrow: 2,
+  textBox: 2,
+  image: 2,
+  sign: 2,
+};
 const THEMES: readonly (readonly [ThemePreference, string, LucideIcon])[] = [
   ["system", "Match system", Monitor],
   ["light", "Light", Sun],
@@ -92,6 +97,7 @@ export function useCommands(): readonly Command[] {
   const actions = useDocumentActions();
   const { openFromPicker } = useFileOpener();
   const startInsert = useStartInsertPages();
+  const startExport = useExport((state) => state.open);
   const inserting = useInsertPending();
   const status = useDocument((state) => state.status);
   const pages = useDocument((state) => state.pages);
@@ -170,17 +176,12 @@ export function useCommands(): readonly Command[] {
     },
     {
       id: "export-pages",
-      title:
-        selection.length > 1
-          ? `Export ${selection.length} selected pages…`
-          : selection.length === 1
-            ? "Export the selected page…"
-            : "Export this page…",
+      title: "Export a copy…",
       menu: "File",
       group: 2,
       icon: FileOutput,
-      enabled: open && target.length > 0,
-      run: () => void actions.extract(target),
+      enabled: open,
+      run: () => startExport(selection.length > 0 ? "selected" : "all"),
     },
     {
       id: "close",
@@ -288,13 +289,13 @@ export function useCommands(): readonly Command[] {
       run: () => setTheme(preference),
     })),
 
-    ...TOOL_COMMANDS.map(([tool, name, key, icon, group]) => ({
+    ...ALL_TOOLS.map(({ tool, label, key, icon }) => ({
       id: `tool-${tool}`,
-      title: name,
+      title: label,
       menu: "Tools" as const,
-      group,
+      group: TOOL_GROUPS[tool],
       icon,
-      shortcut: key,
+      shortcut: key?.toUpperCase(),
       enabled: open,
       run: () => pickTool(tool),
     })),

@@ -1,18 +1,7 @@
-import {
-  Highlighter,
-  MousePointer2,
-  PenLine,
-  RectangleHorizontal,
-  RectangleVertical,
-  Redo2,
-  Square,
-  TextCursorInput,
-  Type,
-  Undo2,
-  type LucideIcon,
-} from "lucide-react";
+import { RectangleHorizontal, RectangleVertical, Redo2, Undo2 } from "lucide-react";
 import { useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { useDocument } from "../../editor/hooks";
+import { ALL_TOOLS, PALETTE, TOOL_INFO } from "../../editor/tool-catalog";
 import { useDocumentActions } from "../../editor/use-document-actions";
 import { useElementSize } from "../../hooks/use-element-size";
 import { useShortcuts } from "../../hooks/use-shortcut";
@@ -20,23 +9,8 @@ import { useAnnotationUi, type Tool } from "../../state/annotation-store";
 import { useLayout } from "../../state/layout-store";
 import { useViewer } from "../../state/viewer-store";
 import { PLACEMENT_MARGIN, placeInside, type Point, type Size } from "./tool-placement";
-
-interface ToolInfo {
-  readonly tool: Tool;
-  readonly label: string;
-  /** Single-key shortcut, lower case. */
-  readonly key: string;
-  readonly icon: LucideIcon;
-}
-
-const TOOLS: readonly ToolInfo[] = [
-  { tool: "select", label: "Select", key: "v", icon: MousePointer2 },
-  { tool: "editText", label: "Edit text", key: "e", icon: TextCursorInput },
-  { tool: "highlight", label: "Highlight", key: "h", icon: Highlighter },
-  { tool: "ink", label: "Draw", key: "d", icon: PenLine },
-  { tool: "square", label: "Rectangle", key: "s", icon: Square },
-  { tool: "textBox", label: "Add text", key: "t", icon: Type },
-];
+import { PaletteButton } from "./PaletteButton";
+import { ToolGroupButton } from "./ToolGroupButton";
 
 /** Where the palette sits until the user moves it. */
 const DEFAULT_POSITION: Point = { x: PLACEMENT_MARGIN + 4, y: PLACEMENT_MARGIN + 4 };
@@ -101,7 +75,7 @@ export function ToolPalette({ area, keysEnabled, phone = false }: ToolPalettePro
 
   useShortcuts(
     [
-      ...TOOLS.map(({ tool: next, key }) => [{ key }, () => pick(next)] as const),
+      ...ALL_TOOLS.flatMap(({ tool: next, key }) => (key ? [[{ key }, () => pick(next)] as const] : [])),
       [{ key: "escape" }, () => setTool("select")] as const,
     ],
     keysEnabled && editable,
@@ -190,17 +164,33 @@ export function ToolPalette({ area, keysEnabled, phone = false }: ToolPalettePro
         aria-label="Annotation tools"
         className={`flex items-center gap-0.5 ${upright ? "flex-col" : ""}`}
       >
-        {TOOLS.map(({ tool: option, label, key, icon }) => (
-          <PaletteButton
-            key={option}
-            icon={icon}
-            label={label}
-            shortcut={key.toUpperCase()}
-            pressed={option === tool}
-            disabled={!editable}
-            onClick={() => pick(option)}
-          />
-        ))}
+        {PALETTE.map((slot) => {
+          if (slot.kind === "group") {
+            return (
+              <ToolGroupButton
+                key={slot.name}
+                name={slot.name}
+                tools={slot.tools}
+                current={tool}
+                upright={upright}
+                disabled={!editable}
+                onPick={pick}
+              />
+            );
+          }
+          const { label, key, icon } = TOOL_INFO[slot.tool];
+          return (
+            <PaletteButton
+              key={slot.tool}
+              icon={icon}
+              label={label}
+              shortcut={key?.toUpperCase()}
+              pressed={slot.tool === tool}
+              disabled={!editable}
+              onClick={() => pick(slot.tool)}
+            />
+          );
+        })}
       </div>
       {!phone && (
         <>
@@ -214,48 +204,5 @@ export function ToolPalette({ area, keysEnabled, phone = false }: ToolPalettePro
         </>
       )}
     </nav>
-  );
-}
-
-interface PaletteButtonProps {
-  readonly icon: LucideIcon;
-  readonly label: string;
-  readonly shortcut?: string;
-  /** Pressed state for the tool in hand; leave out for plain actions. */
-  readonly pressed?: boolean;
-  readonly disabled?: boolean;
-  /** Quieter colour for secondary actions (rotate). */
-  readonly muted?: boolean;
-  onClick(): void;
-}
-
-/**
- * A palette button: an icon, its name in the tooltip, and a filled ink square for the tool in hand.
- * @param props Icon, label, shortcut, pressed state and click handler.
- * @returns The button.
- */
-function PaletteButton({
-  icon: Icon,
-  label,
-  shortcut,
-  pressed,
-  disabled = false,
-  muted = false,
-  onClick,
-}: PaletteButtonProps) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      aria-pressed={pressed}
-      title={shortcut ? `${label} (${shortcut})` : label}
-      disabled={disabled}
-      onClick={onClick}
-      className={`grid size-(--control-target) shrink-0 place-items-center rounded-sm transition-[background-color,color,transform] duration-(--duration-press) ease-out active:scale-[0.94] disabled:cursor-default disabled:text-disabled disabled:hover:bg-transparent ${
-        pressed ? "bg-action text-on-action" : `${muted ? "text-muted" : "text-ink"} hover:bg-hover`
-      }`}
-    >
-      <Icon className="size-4.5" aria-hidden="true" />
-    </button>
   );
 }

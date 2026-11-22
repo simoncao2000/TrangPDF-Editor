@@ -106,16 +106,16 @@ The interface is a "sketchbook": quiet neutral surfaces, a single hand-lettered 
     <td><img src=".github/assets/design-signature-placed-wide-light.png" alt="A form filled in and signed" /></td>
   </tr>
   <tr>
-    <td align="center"><sub><b>Annotate</b>: highlight from a text selection (coming)</sub></td>
-    <td align="center"><sub><b>Fill and sign</b> (coming)</sub></td>
+    <td align="center"><sub><b>Annotate</b>: highlight from a text selection</sub></td>
+    <td align="center"><sub><b>Fill and sign</b></sub></td>
   </tr>
   <tr>
     <td><img src=".github/assets/design-form-fields-wide-dark.png" alt="Form fields panel" /></td>
     <td><img src=".github/assets/design-comments-wide-dark.png" alt="Adding a comment" /></td>
   </tr>
   <tr>
-    <td align="center"><sub><b>Forms</b> (coming)</sub></td>
-    <td align="center"><sub><b>Comments</b> (coming)</sub></td>
+    <td align="center"><sub><b>Forms</b></sub></td>
+    <td align="center"><sub><b>Comments</b></sub></td>
   </tr>
 </table>
 
@@ -259,14 +259,16 @@ bun run test
 - [x] **Phase 1: Viewer.** Open, render, zoom, navigate, passwords, recent files
 - [x] **Phase 2: Page tools.** Reorder, rotate, delete, insert, extract, undo, save
 - [ ] **Phase 3: Annotations, comments and forms**
-  - [x] Highlight from a text selection, freehand drawing, rectangles, colour and size properties, undo
+  - [x] Select text and choose Copy, Highlight or Comment
   - [x] Edit the page's own text in place (click, retype, drag to move), add new page text
   - [x] Several files open in tabs, command palette (search text, run commands, switch files), collapsible sidebars
   - [x] Every markup is a comment, Acrobat style: threads with replies, a Comments panel grouped by page
-  - [ ] The full markup set: underline, strikethrough, squiggly, sticky notes; ellipse, line and arrow shapes
+  - [x] Highlight, underline, strikethrough, squiggly, sticky notes, freehand drawing, rectangles, ellipses, lines and arrows, with colour and size properties and undo
   - [x] Redesigned shell: menu bar (File, Edit, View, Tools, Pages), files in their own tab row, a tool palette you drag anywhere and turn flat or upright, tools visible at every width
   - [x] Phone layout: file switcher, bottom bar, floating tools
-  - [ ] Images, drawn signatures saved on the device, form filling, flatten on export
+  - [x] Insert images, draw and save signatures on the device, and flatten on export
+  - [x] Fill forms in place, track progress in the Fields tab, undo changes and check required fields before export
+  - [ ] Comments on the phone
   - [ ] Matching fonts for edited text (bundled open look-alikes, fonts installed on the device)
 - [ ] **Phase 4: Desktop app.** Tauri 2, open PDFs from the system, save in place, auto-updates
 - [ ] **Phase 5: Mobile app.** Capacitor, share sheet, touch gestures, bottom sheets

@@ -40,3 +40,26 @@ export function resizeRect(rect: ScreenRect, handle: Handle, dx: number, dy: num
   const newBottom = handle.startsWith("s") ? Math.max(bottom + dy, top + MIN_SIZE) : bottom;
   return { left, top, width: newRight - left, height: newBottom - top };
 }
+
+/**
+ * A resized box brought back to the shape it had: the larger of its two stretches wins, and the
+ * corner opposite the dragged one stays put.
+ * @param resized The box after `resizeRect`.
+ * @param original The box when the drag started.
+ * @param handle The corner being dragged.
+ * @returns The box with the original's proportions.
+ */
+export function keepAspect(resized: ScreenRect, original: ScreenRect, handle: Handle): ScreenRect {
+  if (original.width === 0 || original.height === 0) return resized;
+  const scale = Math.max(resized.width / original.width, resized.height / original.height);
+  const width = original.width * scale;
+  const height = original.height * scale;
+  const right = original.left + original.width;
+  const bottom = original.top + original.height;
+  return {
+    left: handle.endsWith("w") ? right - width : original.left,
+    top: handle.startsWith("n") ? bottom - height : original.top,
+    width,
+    height,
+  };
+}

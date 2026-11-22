@@ -1,4 +1,4 @@
-import type { Annotation, PageTextObject } from "@pdf-editor/core";
+import type { Annotation, FormField, PageTextObject } from "@pdf-editor/core";
 import { useEffect, useState } from "react";
 import { useEditorServices } from "../../editor/hooks";
 
@@ -38,6 +38,17 @@ function usePageRead<T>(
 export function usePageAnnotations(pageId: string, revision: number): readonly Annotation[] {
   const { session } = useEditorServices();
   return usePageRead(session.readAnnotations, pageId, revision);
+}
+
+/**
+ * The form widgets on a page.
+ * @param pageId The page.
+ * @param revision The page's revision.
+ * @returns The widgets in page order.
+ */
+export function usePageFormFields(pageId: string, revision: number): readonly FormField[] {
+  const { session } = useEditorServices();
+  return usePageRead(session.readFormFields, pageId, revision);
 }
 
 /**

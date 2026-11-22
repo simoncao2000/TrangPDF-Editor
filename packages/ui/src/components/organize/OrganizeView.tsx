@@ -15,6 +15,7 @@ import { FilePlus2 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { useDocument, useEditorServices } from "../../editor/hooks";
 import { useDocumentActions } from "../../editor/use-document-actions";
+import { useExport } from "../../editor/use-export";
 import { useShortcuts } from "../../hooks/use-shortcut";
 import { useViewer } from "../../state/viewer-store";
 import { Button } from "../primitives/Button";
@@ -63,6 +64,7 @@ function dropIndex(
 export function OrganizeView() {
   const { session } = useEditorServices();
   const actions = useDocumentActions();
+  const startExport = useExport((state) => state.open);
   const pages = usePageDrawInfo();
   const selection = useDocument((state) => state.selection);
   const status = useDocument((state) => state.status);
@@ -203,7 +205,7 @@ export function OrganizeView() {
             busy={busy}
             onRotateLeft={() => actions.rotate(selection, -90)}
             onRotateRight={() => actions.rotate(selection, 90)}
-            onExtract={() => void actions.extract(selection)}
+            onExtract={() => startExport("selected")}
             onDelete={() => actions.remove(selection)}
             onClear={() => session.select([])}
           />

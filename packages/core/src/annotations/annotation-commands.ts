@@ -12,8 +12,16 @@ import type { Annotation, AnnotationKind, EditableAnnotation } from "./annotatio
 
 const KIND_LABELS: Record<AnnotationKind, string> = {
   highlight: "highlight",
+  underline: "underline",
+  strikeout: "strikethrough",
+  squiggly: "squiggly underline",
   ink: "drawing",
   square: "rectangle",
+  circle: "ellipse",
+  line: "line",
+  arrow: "arrow",
+  note: "note",
+  image: "image",
   textBox: "text box",
   other: "annotation",
 };

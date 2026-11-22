@@ -219,3 +219,27 @@ describe("annotations", () => {
     expect(pixel(186, 600)).toEqual([255, 255, 255]);
   });
 });
+
+describe("flatten", () => {
+  it("draws annotations into the pages of the new file, leaving none to edit", async () => {
+    const docId = await open("three-pages.pdf");
+    await put(docId, {
+      kind: "square",
+      id: "flat",
+      rect: { x: 100, y: 480, width: 200, height: 200 },
+      color: { r: 200, g: 0, b: 0 },
+      opacity: 1,
+      lineWidth: 6,
+    });
+    const { bytes } = await engine.call("assemble", { parts: [{ docId, pageIndex: 0, rotation: 0 }], flatten: true })
+      .promise;
+    const flat = (await engine.call("open", { source: { bytes } }).promise).docId;
+    expect(await list(flat)).toEqual([]);
+    const page = (await engine.call("renderPage", { docId: flat, pageIndex: 0, width: 612, height: 792 }).promise)
+      .bitmap as unknown as FakeBitmap;
+    // The square's left edge, 3 pt in from its rectangle, is now page ink.
+    const at = (792 - 580) * 612 + 103;
+    expect(page.pixels[at * 4]).toBeGreaterThan(150);
+    expect(page.pixels[at * 4 + 1]).toBeLessThan(100);
+  });
+});

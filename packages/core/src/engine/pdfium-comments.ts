@@ -48,9 +48,23 @@ export class AnnotationStrings {
    * @param annot The annotation handle.
    * @param key The dictionary key.
    * @param value The text.
+   * @returns Whether PDFium stored the value.
    */
-  set(annot: number, key: string, value: string): void {
-    this.heap.withWideString(value, (ptr) => this.pdfium.FPDFAnnot_SetStringValue(annot, key, ptr));
+  set(annot: number, key: string, value: string): boolean {
+    return this.heap.withWideString(value, (ptr) => this.pdfium.FPDFAnnot_SetStringValue(annot, key, ptr));
+  }
+
+  /**
+   * Reads an annotation's /NM or gives it a new id.
+   * @param annot The annotation handle.
+   * @param newId Makes an id when the annotation has none.
+   * @returns The id and whether it is stored in the PDF.
+   */
+  ensureName(annot: number, newId: () => string): { readonly id: string; readonly stored: boolean } {
+    const name = this.get(annot, NAME_KEY);
+    if (name) return { id: name, stored: true };
+    const id = newId();
+    return { id, stored: this.set(annot, NAME_KEY, id) };
   }
 }
 

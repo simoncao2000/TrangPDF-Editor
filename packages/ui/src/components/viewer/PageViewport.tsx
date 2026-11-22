@@ -4,6 +4,7 @@ import { useElementSize } from "../../hooks/use-element-size";
 import { useAnnotationUi } from "../../state/annotation-store";
 import { useViewer } from "../../state/viewer-store";
 import { AnnotationLayer } from "../annotations/AnnotationLayer";
+import { FormLayer } from "../forms/FormLayer";
 import { PageTextLayer } from "../page-text/PageTextLayer";
 import { useAnnotationShortcuts } from "../annotations/use-annotation-shortcuts";
 import { PageCanvas } from "./PageCanvas";
@@ -86,7 +87,7 @@ export function PageViewport({ narrow }: PageViewportProps) {
           return (
             <div
               key={page.id}
-              role="img"
+              role="group"
               data-page=""
               aria-label={`Page ${box.index + 1}`}
               className="absolute border border-paper-line"
@@ -104,6 +105,7 @@ export function PageViewport({ narrow }: PageViewportProps) {
               />
               <SearchHighlight page={page} zoom={zoom} width={box.width} height={box.height} />
               <PageTextLayer page={page} zoom={zoom} width={box.width} height={box.height} />
+              <FormLayer page={page} zoom={zoom} width={box.width} height={box.height} />
               <AnnotationLayer page={page} zoom={zoom} width={box.width} height={box.height} />
             </div>
           );

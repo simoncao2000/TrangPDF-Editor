@@ -11,6 +11,14 @@ import { useEditorServices } from "./hooks";
 import { useLeaveGuard } from "./leave-guard";
 
 /** A file chosen for insertion, opened and waiting for a position. */
+/** How a copy is exported. */
+export interface ExportOptions {
+  /** The file name to suggest; built from the pages when left out. */
+  readonly name?: string;
+  /** Draw annotations and form fields into the pages, so they can no longer be edited. */
+  readonly flatten?: boolean;
+}
+
 export interface PagesToInsert {
   readonly name: string;
   readonly pageCount: number;
@@ -28,8 +36,12 @@ export interface DocumentActions {
   move(pageIds: readonly string[], toIndex: number): void;
   /** Picks a PDF and opens it as a source; resolves its page count, or `null` if nothing was added. */
   pickPagesToInsert(): Promise<PagesToInsert | null>;
-  /** Saves the selected pages as a new file. */
-  extract(pageIds: readonly string[]): Promise<void>;
+  /**
+   * Saves pages as a new file.
+   * @param pageIds The pages, in document order.
+   * @param options The file's suggested name, and whether to flatten annotations into the pages.
+   */
+  extract(pageIds: readonly string[], options?: ExportOptions): Promise<void>;
   /** Saves in place when possible, otherwise asks where. Resolves true when saved. */
   save(): Promise<boolean>;
   /** Always asks where to save. Resolves true when saved. */
@@ -150,9 +162,11 @@ export function useDocumentActions(): DocumentActions {
           cancel: () => void session.releaseSource(source),
         };
       },
-      async extract(pageIds) {
+      async extract(pageIds, options = {}) {
         const numbers = numbersOf(pageIds);
-        const name = `${baseName(session.store.getState().fileName ?? "Document")} (${describePages(numbers)}).pdf`;
+        const name =
+          options.name ??
+          `${baseName(session.store.getState().fileName ?? "Document")} (${describePages(numbers)}).pdf`;
         let target;
         try {
           target = await files.pickSaveTarget(name);
@@ -161,7 +175,7 @@ export function useDocumentActions(): DocumentActions {
         }
         if (!target) return;
         try {
-          const saved = await target.write(await session.buildPdf(pageIds));
+          const saved = await target.write(await session.buildPdf(pageIds, { flatten: options.flatten }));
           show(`Saved ${saved.name}`);
         } catch {
           show("Couldn’t save the extracted pages.", { tone: "error" });

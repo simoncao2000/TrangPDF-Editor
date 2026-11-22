@@ -7,6 +7,7 @@
 import type { PdfPoint, PdfRect } from "@pdf-editor/shared";
 import type { Annotation, EditableAnnotation } from "../annotations/annotation";
 import type { CommentReply } from "../annotations/comment";
+import type { FormField } from "../forms/form-field";
 import type { NewTextLine, NewTextStyle, PageTextObject, TextMatch, TextSelection } from "../page-text/page-text";
 
 /** Identifies an open document inside the worker. */
@@ -45,6 +46,12 @@ export interface AssemblePart {
   readonly rotation: Rotation;
 }
 
+/** How a new file is built. */
+export interface AssembleOptions {
+  /** Draw annotations and form fields into the pages, so they can no longer be edited. */
+  readonly flatten?: boolean;
+}
+
 /** One page of an open document. */
 export interface PageAddress {
   readonly docId: DocId;
@@ -69,6 +76,9 @@ export interface EngineMethods {
     result: RenderedPage;
   };
   getAnnotations: { params: PageAddress; result: Annotation[] };
+  getFormFields: { params: PageAddress; result: FormField[] };
+  /** Sets a field value through the widget with the given id. */
+  setFormField: { params: PageAddress & { id: string; value: string }; result: null };
   /** Creates or updates an annotation; resolves with it as stored. */
   putAnnotation: { params: PageAddress & { annotation: EditableAnnotation }; result: Annotation };
   /** Creates or updates a reply to an annotation. Remove and restore it like an annotation. */
@@ -101,7 +111,7 @@ export interface EngineMethods {
   renderTextObject: { params: PageAddress & { id: string; scale: number }; result: RenderedPage };
   /** Switches page text objects on and off (undo and redo of text edits). */
   showPageText: { params: PageAddress & { show: readonly string[]; hide: readonly string[] }; result: null };
-  assemble: { params: { parts: readonly AssemblePart[] }; result: { bytes: ArrayBuffer } };
+  assemble: { params: { parts: readonly AssemblePart[] } & AssembleOptions; result: { bytes: ArrayBuffer } };
 }
 
 export type EngineMethod = keyof EngineMethods;
@@ -118,6 +128,7 @@ export type EngineErrorCode =
   | "assemble-failed"
   | "unknown-annotation"
   | "annotation-failed"
+  | "form-field-write-failed"
   | "text-edit-failed"
   | "engine-failed";
 
