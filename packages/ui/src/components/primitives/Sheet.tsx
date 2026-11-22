@@ -33,7 +33,7 @@ export function Sheet({ title, onDismiss, children }: SheetProps) {
       onClick={(event) => {
         if (event.target === event.currentTarget) onDismiss();
       }}
-      className="mx-0 mt-auto mb-0 max-h-[85dvh] w-full max-w-none rounded-t-lg border-t border-line bg-raised p-0 pb-[env(safe-area-inset-bottom)] text-ink shadow-3 backdrop:bg-scrim transition-[translate,opacity] duration-(--duration-enter) ease-(--ease-drawer) starting:translate-y-8 starting:opacity-0 motion-reduce:transition-opacity"
+      className="mx-0 mt-auto mb-0 max-h-[85dvh] w-full max-w-none rounded-t-lg border-t border-line bg-raised p-0 pb-[env(safe-area-inset-bottom)] text-ink shadow-3 transition-[translate,opacity] duration-(--duration-enter) ease-(--ease-drawer) backdrop:bg-scrim motion-reduce:transition-opacity starting:translate-y-8 starting:opacity-0"
     >
       <span className="mx-auto mt-2 block h-1 w-10 rounded-pill bg-line" aria-hidden="true" />
       <h2 id={titleId} className="px-5 pt-3 pb-2 font-hand text-xl font-normal">

@@ -43,7 +43,7 @@ export function NewTextEditor({ at, frame, fontSize, color, onDone }: NewTextEdi
       rows={1}
       wrap="off"
       spellCheck
-      className="absolute resize-none overflow-hidden bg-transparent whitespace-pre outline-2 outline-offset-2 outline-paper-focus outline-dashed [field-sizing:content]"
+      className="absolute [field-sizing:content] resize-none overflow-hidden bg-transparent whitespace-pre outline-2 outline-offset-2 outline-paper-focus outline-dashed"
       style={{
         left: at.x,
         top: at.y,

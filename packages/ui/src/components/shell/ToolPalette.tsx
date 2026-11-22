@@ -149,7 +149,7 @@ export function ToolPalette({ area, keysEnabled, phone = false }: ToolPalettePro
       aria-label="Tools"
       aria-orientation={upright ? "vertical" : "horizontal"}
       style={{ transform: `translate(${placed.x}px, ${placed.y}px)`, maxWidth: area.width - 2 * PLACEMENT_MARGIN }}
-      className={`absolute top-0 left-0 z-10 flex items-center gap-0.5 bg-raised p-1 shadow-2 ring-1 ring-line/50 ${upright ? "flex-col" : "overflow-x-auto scrollbar-width-none"} ${
+      className={`absolute top-0 left-0 z-10 flex items-center gap-0.5 bg-raised p-1 shadow-2 ring-1 ring-line/50 ${upright ? "flex-col" : "scrollbar-width-none overflow-x-auto"} ${
         dragged ? "" : "transition-transform duration-(--duration-pop) ease-out motion-reduce:transition-none"
       }`}
     >

@@ -49,3 +49,19 @@ describe("getTextRects", () => {
     ).toEqual([]);
   });
 });
+
+describe("getTextSelection", () => {
+  it("gives the selected characters with their line rectangles, lines ending in a line break", async () => {
+    const engine = await createTestEngine();
+    const docId = (await engine.call("open", { source: { bytes: corpusFile("text.pdf") } }).promise).docId;
+    const selection = await engine.call("getTextSelection", {
+      docId,
+      pageIndex: 0,
+      from: { x: 74, y: 708 },
+      to: { x: 140, y: 678 },
+    }).promise;
+    expect(selection.rects).toHaveLength(2);
+    expect(selection.text.startsWith("Tide tables for the headland\n")).toBe(true);
+    expect(selection.text.split("\n")[1]?.startsWith("Che")).toBe(true);
+  });
+});

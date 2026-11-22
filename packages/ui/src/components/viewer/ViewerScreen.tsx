@@ -31,7 +31,7 @@ export function ViewerScreen({ narrow, dragging, keysEnabled }: ViewerScreenProp
       )}
       {dragging && (
         <div className="pointer-events-none absolute inset-3 grid place-items-center rounded-sm border-2 border-dashed border-signal bg-signal-soft/80">
-          <p className="font-hand text-2xl text-ink">Drop to open in a new tab</p>
+          <p className="text-2xl font-hand text-ink">Drop to open in a new tab</p>
         </div>
       )}
     </div>

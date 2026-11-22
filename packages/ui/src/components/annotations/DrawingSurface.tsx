@@ -1,5 +1,6 @@
 import {
   boundsOf,
+  newHighlight,
   CSS_PIXELS_PER_POINT,
   pdfRectToScreen,
   screenRectToPdf,
@@ -39,20 +40,6 @@ const CURSORS: Record<DrawingTool, string> = {
   square: "cursor-crosshair",
   textBox: "cursor-text",
 };
-
-/**
- * The bounding box of some rectangles.
- * @param rects At least one rectangle.
- * @returns Their bounds.
- */
-function boundsOfRects(rects: readonly PdfRect[]): PdfRect {
-  return boundsOf(
-    rects.flatMap((rect) => [
-      { x: rect.x, y: rect.y },
-      { x: rect.x + rect.width, y: rect.y + rect.height },
-    ]),
-  );
-}
 
 /**
  * Catches pointer input over a page while a drawing tool is in hand, shows the annotation as it is
@@ -141,7 +128,7 @@ export function DrawingSurface({ pageId, tool, style, frame, width, height, onCr
       const lines = await session
         .textRects(pageId, finished.from, screenToPdf(pointOf(event), frame))
         .catch(() => finished.lines);
-      if (lines.length > 0) onCreate({ ...base, id, kind: "highlight", lines, rect: boundsOfRects(lines) });
+      if (lines.length > 0) onCreate(newHighlight(id, lines, base));
       return;
     }
     if (tool === "textBox") {

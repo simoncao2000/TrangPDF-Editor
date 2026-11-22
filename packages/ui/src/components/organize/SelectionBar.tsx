@@ -62,7 +62,7 @@ export function SelectionBar({
     <div
       role="toolbar"
       aria-label="Selected pages"
-      className="flex items-center gap-0.5 rounded-sm border border-line bg-raised p-1 shadow-3 transition-[opacity,translate] duration-(--duration-enter) ease-out starting:translate-y-2 starting:opacity-0 motion-reduce:transition-opacity"
+      className="flex items-center gap-0.5 rounded-sm border border-line bg-raised p-1 shadow-3 transition-[opacity,translate] duration-(--duration-enter) ease-out motion-reduce:transition-opacity starting:translate-y-2 starting:opacity-0"
     >
       <span className="mr-1 inline-flex h-9 items-center gap-2 rounded-xs bg-signal-soft pr-3 pl-2 text-sm font-semibold">
         <span className="grid min-w-5.5 place-items-center rounded-pill bg-signal px-1.5 font-mono text-xs text-raised">

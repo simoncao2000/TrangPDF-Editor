@@ -4,6 +4,7 @@
  * for undo, and what the annotation layer draws.
  */
 import type { PdfPoint, PdfRect } from "@pdf-editor/shared";
+import type { CommentNote, CommentReply } from "./comment";
 
 /** A colour with 0–255 channels. */
 export interface Rgb {
@@ -20,12 +21,18 @@ interface AnnotationBase {
   readonly color: Rgb;
   /** 0 (invisible) to 1 (solid). */
   readonly opacity: number;
+  /** The comment written on it (text boxes have none: their /Contents is their text). */
+  readonly comment?: CommentNote;
+  /** Replies to it, oldest first. Read from the file; changed with their own commands. */
+  readonly replies?: readonly CommentReply[];
 }
 
 /** Highlighted text: one rectangle per line. */
 export interface HighlightAnnotation extends AnnotationBase {
   readonly kind: "highlight";
   readonly lines: readonly PdfRect[];
+  /** The page text under it, read from the page (never written). */
+  readonly quote?: string;
 }
 
 /** Freehand drawing, also used for drawn signatures. */
@@ -146,4 +153,33 @@ export function boundsOf(points: readonly PdfPoint[], margin = 0): PdfRect {
   const left = Math.min(...xs) - margin;
   const bottom = Math.min(...ys) - margin;
   return { x: left, y: bottom, width: Math.max(...xs) + margin - left, height: Math.max(...ys) + margin - bottom };
+}
+
+/**
+ * The bounding box of some rectangles.
+ * @param rects At least one rectangle.
+ * @returns Their bounds.
+ */
+export function boundsOfRects(rects: readonly PdfRect[]): PdfRect {
+  return boundsOf(
+    rects.flatMap((rect) => [
+      { x: rect.x, y: rect.y },
+      { x: rect.x + rect.width, y: rect.y + rect.height },
+    ]),
+  );
+}
+
+/**
+ * A new highlight over some lines of text.
+ * @param id A fresh id.
+ * @param lines One rectangle per line, in PDF space.
+ * @param look Its colour and opacity.
+ * @returns The highlight.
+ */
+export function newHighlight(
+  id: string,
+  lines: readonly PdfRect[],
+  look: { readonly color: Rgb; readonly opacity: number },
+): HighlightAnnotation {
+  return { kind: "highlight", id, lines, rect: boundsOfRects(lines), color: look.color, opacity: look.opacity };
 }

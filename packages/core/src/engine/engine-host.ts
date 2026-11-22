@@ -15,9 +15,11 @@ type EngineApi = Pick<
   | "assemble"
   | "getAnnotations"
   | "putAnnotation"
+  | "putReply"
   | "removeAnnotation"
   | "restoreAnnotation"
   | "getTextRects"
+  | "getTextSelection"
   | "findText"
   | "getTextObjects"
   | "getTextObjectAt"
@@ -136,6 +138,9 @@ export function createEngineHost(deps: EngineHostDeps): { receive(request: Engin
     async putAnnotation({ annotation, ...at }) {
       return [unwrap(requireEngine().putAnnotation(at, annotation))];
     },
+    async putReply({ parentId, reply, ...at }) {
+      return [unwrap(requireEngine().putReply(at, parentId, reply))];
+    },
     async removeAnnotation({ id, ...at }) {
       return [unwrap(requireEngine().removeAnnotation(at, id))];
     },
@@ -144,6 +149,9 @@ export function createEngineHost(deps: EngineHostDeps): { receive(request: Engin
     },
     async getTextRects({ from, to, ...at }) {
       return [unwrap(requireEngine().getTextRects(at, from, to))];
+    },
+    async getTextSelection({ from, to, ...at }) {
+      return [unwrap(requireEngine().getTextSelection(at, from, to))];
     },
     async findText({ docId, pageIndexes, query, limit }) {
       return [unwrap(requireEngine().findText(docId, pageIndexes, query, limit))];

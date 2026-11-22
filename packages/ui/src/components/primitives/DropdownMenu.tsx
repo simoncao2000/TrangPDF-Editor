@@ -184,7 +184,7 @@ export function DropdownMenu<T extends string>({
                   onSelect(entry.value);
                   close(true);
                 }}
-                className={`flex items-center gap-3 rounded-xs px-3 text-left text-sm text-ink outline-none transition-colors duration-(--duration-hover) hover:bg-hover focus-visible:bg-hover disabled:pointer-events-none disabled:text-disabled aria-checked:font-semibold ${kind === "action" ? "min-h-8" : "min-h-9"}`}
+                className={`flex items-center gap-3 rounded-xs px-3 text-left text-sm text-ink transition-colors duration-(--duration-hover) outline-none hover:bg-hover focus-visible:bg-hover disabled:pointer-events-none disabled:text-disabled aria-checked:font-semibold ${kind === "action" ? "min-h-8" : "min-h-9"}`}
               >
                 {OptionIcon && <OptionIcon className="size-4 shrink-0 text-muted" aria-hidden="true" />}
                 <span className="flex-1 whitespace-nowrap">{entry.label}</span>

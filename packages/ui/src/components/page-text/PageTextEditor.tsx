@@ -90,7 +90,7 @@ export function PageTextEditor({ object, frame, onDone }: PageTextEditorProps) {
         onFocus={(event) =>
           event.currentTarget.setSelectionRange(event.currentTarget.value.length, event.currentTarget.value.length)
         }
-        className="absolute outline-2 outline-offset-1 outline-paper-focus outline-dashed [field-sizing:content]"
+        className="absolute [field-sizing:content] outline-2 outline-offset-1 outline-paper-focus outline-dashed"
         style={{
           left: turned ? (box.width + 2 * PAD - width) / 2 : 0,
           top: turned ? (box.height + 2 * PAD - height) / 2 : 0,

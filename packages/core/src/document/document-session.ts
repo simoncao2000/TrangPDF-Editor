@@ -15,7 +15,7 @@ import {
 } from "@pdf-editor/shared";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { Annotation } from "../annotations/annotation";
-import type { PageTextObject, TextMatch } from "../page-text/page-text";
+import type { PageTextObject, TextMatch, TextSelection } from "../page-text/page-text";
 import { EngineCallError } from "../engine/engine-client";
 import type {
   AssemblePart,
@@ -118,6 +118,14 @@ export interface DocumentSession {
    * @returns One rectangle per line; empty when a point misses the text or the page is unknown.
    */
   textRects(pageId: string, from: PdfPoint, to: PdfPoint): Promise<PdfRect[]>;
+  /**
+   * The text between two points on a page, as a reader selects it (to copy it or mark it).
+   * @param pageId A page id.
+   * @param from Where the selection started, in PDF space.
+   * @param to Where it ends, in PDF space.
+   * @returns Its line rectangles and characters; empty when a point misses the text or the page is unknown.
+   */
+  textSelection(pageId: string, from: PdfPoint, to: PdfPoint): Promise<TextSelection>;
   /**
    * The page's own text under a point, for editing it.
    * @param pageId A page id.
@@ -451,6 +459,12 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
       const at = pageAddressOf(store.getState(), pageId);
       if (!at) return [];
       return engine.call("getTextRects", { ...at, from, to }).promise;
+    },
+
+    async textSelection(pageId, from, to) {
+      const at = pageAddressOf(store.getState(), pageId);
+      if (!at) return { rects: [], text: "" };
+      return engine.call("getTextSelection", { ...at, from, to }).promise;
     },
 
     async renderTextObject(pageId, id, scale) {

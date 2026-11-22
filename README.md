@@ -128,32 +128,32 @@ The interface is a "sketchbook": quiet neutral surfaces, a single hand-lettered 
 </p>
 <p align="center"><sub>The narrow layout: reading, organising, and signing on a phone</sub></p>
 
-| | |
-| --- | --- |
+|              |                                                                                                                                                       |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Typeface** | [Playpen Sans](https://fonts.google.com/specimen/Playpen+Sans), a variable handwriting face with wide script coverage, self-hosted through Fontsource |
-| **Palette** | Neutral greys with ink-dark actions. Colour is kept for meaning, never decoration |
-| **Tokens** | Three layers: primitives → semantic roles → components, all CSS custom properties exposed to Tailwind |
-| **Themes** | Light and dark, chosen by the system or by hand, applied before first paint to avoid a flash |
-| **Icons** | [Lucide](https://lucide.dev), stroke icons matched to the hand-drawn weight |
-| **Motion** | Short and calm: under 300 ms except sheets and toasts, and off when reduced motion is requested |
+| **Palette**  | Neutral greys with ink-dark actions. Colour is kept for meaning, never decoration                                                                     |
+| **Tokens**   | Three layers: primitives → semantic roles → components, all CSS custom properties exposed to Tailwind                                                 |
+| **Themes**   | Light and dark, chosen by the system or by hand, applied before first paint to avoid a flash                                                          |
+| **Icons**    | [Lucide](https://lucide.dev), stroke icons matched to the hand-drawn weight                                                                           |
+| **Motion**   | Short and calm: under 300 ms except sheets and toasts, and off when reduced motion is requested                                                       |
 
 ## Tech stack
 
-| Area | Choice | Why |
-| --- | --- | --- |
-| Runtime and tooling | [Bun](https://bun.sh) workspaces | One fast tool for installs, scripts, tests and type checking |
-| UI | [React 19](https://react.dev) | Components, concurrent rendering, StrictMode safety |
-| Language | [TypeScript](https://www.typescriptlang.org), strict | Typed boundaries between every layer |
-| Build | [Vite 8](https://vite.dev) | Dev server with HMR, worker and WebAssembly bundling |
-| Styling | [Tailwind CSS 4](https://tailwindcss.com) | Utility classes generated from the design tokens |
-| PDF engine | [PDFium](https://pdfium.googlesource.com/pdfium/) via [`@embedpdf/pdfium`](https://www.embedpdf.com) | Rendering, page assembly, encryption, in WebAssembly |
-| Concurrency | Web Worker | The engine never blocks the interface |
-| State | [Zustand](https://zustand.docs.pmnd.rs) | A framework-free store in the core, React bindings in the UI |
-| Drag and drop | [dnd-kit](https://dndkit.com) | Accessible sorting by mouse, touch and keyboard |
-| Icons | [lucide-react](https://lucide.dev) | Consistent, tree-shaken SVG icons |
-| Font | [Playpen Sans](https://fontsource.org/fonts/playpen-sans) via Fontsource | Self-hosted, no font CDN |
-| Tests | `bun test` + [fast-check](https://fast-check.dev) | Unit tests and property-based tests |
-| Linting | [ESLint](https://eslint.org) with import boundaries | Keeps each layer from reaching into the wrong one |
+| Area                | Choice                                                                                               | Why                                                          |
+| ------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| Runtime and tooling | [Bun](https://bun.sh) workspaces                                                                     | One fast tool for installs, scripts, tests and type checking |
+| UI                  | [React 19](https://react.dev)                                                                        | Components, concurrent rendering, StrictMode safety          |
+| Language            | [TypeScript](https://www.typescriptlang.org), strict                                                 | Typed boundaries between every layer                         |
+| Build               | [Vite 8](https://vite.dev)                                                                           | Dev server with HMR, worker and WebAssembly bundling         |
+| Styling             | [Tailwind CSS 4](https://tailwindcss.com)                                                            | Utility classes generated from the design tokens             |
+| PDF engine          | [PDFium](https://pdfium.googlesource.com/pdfium/) via [`@embedpdf/pdfium`](https://www.embedpdf.com) | Rendering, page assembly, encryption, in WebAssembly         |
+| Concurrency         | Web Worker                                                                                           | The engine never blocks the interface                        |
+| State               | [Zustand](https://zustand.docs.pmnd.rs)                                                              | A framework-free store in the core, React bindings in the UI |
+| Drag and drop       | [dnd-kit](https://dndkit.com)                                                                        | Accessible sorting by mouse, touch and keyboard              |
+| Icons               | [lucide-react](https://lucide.dev)                                                                   | Consistent, tree-shaken SVG icons                            |
+| Font                | [Playpen Sans](https://fontsource.org/fonts/playpen-sans) via Fontsource                             | Self-hosted, no font CDN                                     |
+| Tests               | `bun test` + [fast-check](https://fast-check.dev)                                                    | Unit tests and property-based tests                          |
+| Linting             | [ESLint](https://eslint.org) with import boundaries                                                  | Keeps each layer from reaching into the wrong one            |
 
 ## Architecture
 
@@ -218,30 +218,30 @@ bun run dev
 
 Then open the address Vite prints, usually <http://localhost:5173>.
 
-| Script | What it does |
-| --- | --- |
-| `bun run dev` | Start the web app with hot reload |
-| `bun run build` | Build the web app for production |
-| `bun run typecheck` | Type check every package |
-| `bun run lint` | Lint, including the layer boundary rules |
-| `bun run test` | Run unit and property tests |
+| Script              | What it does                             |
+| ------------------- | ---------------------------------------- |
+| `bun run dev`       | Start the web app with hot reload        |
+| `bun run build`     | Build the web app for production         |
+| `bun run typecheck` | Type check every package                 |
+| `bun run lint`      | Lint, including the layer boundary rules |
+| `bun run test`      | Run unit and property tests              |
 
 > [!TIP]
 > Saving back to the same file needs the File System Access API (Chrome, Edge and other Chromium browsers). In other browsers, Save downloads a copy instead.
 
 ## Keyboard shortcuts
 
-| Action | macOS | Windows and Linux |
-| --- | --- | --- |
-| Open a file | `⌘ O` | `Ctrl O` |
-| Save | `⌘ S` | `Ctrl S` |
-| Save as | `⇧ ⌘ S` | `Ctrl Shift S` |
-| Undo | `⌘ Z` | `Ctrl Z` |
-| Redo | `⇧ ⌘ Z` | `Ctrl Y` or `Ctrl Shift Z` |
-| Select all pages | `⌘ A` | `Ctrl A` |
-| Delete selected pages | `Delete` or `⌫` | `Delete` or `Backspace` |
-| Pick up and drop a page | `M`, then arrows, then `M` or `Enter` | same |
-| Clear selection, or leave organise | `Esc` | `Esc` |
+| Action                             | macOS                                 | Windows and Linux          |
+| ---------------------------------- | ------------------------------------- | -------------------------- |
+| Open a file                        | `⌘ O`                                 | `Ctrl O`                   |
+| Save                               | `⌘ S`                                 | `Ctrl S`                   |
+| Save as                            | `⇧ ⌘ S`                               | `Ctrl Shift S`             |
+| Undo                               | `⌘ Z`                                 | `Ctrl Z`                   |
+| Redo                               | `⇧ ⌘ Z`                               | `Ctrl Y` or `Ctrl Shift Z` |
+| Select all pages                   | `⌘ A`                                 | `Ctrl A`                   |
+| Delete selected pages              | `Delete` or `⌫`                       | `Delete` or `Backspace`    |
+| Pick up and drop a page            | `M`, then arrows, then `M` or `Enter` | same                       |
+| Clear selection, or leave organise | `Esc`                                 | `Esc`                      |
 
 ## Testing
 
@@ -262,7 +262,7 @@ bun run test
   - [x] Highlight from a text selection, freehand drawing, rectangles, colour and size properties, undo
   - [x] Edit the page's own text in place (click, retype, drag to move), add new page text
   - [x] Several files open in tabs, command palette (search text, run commands, switch files), collapsible sidebars
-  - [ ] Every markup is a comment, Acrobat style: threads with replies, a Comments panel grouped by page
+  - [x] Every markup is a comment, Acrobat style: threads with replies, a Comments panel grouped by page
   - [ ] The full markup set: underline, strikethrough, squiggly, sticky notes; ellipse, line and arrow shapes
   - [x] Redesigned shell: menu bar (File, Edit, View, Tools, Pages), files in their own tab row, a tool palette you drag anywhere and turn flat or upright, tools visible at every width
   - [x] Phone layout: file switcher, bottom bar, floating tools

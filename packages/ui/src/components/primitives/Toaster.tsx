@@ -28,7 +28,7 @@ export function Toaster() {
           key={toast.id}
           onPointerEnter={() => setPaused(true)}
           onPointerLeave={() => setPaused(false)}
-          className="pointer-events-auto flex min-h-11 max-w-[min(100%,460px)] items-center gap-2 rounded-sm bg-inverse py-1.5 pr-1.5 pl-4 text-sm text-on-inverse shadow-3 transition-[opacity,translate] duration-(--duration-toast) ease-out starting:translate-y-4 starting:opacity-0 motion-reduce:transition-opacity"
+          className="pointer-events-auto flex min-h-11 max-w-[min(100%,460px)] items-center gap-2 rounded-sm bg-inverse py-1.5 pr-1.5 pl-4 text-sm text-on-inverse shadow-3 transition-[opacity,translate] duration-(--duration-toast) ease-out motion-reduce:transition-opacity starting:translate-y-4 starting:opacity-0"
         >
           {toast.tone === "error" && <CircleAlert className="size-4.5 shrink-0" aria-hidden="true" />}
           <span className="flex-1">{toast.message}</span>

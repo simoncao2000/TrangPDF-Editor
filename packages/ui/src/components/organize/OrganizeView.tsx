@@ -174,7 +174,7 @@ export function OrganizeView() {
           </SortableContext>
           <DragOverlay dropAnimation={{ duration: 220, easing: "cubic-bezier(0.23, 1, 0.32, 1)" }}>
             {draggedPage && (
-              <div className="relative inline-block rotate-[-2.5deg] scale-105 border border-paper-line shadow-lift">
+              <div className="relative inline-block scale-105 rotate-[-2.5deg] border border-paper-line shadow-lift">
                 <PageCanvas
                   docId={draggedPage.docId}
                   pageIndex={draggedPage.sourceIndex}

@@ -92,6 +92,15 @@ export class PdfiumHeap {
   }
 
   /**
+   * Reads an unsigned 16-bit value (one UTF-16 code unit).
+   * @param ptr Its address.
+   * @returns The value, 0 to 65535.
+   */
+  uint16(ptr: number): number {
+    return this.pdfium.pdfium.getValue(ptr, "i16") & 0xffff;
+  }
+
+  /**
    * Writes floats one after another.
    * @param ptr Start address.
    * @param values The floats.

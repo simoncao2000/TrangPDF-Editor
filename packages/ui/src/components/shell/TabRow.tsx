@@ -118,7 +118,7 @@ function TabItem({ tab, active }: TabItemProps) {
         aria-label={`Close ${fileName}`}
         title="Close"
         onClick={() => actions.closeTab(tab.id)}
-        className={`grid size-5 shrink-0 place-items-center rounded-xs hover:bg-pressed ${active || dirty ? "" : "invisible group-hover:visible group-focus-within:visible"}`}
+        className={`grid size-5 shrink-0 place-items-center rounded-xs hover:bg-pressed ${active || dirty ? "" : "invisible group-focus-within:visible group-hover:visible"}`}
       >
         {dirty ? (
           <>

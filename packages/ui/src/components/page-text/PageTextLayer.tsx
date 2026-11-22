@@ -14,6 +14,8 @@ import { usePageTextObjects } from "../annotations/use-page-annotations";
 import type { PageDrawInfo } from "../viewer/use-page-geometry";
 import { DraggedText } from "./DraggedText";
 import { PageTextEditor } from "./PageTextEditor";
+import { SelectedText } from "./SelectedText";
+import { useSelectText } from "./use-select-text";
 import { useTextDrag } from "./use-text-drag";
 
 interface PageTextLayerProps {
@@ -56,6 +58,7 @@ export function PageTextLayer({ page, zoom, width, height }: PageTextLayerProps)
   const move = (object: PageTextObject, dx: number, dy: number) =>
     session.dispatch((content) => movePageText(content, page.id, object, { dx, dy }));
   const drag = useTextDrag(frame, move, setEditing);
+  const selectText = useSelectText(page.id, frame);
   // The page's fresh text (read after a move, as the page redraws) replaces the drag preview.
   const { clear } = drag;
   useEffect(clear, [objects, clear]);
@@ -101,8 +104,9 @@ export function PageTextLayer({ page, zoom, width, height }: PageTextLayerProps)
             width={width}
             height={height}
             fill="transparent"
-            className="pointer-events-auto"
+            className="pointer-events-auto cursor-text"
             onDoubleClick={(event) => void editAt(event)}
+            {...selectText}
           />
         )}
         {tool === "editText" &&
@@ -121,7 +125,7 @@ export function PageTextLayer({ page, zoom, width, height }: PageTextLayerProps)
                 width={box.width + 2 * OUTLINE_GAP}
                 height={box.height + 2 * OUTLINE_GAP}
                 rx={2}
-                className={`pointer-events-auto cursor-text touch-none fill-transparent stroke-paper-focus/35 outline-none transition-[fill,stroke] duration-(--duration-press) hover:fill-paper-focus/8 hover:stroke-paper-focus focus-visible:stroke-paper-focus active:cursor-grabbing ${hidden === object.id ? "invisible" : ""}`}
+                className={`pointer-events-auto cursor-text touch-none fill-transparent stroke-paper-focus/35 transition-[fill,stroke] duration-(--duration-press) outline-none hover:fill-paper-focus/8 hover:stroke-paper-focus focus-visible:stroke-paper-focus active:cursor-grabbing ${hidden === object.id ? "invisible" : ""}`}
                 strokeWidth={1}
                 strokeDasharray="4 3"
                 onKeyDown={(event) => onKeyDown(event, object)}
@@ -133,6 +137,7 @@ export function PageTextLayer({ page, zoom, width, height }: PageTextLayerProps)
       {drag.moving && (
         <DraggedText pageId={page.id} object={drag.moving.object} offset={drag.moving.offset} frame={frame} />
       )}
+      {tool === "select" && <SelectedText pageId={page.id} frame={frame} width={width} height={height} />}
       {editing && <PageTextEditor key={editing.id} object={editing} frame={frame} onDone={finish} />}
     </>
   );

@@ -8,8 +8,8 @@
     "typecheck": "bun check",
     "lint": "eslint packages apps/web/src",
     "test": "bun test packages",
-    "format": "prettier --write packages apps eslint.config.js",
-    "format:check": "prettier --check packages apps eslint.config.js"
+    "format": "prettier --write . --ignore-path .gitignore --ignore-path .git/info/exclude --ignore-path .prettierignore",
+    "format:check": "prettier --check . --ignore-path .gitignore --ignore-path .git/info/exclude --ignore-path .prettierignore"
   },
   "workspaces": [
     "packages/*",
@@ -19,6 +19,7 @@
     "@types/bun": "latest",
     "eslint": "^10.15.0",
     "prettier": "^3.10.1",
+    "prettier-plugin-tailwindcss": "^0.8.1",
     "typescript": "^7.0.2"
   },
   "peerDependencies": {

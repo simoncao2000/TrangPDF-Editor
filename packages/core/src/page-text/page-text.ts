@@ -42,6 +42,14 @@ export interface NewTextStyle {
   readonly angle: number;
 }
 
+/** Page text a reader selected. */
+export interface TextSelection {
+  /** One rectangle per line, top line first, in PDF space. */
+  readonly rects: readonly PdfRect[];
+  /** What it says, lines ending in "\n". */
+  readonly text: string;
+}
+
 /** One place a search query was found. */
 export interface TextMatch {
   readonly pageIndex: number;

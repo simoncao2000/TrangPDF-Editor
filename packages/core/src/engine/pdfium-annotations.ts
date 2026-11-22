@@ -9,6 +9,8 @@
 import type { WrappedPdfiumModule } from "@embedpdf/pdfium";
 import type { PdfPoint, PdfRect } from "@pdf-editor/shared";
 import type { Annotation, AnnotationKind, EditableAnnotation, Rgb } from "../annotations/annotation";
+import type { CommentNote, CommentReply } from "../annotations/comment";
+import { AnnotationComments, AnnotationStrings } from "./pdfium-comments";
 import { FLOAT_BYTES, INT_BYTES, POINT_BYTES, PdfiumHeap, QUAD_BYTES, RECT_BYTES } from "./pdfium-heap";
 
 /** FPDF_ANNOT_* subtypes the editor maps to its own kinds. */
@@ -39,6 +41,8 @@ const DEFAULT_COLOR: Rgb = { r: 0, g: 0, b: 0 };
 export class PageAnnotations {
   private readonly pdfium: WrappedPdfiumModule;
   private readonly heap: PdfiumHeap;
+  private readonly comments: AnnotationComments;
+  private readonly strings: AnnotationStrings;
   private readonly newId: () => string;
 
   /**
@@ -48,23 +52,59 @@ export class PageAnnotations {
   constructor(pdfium: WrappedPdfiumModule, newId: () => string = () => crypto.randomUUID()) {
     this.pdfium = pdfium;
     this.heap = new PdfiumHeap(pdfium);
+    this.comments = new AnnotationComments(pdfium);
+    this.strings = new AnnotationStrings(pdfium);
     this.newId = newId;
   }
 
   /**
-   * Lists a page's visible annotations, in drawing order. Annotations without a name get one, so
-   * every annotation can be addressed later.
+   * Lists a page's visible annotations, in drawing order, each with its replies (replies are not
+   * listed on their own) and, for highlights, the text they cover. Annotations without a name get
+   * one, so every annotation can be addressed later.
    * @param page A loaded page.
    * @returns The annotations.
    */
   list(page: number): Annotation[] {
     const result: Annotation[] = [];
+    const replies = new Map<string, CommentReply[]>();
     this.forEach(page, (annot) => {
       const subtype = this.pdfium.FPDFAnnot_GetSubtype(annot);
       if (NOT_LISTED.has(subtype) || this.isHidden(annot)) return;
-      result.push(this.read(annot, subtype));
+      const parentId = this.comments.parentOf(annot);
+      if (parentId === null) result.push(this.read(annot, subtype));
+      else replies.set(parentId, [...(replies.get(parentId) ?? []), this.readReply(annot)]);
     });
-    return result;
+    return result.map((annotation) => {
+      const thread = replies.get(annotation.id);
+      const quote = annotation.kind === "highlight" ? this.comments.quote(page, annotation.lines) : "";
+      return { ...annotation, ...(thread ? { replies: thread } : {}), ...(quote ? { quote } : {}) };
+    });
+  }
+
+  /**
+   * Writes a reply to an annotation: creates it if the page has none with its id, otherwise
+   * updates it (and shows it again if it was removed).
+   * @param page A loaded page.
+   * @param parentId The annotation it answers.
+   * @param reply The reply.
+   * @returns False if the page has no annotation `parentId` or PDFium refused the reply.
+   */
+  putReply(page: number, parentId: string, reply: CommentReply): boolean {
+    const parent = this.find(page, parentId);
+    if (!parent) return false;
+    try {
+      const annot = this.find(page, reply.id) || this.comments.createReply(page, parent, reply.id);
+      if (!annot) return false;
+      try {
+        this.unhide(annot);
+        this.comments.write(annot, reply);
+        return true;
+      } finally {
+        this.pdfium.FPDFPage_CloseAnnot(annot);
+      }
+    } finally {
+      this.pdfium.FPDFPage_CloseAnnot(parent);
+    }
   }
 
   /**
@@ -83,7 +123,7 @@ export class PageAnnotations {
     if (!annot) {
       annot = this.pdfium.FPDFPage_CreateAnnot(page, SUBTYPE_OF[annotation.kind]);
       if (!annot) return null;
-      this.setString(annot, NAME_KEY, annotation.id);
+      this.strings.set(annot, NAME_KEY, annotation.id);
     }
     try {
       this.unhide(annot);
@@ -104,7 +144,7 @@ export class PageAnnotations {
   remove(page: number, id: string): boolean {
     return this.withAnnot(page, id, (annot) => {
       this.pdfium.FPDFAnnot_SetFlags(annot, this.pdfium.FPDFAnnot_GetFlags(annot) | FLAG_HIDDEN);
-      this.setString(annot, REMOVED_KEY, "1");
+      this.strings.set(annot, REMOVED_KEY, "1");
     });
   }
 
@@ -174,7 +214,7 @@ export class PageAnnotations {
     const count = this.pdfium.FPDFPage_GetAnnotCount(page);
     for (let index = 0; index < count; index++) {
       const annot = this.pdfium.FPDFPage_GetAnnot(page, index);
-      if (annot && this.getString(annot, NAME_KEY) === id) return annot;
+      if (annot && this.strings.get(annot, NAME_KEY) === id) return annot;
       if (annot) this.pdfium.FPDFPage_CloseAnnot(annot);
     }
     return 0;
@@ -261,10 +301,12 @@ export class PageAnnotations {
       case "textBox":
         // No frame: PDFium otherwise draws a 1 pt border in the text colour (and insets the text).
         pdfium.EPDFAnnot_SetBorderStyle(annot, BORDER_STYLE_SOLID, 0);
-        this.setString(annot, CONTENTS_KEY, annotation.text);
+        this.strings.set(annot, CONTENTS_KEY, annotation.text);
         pdfium.EPDFAnnot_SetDefaultAppearance(annot, FONT_HELVETICA, annotation.fontSize, r, g, b);
         break;
     }
+    // A text box's /Contents is its text, so it carries no comment of its own.
+    if (annotation.kind !== "textBox" && annotation.comment) this.comments.write(annot, annotation.comment);
   }
 
   /**
@@ -297,6 +339,7 @@ export class PageAnnotations {
       ),
       color: this.readColor(annot) ?? DEFAULT_COLOR,
       opacity: this.readOpacity(annot),
+      ...this.commentOf(annot, subtype),
     };
     switch (subtype) {
       case SUBTYPE.highlight:
@@ -310,11 +353,31 @@ export class PageAnnotations {
           ...base,
           ...this.readTextAppearance(annot),
           kind: "textBox",
-          text: this.getString(annot, CONTENTS_KEY),
+          text: this.strings.get(annot, CONTENTS_KEY),
         };
       default:
         return { ...base, kind: "other", subtype };
     }
+  }
+
+  /**
+   * The comment on an annotation, as a record field.
+   * @param annot The annotation handle.
+   * @param subtype Its FPDF_ANNOT_* subtype.
+   * @returns `{ comment }`, or nothing for a text box (its /Contents is its text) or no comment.
+   */
+  private commentOf(annot: number, subtype: number): { comment?: CommentNote } {
+    const comment = subtype === SUBTYPE.freeText ? undefined : this.comments.read(annot);
+    return comment ? { comment } : {};
+  }
+
+  /**
+   * Reads a reply.
+   * @param annot The reply's handle.
+   * @returns The record.
+   */
+  private readReply(annot: number): CommentReply {
+    return { id: this.ensureName(annot), ...(this.comments.read(annot) ?? { text: "", author: "", modified: null }) };
   }
 
   /**
@@ -323,10 +386,10 @@ export class PageAnnotations {
    * @returns Its id.
    */
   private ensureName(annot: number): string {
-    const name = this.getString(annot, NAME_KEY);
+    const name = this.strings.get(annot, NAME_KEY);
     if (name) return name;
     const id = this.newId();
-    this.setString(annot, NAME_KEY, id);
+    this.strings.set(annot, NAME_KEY, id);
     return id;
   }
 
@@ -421,7 +484,7 @@ export class PageAnnotations {
    * @returns True when marked removed.
    */
   private isRemoved(annot: number): boolean {
-    return this.getString(annot, REMOVED_KEY) === "1";
+    return this.strings.get(annot, REMOVED_KEY) === "1";
   }
 
   /**
@@ -439,27 +502,7 @@ export class PageAnnotations {
    */
   private unhide(annot: number): void {
     if (!this.isRemoved(annot)) return;
-    this.setString(annot, REMOVED_KEY, "");
+    this.strings.set(annot, REMOVED_KEY, "");
     this.pdfium.FPDFAnnot_SetFlags(annot, this.pdfium.FPDFAnnot_GetFlags(annot) & ~FLAG_HIDDEN);
-  }
-
-  /**
-   * Reads a string entry.
-   * @param annot The annotation handle.
-   * @param key The dictionary key.
-   * @returns Its text, or "" when missing.
-   */
-  private getString(annot: number, key: string): string {
-    return this.heap.readWideString((ptr, bytes) => this.pdfium.FPDFAnnot_GetStringValue(annot, key, ptr, bytes));
-  }
-
-  /**
-   * Writes a string entry.
-   * @param annot The annotation handle.
-   * @param key The dictionary key.
-   * @param value The text.
-   */
-  private setString(annot: number, key: string, value: string): void {
-    this.heap.withWideString(value, (ptr) => this.pdfium.FPDFAnnot_SetStringValue(annot, key, ptr));
   }
 }

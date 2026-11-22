@@ -5,7 +5,8 @@
 import { init, type WrappedPdfiumModule } from "@embedpdf/pdfium";
 import { err, ok, type PdfPoint, type PdfRect, type Result } from "@pdf-editor/shared";
 import type { Annotation, EditableAnnotation } from "../annotations/annotation";
-import type { NewTextLine, NewTextStyle, PageTextObject, TextMatch } from "../page-text/page-text";
+import type { CommentReply } from "../annotations/comment";
+import type { NewTextLine, NewTextStyle, PageTextObject, TextMatch, TextSelection } from "../page-text/page-text";
 import { PageAnnotations } from "./pdfium-annotations";
 import { PageTextObjects, TextObjectIds, type PageContext } from "./pdfium-page-text";
 import { PageText } from "./pdfium-text";
@@ -198,6 +199,24 @@ export class PdfiumEngine {
   }
 
   /**
+   * Creates or updates a reply to an annotation (removing and restoring replies works like
+   * annotations: `removeAnnotation` and `restoreAnnotation` with the reply's id).
+   * @param at An open document's page.
+   * @param parentId The annotation it answers.
+   * @param reply The reply.
+   * @returns `unknown-annotation` if the page has no annotation `parentId`.
+   */
+  putReply(
+    at: PageAddress,
+    parentId: string,
+    reply: CommentReply,
+  ): Result<null, "unknown-document" | "unknown-annotation"> {
+    return this.withPage(at, (page) =>
+      this.annotations.putReply(page, parentId, reply) ? ok(null) : err("unknown-annotation"),
+    );
+  }
+
+  /**
    * Brings back a removed annotation.
    * @param at An open document's page.
    * @param id The annotation's id.
@@ -216,6 +235,17 @@ export class PdfiumEngine {
    */
   getTextRects(at: PageAddress, from: PdfPoint, to: PdfPoint): Result<PdfRect[], "unknown-document"> {
     return this.withPage(at, (page) => ok(this.text.rectsBetween(page, from, to)));
+  }
+
+  /**
+   * The text between two points, as a reader selects it.
+   * @param at An open document's page.
+   * @param from Where the selection started, in PDF space.
+   * @param to Where it ends, in PDF space.
+   * @returns Its line rectangles and its characters; empty when a point misses the text.
+   */
+  getTextSelection(at: PageAddress, from: PdfPoint, to: PdfPoint): Result<TextSelection, "unknown-document"> {
+    return this.withPage(at, (page) => ok(this.text.selectionBetween(page, from, to)));
   }
 
   /**

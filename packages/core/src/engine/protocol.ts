@@ -6,7 +6,8 @@
  */
 import type { PdfPoint, PdfRect } from "@pdf-editor/shared";
 import type { Annotation, EditableAnnotation } from "../annotations/annotation";
-import type { NewTextLine, NewTextStyle, PageTextObject, TextMatch } from "../page-text/page-text";
+import type { CommentReply } from "../annotations/comment";
+import type { NewTextLine, NewTextStyle, PageTextObject, TextMatch, TextSelection } from "../page-text/page-text";
 
 /** Identifies an open document inside the worker. */
 export type DocId = string;
@@ -70,10 +71,14 @@ export interface EngineMethods {
   getAnnotations: { params: PageAddress; result: Annotation[] };
   /** Creates or updates an annotation; resolves with it as stored. */
   putAnnotation: { params: PageAddress & { annotation: EditableAnnotation }; result: Annotation };
+  /** Creates or updates a reply to an annotation. Remove and restore it like an annotation. */
+  putReply: { params: PageAddress & { parentId: string; reply: CommentReply }; result: null };
   removeAnnotation: { params: PageAddress & { id: string }; result: null };
   restoreAnnotation: { params: PageAddress & { id: string }; result: null };
   /** The text between two points, one rectangle per line (for highlights). */
   getTextRects: { params: PageAddress & { from: PdfPoint; to: PdfPoint }; result: PdfRect[] };
+  /** The text between two points: line rectangles and characters (selecting text to copy). */
+  getTextSelection: { params: PageAddress & { from: PdfPoint; to: PdfPoint }; result: TextSelection };
   /** Finds a query on some pages of a document (case-insensitive), up to `limit` matches. */
   findText: {
     params: { docId: DocId; pageIndexes: readonly number[]; query: string; limit: number };

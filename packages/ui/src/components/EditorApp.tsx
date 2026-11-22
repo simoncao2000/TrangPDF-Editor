@@ -6,6 +6,7 @@ import { useDocumentActions } from "../editor/use-document-actions";
 import { useFileError, useFileOpener } from "../editor/use-file-opener";
 import { useMediaQuery, WIDE_LAYOUT_QUERY } from "../hooks/use-media-query";
 import { useShortcuts } from "../hooks/use-shortcut";
+import { useCopySelection } from "./page-text/use-copy-selection";
 import { useWindowFileDrop } from "../hooks/use-window-file-drop";
 import { useAnnotationUi } from "../state/annotation-store";
 import { usePalette } from "../state/palette-store";
@@ -27,6 +28,7 @@ import { ViewerScreen } from "./viewer/ViewerScreen";
  * @returns The current screen and any open dialog.
  */
 export function EditorApp() {
+  useCopySelection();
   const { workspace, files } = useEditorServices();
   const { openFromPicker, openFromDrop } = useFileOpener();
   const actions = useDocumentActions();

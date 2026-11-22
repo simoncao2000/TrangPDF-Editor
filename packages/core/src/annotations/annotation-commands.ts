@@ -64,7 +64,11 @@ export function deleteAnnotations(
   pageId: string,
   annotations: readonly Annotation[],
 ): Command {
-  const ids = annotations.map((annotation) => annotation.id);
+  // Replies go with the markup they answer, and come back with it.
+  const ids = annotations.flatMap((annotation) => [
+    annotation.id,
+    ...(annotation.replies ?? []).map((reply) => reply.id),
+  ]);
   const label =
     annotations.length === 1
       ? `Delete ${KIND_LABELS[annotations[0]!.kind]}`

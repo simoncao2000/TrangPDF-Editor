@@ -23,6 +23,7 @@ import { newTextLines } from "./drawing-geometry";
 import { DrawingSurface } from "./DrawingSurface";
 import { NewTextEditor } from "./NewTextEditor";
 import { TextBoxEditor } from "./TextBoxEditor";
+import { CommentCard } from "../comments/CommentCard";
 import { HANDLES, handlePosition, type Handle } from "./resize-handles";
 import { useAnnotationDrag } from "./use-annotation-drag";
 import { usePageAnnotations } from "./use-page-annotations";
@@ -196,6 +197,9 @@ export function AnnotationLayer({ page, zoom, width, height }: AnnotationLayerPr
         )}
       </svg>
       {textDraft && <TextBoxEditor annotation={textDraft} frame={frame} onDone={finishText} />}
+      {tool === "select" && selected && !preview && !textDraft && (
+        <CommentCard pageId={page.id} annotation={selected} frame={frame} pageWidth={width} />
+      )}
       {newTextAt && toolStyle && (
         <NewTextEditor
           at={newTextAt}
