@@ -6,6 +6,23 @@ import { PdfiumHeap, INT_BYTES } from "./pdfium-heap";
 import { PageTextObjects, TextObjectIds } from "./pdfium-page-text";
 import { TextMeasure } from "./pdfium-text-measure";
 
+it("allocates a fresh id for a recycled font handle and keeps ids for remaining owners", () => {
+  const ids = new TextObjectIds();
+  const original = ids.fontId(10, 20);
+  expect(ids.fontId(10, 21)).toBe(original);
+
+  ids.forget(20);
+  expect(ids.fontId(10, 21)).toBe(original);
+  ids.forget(21);
+  const recycled = ids.fontId(10, 20);
+  expect(recycled).not.toBe(original);
+
+  ids.clearFontIds();
+  const reopened = ids.fontId(10, 20);
+  expect(reopened).not.toBe(original);
+  expect(reopened).not.toBe(recycled);
+});
+
 it("stages text and underlines atomically and toggles both kinds of object together", async () => {
   const pdfium = await init({ wasmBinary: pdfiumWasm() });
   pdfium.PDFiumExt_Init();

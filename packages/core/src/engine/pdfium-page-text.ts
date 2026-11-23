@@ -81,18 +81,35 @@ export class TextObjectIds {
   /** Switched-off objects' own matrices, while they are parked off the page. */
   private readonly parked = new Map<number, readonly number[]>();
   private next = 1;
-  private readonly fontIds = new Map<number, string>();
+  private nextFont = 1;
+  private readonly fontIds = new Map<number, { id: string; owners: Set<number> }>();
+  private readonly objectFonts = new Map<number, number>();
   private readonly grouped = new Map<number, string>();
 
   /**
-   * Resolves an opaque id for a font in this document.
+   * Resolves an opaque font id and records the text object that keeps the font alive.
    * @param font A PDFium font handle.
+   * @param object A text object that owns the font.
    * @returns The id shared by the font picker and line extraction.
    */
-  fontId(font: number): string {
-    const id = this.fontIds.get(font) ?? `font-${this.fontIds.size + 1}`;
-    this.fontIds.set(font, id);
-    return id;
+  fontId(font: number, object: number): string {
+    let entry = this.fontIds.get(font);
+    if (!entry) {
+      entry = { id: `font-${this.nextFont++}`, owners: new Set() };
+      this.fontIds.set(font, entry);
+    }
+    entry.owners.add(object);
+    this.objectFonts.set(object, font);
+    return entry.id;
+  }
+
+  /**
+   * Forgets the fonts of all held pages before document teardown frees them.
+   * @returns Nothing.
+   */
+  clearFontIds(): void {
+    this.fontIds.clear();
+    this.objectFonts.clear();
   }
 
   /**
@@ -133,6 +150,12 @@ export class TextObjectIds {
     this.byHandle.delete(handle);
     this.grouped.delete(handle);
     this.parked.delete(handle);
+    const font = this.objectFonts.get(handle);
+    if (font === undefined) return;
+    const entry = this.fontIds.get(font)!;
+    entry.owners.delete(handle);
+    if (!entry.owners.size) this.fontIds.delete(font);
+    this.objectFonts.delete(handle);
   }
 
   /**
@@ -271,12 +294,14 @@ export class PageTextObjects {
       const object = this.pdfium.FPDFPage_GetObject(page.page, index);
       if (!this.objects.isActiveText(object)) continue;
       const font = this.pdfium.FPDFTextObj_GetFont(object);
-      if (!font || seen.has(font)) continue;
+      if (!font) continue;
+      const id = page.ids.fontId(font, object);
+      if (seen.has(font)) continue;
       seen.add(font);
       const name = withoutSubsetTag(this.objects.fontName(font));
       if (!name) continue;
       const bytes = this.fontData(font);
-      fonts.push({ id: page.ids.fontId(font), name, style: this.pageFontStyle(font, bytes), ...(bytes && { bytes }) });
+      fonts.push({ id, name, style: this.pageFontStyle(font, bytes), ...(bytes && { bytes }) });
     }
     return fonts;
   }
@@ -347,7 +372,7 @@ export class PageTextObjects {
       const object = this.pdfium.FPDFPage_GetObject(page.page, index);
       if (!this.objects.isActiveText(object)) continue;
       const font = this.pdfium.FPDFTextObj_GetFont(object);
-      if (font && page.ids.fontId(font) === id) return font;
+      if (font && page.ids.fontId(font, object) === id) return font;
     }
     return 0;
   }
@@ -601,6 +626,9 @@ export class PageTextObjects {
         appliedMarks: new Map<number, number>(),
       };
       committed = this.toggleEdit(page, edit, true);
+      if (committed) {
+        for (const handle of editedLine) page.ids.fontId(this.pdfium.FPDFTextObj_GetFont(handle), handle);
+      }
       return committed ? edit : null;
     } finally {
       if (!committed) {
@@ -845,6 +873,7 @@ export class PageTextObjects {
         this.pdfium.FPDFPage_InsertObject(page.page, object);
         page.ids.register(ids[index]!, [object]);
       });
+      for (const handle of texts) page.ids.fontId(this.pdfium.FPDFTextObj_GetFont(handle), handle);
       inserted = true;
       return true;
     } finally {
@@ -1188,7 +1217,7 @@ export class PageTextObjects {
     const style = fonts.get(handle) ?? this.pageFontStyle(handle, this.fontData(handle));
     fonts.set(handle, style);
     const { family, bold, italic } = style;
-    const documentFontId = ids.fontId(handle);
+    const documentFontId = ids.fontId(handle, member.handle);
     return {
       text,
       font: {

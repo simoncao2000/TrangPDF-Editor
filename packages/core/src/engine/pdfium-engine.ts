@@ -209,6 +209,7 @@ export class PdfiumEngine {
     const doc = this.docs.get(docId);
     if (!doc) return;
     for (const { edit, applied } of doc.textEdits.values()) this.textObjects.dropEdit(doc.textIds, edit, applied);
+    doc.textIds.clearFontIds();
     for (const page of doc.held.values()) this.closePage(page, doc.form);
     this.forms.close(doc.form);
     this.pdfium.FPDF_CloseDocument(doc.handle);

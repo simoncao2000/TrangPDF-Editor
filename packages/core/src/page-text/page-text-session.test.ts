@@ -42,6 +42,31 @@ describe("page text in a session", () => {
     expect(saved?.text).toBe("Tide tables for the bay");
   });
 
+  it("discards a rejected line edit even when undo and redo were queued", async () => {
+    const session = createDocumentSession(engine);
+    await session.load({ name: "Tide.pdf", bytes: corpusFile("text.pdf") });
+    const pageId = session.store.getState().pages[0]!.id;
+    const line = (await session.textObjectAt(pageId, FIRST_LINE))!;
+    session.dispatch(rotatePages([pageId], 90));
+    const undoLabel = session.store.getState().undoLabel;
+
+    session.dispatch((content) => editPageText(content, pageId, { ...line, id: "missing-line" }, "Rejected edit"));
+    session.undo();
+    session.redo();
+    await session.settled();
+    const { failedEdit } = session.store.getState();
+    expect(failedEdit).toEqual({ label: "Edit text", serial: 1 });
+    expect(session.store.getState()).toMatchObject({ undoLabel, redoLabel: null, status: "dirty" });
+    expect((await session.readTextObjects(pageId))[0]).toEqual(line);
+
+    session.undo();
+    expect(session.store.getState()).toMatchObject({ undoLabel: null, redoLabel: undoLabel, status: "clean" });
+    session.redo();
+    await session.settled();
+    expect(session.store.getState()).toMatchObject({ undoLabel, redoLabel: null, failedEdit });
+    await session.close();
+  });
+
   it("lists the page's text, once per page revision", async () => {
     const session = createDocumentSession(engine);
     await session.load({ name: "Tide.pdf", bytes: corpusFile("text.pdf") });

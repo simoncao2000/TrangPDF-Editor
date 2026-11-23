@@ -19,6 +19,8 @@ export interface Command {
   undo(content: DocumentContent): DocumentContent;
   /** Engine work that goes with `apply` (and redo), for edits PDFium holds: annotations, form values. */
   readonly applyInEngine?: (engine: CommandEngine) => Promise<unknown>;
+  /** The initial engine apply is atomic and a rejected command should be discarded. */
+  readonly discardOnApplyFailure?: boolean;
   /** Engine work that goes with `undo`. */
   readonly undoInEngine?: (engine: CommandEngine) => Promise<unknown>;
   /** Releases engine resources retained for undo or redo. */

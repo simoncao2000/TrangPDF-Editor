@@ -346,12 +346,34 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
    * anything asked for later (renders, saves) and see the edit.
    * @param work The command's `applyInEngine` or `undoInEngine`.
    * @param label The command's label, reported if the work fails.
+   * @param discard The command to discard if its initial apply fails.
+   * @returns Nothing.
    */
-  const runInEngine = (work: ((engine: CommandEngine) => Promise<unknown>) | undefined, label: string): void => {
+  const runInEngine = (
+    work: ((engine: CommandEngine) => Promise<unknown>) | undefined,
+    label: string,
+    discard?: Command,
+  ): void => {
     if (!work) return;
     const loadedAt = generation;
     const pending = work(callEngine).catch(() => {
-      if (loadedAt === generation) store.setState({ failedEdit: { label, serial: ++failures } });
+      if (loadedAt !== generation) return;
+      const failedEdit = { label, serial: ++failures };
+      if (!discard) {
+        store.setState({ failedEdit });
+        return;
+      }
+      const state = store.getState();
+      // The rejected edit left the page intact. Keep the revision token used by queued reads.
+      commit(
+        contentOf(state),
+        {
+          ...history,
+          undoStack: history.undoStack.filter((entry) => entry !== discard),
+          redoStack: history.redoStack.filter((entry) => entry !== discard),
+        },
+        { failedEdit, ...(state.status === "saving" && { status: state.status }) },
+      );
     });
     pendingEdits.add(pending);
     void pending.finally(() => pendingEdits.delete(pending));
@@ -493,7 +515,7 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
       const dropped = history.redoStack;
       const step = execute({ content: current, history }, command);
       for (const entry of dropped) runInEngine(entry.dropInEngine, entry.label);
-      runInEngine(command.applyInEngine, command.label);
+      runInEngine(command.applyInEngine, command.label, command.discardOnApplyFailure ? command : undefined);
       commit(step.content, step.history);
     },
 
@@ -650,25 +672,24 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
 
     async save(write) {
       if (!editable()) return { saved: false, reason: "build-failed" };
-      // Status "saving" disables editing (architecture §6.3), so the history cannot change meanwhile.
-      const before = store.getState().status;
+      // Status "saving" disables new edits while pending engine edits can still settle.
       store.setState({ status: "saving" });
       let bytes: ArrayBuffer;
       try {
         bytes = await buildPdf();
       } catch {
-        store.setState({ status: before });
+        store.setState({ status: isDirty(history) ? "dirty" : "clean" });
         return { saved: false, reason: "build-failed" };
       }
       let file: SavedFile | null;
       try {
         file = await write(bytes);
       } catch {
-        store.setState({ status: before });
+        store.setState({ status: isDirty(history) ? "dirty" : "clean" });
         return { saved: false, reason: "write-failed" };
       }
       if (!file) {
-        store.setState({ status: before });
+        store.setState({ status: isDirty(history) ? "dirty" : "clean" });
         return { saved: false, reason: "cancelled" };
       }
       commit(contentOf(store.getState()), markSaved(history), { fileName: file.name, fileId: file.fileId ?? null });

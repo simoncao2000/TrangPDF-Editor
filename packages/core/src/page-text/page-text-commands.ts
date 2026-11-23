@@ -1,7 +1,8 @@
 /** Commands for editing, adding and moving the page's own text. */
-import type { Command } from "../document/commands";
+import type { Command, CommandEngine } from "../document/commands";
 import type { DocumentContent } from "../document/document-state";
 import { pageEditCommand } from "../document/page-edit-command";
+import type { PageAddress } from "../engine/protocol";
 import {
   legacyTextRuns,
   normalizeTextRuns,
@@ -37,23 +38,43 @@ export function editPageText(
       italic: line.style.italic,
       underline: false,
     } satisfies Omit<TextRun, "text">);
+  const proposed = typeof runs === "string" ? [{ ...style, text: runs }] : runs.filter((run) => run.text);
   let input: { id: string; runs: readonly TextRun[] } | undefined = {
     id: line.id,
-    runs: typeof runs === "string" ? [{ ...style, text: runs }] : runs.filter((run) => run.text),
+    runs: proposed.some(({ text }) => text.trim()) ? proposed : [],
   };
-  if (!input.runs.some(({ text }) => text.trim())) input.runs = [];
   const editId = crypto.randomUUID();
-  return pageEditCommand(content, pageId, input.runs.length ? "Edit text" : "Delete text", {
+  let initial: Promise<unknown> | undefined;
+
+  /**
+   * Exchanges the versions in worker order, ignoring a queued toggle if the initial edit failed.
+   * @param engine Sends the request to the engine.
+   * @param at The page address.
+   * @param applied Whether the edited version should be visible.
+   * @returns The result of the toggle.
+   */
+  const toggle = (engine: CommandEngine, at: PageAddress, applied: boolean): Promise<unknown> =>
+    engine("togglePageTextEdit", { ...at, editId, applied }).catch(async (error: unknown) => {
+      try {
+        await initial;
+      } catch {
+        return;
+      }
+      throw error;
+    });
+
+  const command = pageEditCommand(content, pageId, input.runs.length ? "Edit text" : "Delete text", {
     apply: (engine, at) => {
       const pending = input;
       input = undefined;
-      return pending
-        ? engine("editPageText", { ...at, ...pending, editId })
-        : engine("togglePageTextEdit", { ...at, editId, applied: true });
+      if (!pending) return toggle(engine, at, true);
+      initial = engine("editPageText", { ...at, ...pending, editId });
+      return initial;
     },
-    undo: (engine, at) => engine("togglePageTextEdit", { ...at, editId, applied: false }),
+    undo: (engine, at) => toggle(engine, at, false),
     drop: (engine, at) => engine("dropPageTextEdit", { ...at, editId }),
   });
+  return { ...command, discardOnApplyFailure: true };
 }
 
 /**
