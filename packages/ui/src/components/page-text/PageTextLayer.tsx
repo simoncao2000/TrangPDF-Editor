@@ -6,6 +6,7 @@ import {
   screenDeltaToPdf,
   screenToPdf,
   type PageTextObject,
+  type TextRun,
 } from "@pdf-editor/core";
 import { useEffect, useMemo, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { useEditorServices } from "../../editor/hooks";
@@ -71,11 +72,11 @@ export function PageTextLayer({ page, zoom, width, height }: PageTextLayerProps)
     if (found) setEditing(found);
   };
 
-  const finish = (text: string | null) => {
+  /** @param runs The committed runs, or null when unchanged or cancelled. @returns Nothing. */
+  const finish = (runs: readonly TextRun[] | null) => {
     const object = editing;
-    setEditing(null);
-    if (!object || text === null || text === object.text) return;
-    session.dispatch((content) => editPageText(content, page.id, object, text));
+    setEditing((current) => (current === object ? null : current));
+    if (object && runs) session.dispatch((content) => editPageText(content, page.id, object, runs));
   };
 
   const onKeyDown = (event: KeyboardEvent<SVGElement>, object: PageTextObject) => {
@@ -138,7 +139,16 @@ export function PageTextLayer({ page, zoom, width, height }: PageTextLayerProps)
         <DraggedText pageId={page.id} object={drag.moving.object} offset={drag.moving.offset} frame={frame} />
       )}
       {tool === "select" && <SelectedText pageId={page.id} frame={frame} width={width} height={height} />}
-      {editing && <PageTextEditor key={editing.id} object={editing} frame={frame} onDone={finish} />}
+      {editing && (
+        <PageTextEditor
+          key={editing.id}
+          object={editing}
+          pageId={page.id}
+          revision={page.revision}
+          frame={frame}
+          onDone={finish}
+        />
+      )}
     </>
   );
 }

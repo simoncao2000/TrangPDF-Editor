@@ -9,7 +9,7 @@ import type { FormatPanel } from "./FormatBar";
 import { TextStyleMenu } from "./TextStyleMenu";
 import { colorHex, displayFont, parseHex } from "./text-runs";
 import { useTextPageColors } from "./use-text-page-colors";
-import { stepTextSize, TEXT_STYLE_TOGGLES, useTextStyle } from "./use-text-style";
+import { focusPageTextDraft, stepTextSize, TEXT_STYLE_TOGGLES, useTextStyle } from "./use-text-style";
 
 const BUTTON = "grid min-h-9 min-w-9 place-items-center rounded-sm hover:bg-hover max-lg:min-h-11";
 const FONT_BUTTON =
@@ -17,12 +17,12 @@ const FONT_BUTTON =
   "bg-surface px-3 text-base hover:border-muted";
 
 /**
- * Shows Add text formatting in the Properties panel and the phone tool tray.
+ * Shows text formatting in the Properties panel and the phone tool tray.
  * @param props Whether the surrounding tray already has its own heading.
  * @returns Controls for the selected words or the next text typed.
  */
 export function TextProperties({ hideHeading = false }: { readonly hideHeading?: boolean } = {}) {
-  const { style, pageId, selectionText, blockText, setStyle } = useTextStyle();
+  const { style, pageId, pageText, selectionText, blockText, setStyle } = useTextStyle();
   const current = useViewer((state) => state.currentPage);
   const page = useDocument((state) => (pageId ? state.pages.find(({ id }) => id === pageId) : state.pages[current]));
   const revision = useDocument((state) => annotationRevisionOf(state, page?.id ?? ""));
@@ -31,6 +31,7 @@ export function TextProperties({ hideHeading = false }: { readonly hideHeading?:
   const [panel, setPanel] = useState<FormatPanel | null>(null);
   const root = useRef<HTMLElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const editorFocused = useRef(false);
   const font = displayFont(style);
   const color = style.color ? colorHex(style.color) : null;
   const mixedFormats = TEXT_STYLE_TOGGLES.some(([format]) => style[format] === null);
@@ -52,13 +53,15 @@ export function TextProperties({ hideHeading = false }: { readonly hideHeading?:
   /** @param next The popup to toggle. @param button The popup's trigger. @returns Nothing. */
   const open = (next: FormatPanel, button: HTMLButtonElement) => {
     trigger.current = button;
+    editorFocused.current = pageText && !!document.activeElement?.closest("[data-page-text-editor]");
     setPanel(panel === next ? null : next);
   };
 
   /** @returns Nothing. */
   const close = () => {
     setPanel(null);
-    trigger.current?.focus({ preventScroll: true });
+    if (editorFocused.current) requestAnimationFrame(focusPageTextDraft);
+    else trigger.current?.focus({ preventScroll: true });
   };
 
   /** @param value The new colour as hex. @returns Nothing. */
@@ -78,7 +81,7 @@ export function TextProperties({ hideHeading = false }: { readonly hideHeading?:
           event.target instanceof Element &&
           event.target.closest("button") &&
           !event.target.closest('[role="dialog"], dialog') &&
-          document.activeElement?.closest("[data-added-text-editor]")
+          document.activeElement?.closest("[data-added-text-editor], [data-page-text-editor]")
         )
           event.preventDefault();
       }}
@@ -108,6 +111,7 @@ export function TextProperties({ hideHeading = false }: { readonly hideHeading?:
             panel={panel}
             pageId={page?.id ?? ""}
             hasDraft={!!pageId}
+            pageText={pageText}
             selectionText={selectionText}
             blockText={blockText}
             style={style}

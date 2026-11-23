@@ -1,6 +1,8 @@
 import {
   missingFontCharacter,
   normalizeTextRuns,
+  sameRunStyle,
+  textRunFont,
   type Rgb,
   type TextRun,
   type TextRunFamily,
@@ -8,6 +10,8 @@ import {
 } from "@pdf-editor/core";
 import {
   $caretRangeFromSelection,
+  $createParagraphNode,
+  $createTextNode,
   $getRoot,
   $getTextPointCaretSliceForNode,
   $isElementNode,
@@ -20,6 +24,8 @@ import {
 } from "lexical";
 
 import { bundledFontBytes, chosenFont, embeddedRunFont } from "./font-model";
+
+export const SOURCE_RUN = "--pdf-source-run";
 
 export const FAMILIES: Record<TextRunFamily, { name: string; css: string }> = {
   Helvetica: { name: "Sans", css: "Helvetica, Arial, sans-serif" },
@@ -73,9 +79,11 @@ export function parseHex(value: string): Rgb | null {
 export function readRunStyle(css: string, formats: Pick<RangeSelection, "hasFormat">, defaults: RunStyle): RunStyle {
   const style = getStyleObjectFromCSS(css);
   const [name, fallback] = style["font-family"]?.split(",").map((value) => value.trim()) ?? [];
-  const family = name === "Times" || name === "Courier" || name === "Helvetica" ? name : defaults.fontFamily;
+  const standard = name?.startsWith("pdf-face-") ? fallback : name;
+  const family =
+    standard === "Times" || standard === "Courier" || standard === "Helvetica" ? standard : defaults.fontFamily;
   // A CSS custom property scales the authored point size with the page.
-  const size = Number(/var\(--pdf-text-scale\) \* ([\d.]+)\)/.exec(style["font-size"] ?? "")?.[1]);
+  const size = Number(/var\(--pdf-text-scale\) \* ([\d.e+-]+)\)/i.exec(style["font-size"] ?? "")?.[1]);
   return {
     fontFamily: family,
     ...(name?.startsWith("pdf-face-") && { fontChoice: name.slice(9) }),
@@ -86,6 +94,76 @@ export function readRunStyle(css: string, formats: Pick<RangeSelection, "hasForm
     italic: formats.hasFormat("italic"),
     underline: formats.hasFormat("underline"),
   };
+}
+
+/**
+ * Seeds a page line with its original run boundaries and named browser faces.
+ * @param runs The source line.
+ * @param faceId Resolves a PDF font id to its browser preview family id.
+ * @returns Nothing.
+ */
+export function $loadPageTextRuns(runs: readonly TextRun[], faceId: (id: string) => string): void {
+  const paragraph = $createParagraphNode();
+  $getRoot().append(paragraph);
+  for (const [index, run] of runs.entries()) {
+    const font = textRunFont(run);
+    const family = FAMILIES[font.kind === "standard" ? font.family : (run.fontFamily ?? "Helvetica")].css;
+    const preview = font.kind === "embedded" && font.documentFontId ? `pdf-face-${faceId(font.documentFontId)}, ` : "";
+    const css = [
+      `font-family: ${preview}${family};`,
+      `font-size: calc(var(--pdf-text-scale) * ${run.fontSize});`,
+      `color: ${colorHex(run.color)};`,
+      `${SOURCE_RUN}: ${index};`,
+    ].join(" ");
+    const node = $createTextNode(run.text).setStyle(css);
+    if (run.bold) node.toggleFormat("bold");
+    if (run.italic) node.toggleFormat("italic");
+    if (run.underline) node.toggleFormat("underline");
+    paragraph.append(node);
+  }
+  const last = paragraph.getLastChild();
+  if ($isTextNode(last)) {
+    const selection = last.selectEnd();
+    selection.setStyle(last.getStyle());
+    selection.setFormat(last.getFormat());
+  } else paragraph.selectEnd();
+}
+
+/**
+ * Reads a PDF line without merging original object boundaries or trimming original whitespace.
+ * @param state The editor snapshot.
+ * @param source The line used to initialise the editor.
+ * @param defaults The style for text without declarations.
+ * @returns A single line of edit runs.
+ */
+export function editedPageTextRuns(state: EditorState, source: readonly TextRun[], defaults: RunStyle): TextRun[] {
+  return state.read(() =>
+    $getRoot()
+      .getAllTextNodes()
+      .flatMap((node) => {
+        const text = node.getTextContent();
+        if (!text) return [];
+        const css = node.getStyle();
+        const style = readRunStyle(css, node, defaults);
+        const original = source[Number(getStyleObjectFromCSS(css)[SOURCE_RUN])];
+        if (!original) return runsForText(style, text);
+        const { bold, italic, underline, fontSize, color } = style;
+        return [{ ...original, bold, italic, underline, fontSize, color, text }];
+      }),
+  );
+}
+
+/**
+ * Checks whether the edit would change the current line.
+ * @param source The runs from the page.
+ * @param edited The runs from Lexical.
+ * @returns Whether each original span is still present in order with its original style.
+ */
+export function samePageTextRuns(source: readonly TextRun[], edited: readonly TextRun[]): boolean {
+  return (
+    source.length === edited.length &&
+    source.every((run, index) => run.text === edited[index]!.text && sameRunStyle(run, edited[index]!))
+  );
 }
 
 /**
@@ -153,6 +231,7 @@ export function $patchStyleText(selection: RangeSelection, property: string, val
   /** @param css The current style. @returns The patched CSS declarations. */
   const patch = (css: string) => {
     const declarations = { ...getStyleObjectFromCSS(css), [property]: value };
+    if (property === "font-family") delete declarations[SOURCE_RUN];
     return Object.entries(declarations)
       .map(([key, entry]) => `${key}: ${entry};`)
       .join(" ");

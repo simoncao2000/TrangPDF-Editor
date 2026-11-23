@@ -7,14 +7,17 @@ import { addFontFile } from "./font-files";
 import { useEditorServices } from "../../editor/hooks";
 import {
   activateFont,
+  activateDocumentFont,
   activateLocalFont,
   BUNDLED_FONTS,
   bundledFontBytes,
+  checkDocumentFontRows,
   chosenFont,
   documentChoiceId,
   documentFallback,
   fontSections,
   loadBundledFont,
+  pageFontChoice,
   readLocalFont,
   recentFonts,
   releaseFontFile,
@@ -28,6 +31,7 @@ interface FontPickerProps {
   readonly pageId: string;
   readonly blockText: string;
   readonly hasDraft: boolean;
+  readonly pageText?: boolean;
   readonly wide: boolean;
   readonly text: string;
   readonly style: TextStyle;
@@ -39,7 +43,7 @@ interface FontPickerProps {
  * @param props The active page, formatting selection and picker callback.
  * @returns The searchable font picker.
  */
-export function FontPicker({ pageId, hasDraft, wide, text, blockText, style, onPick }: FontPickerProps) {
+export function FontPicker({ pageId, hasDraft, pageText, wide, text, blockText, style, onPick }: FontPickerProps) {
   const { session, fontFiles } = useEditorServices();
   const listId = useId();
   const [page, setPage] = useState<{ id: string; fonts: FontChoice[] }>();
@@ -57,6 +61,12 @@ export function FontPicker({ pageId, hasDraft, wide, text, blockText, style, onP
   const [error, setError] = useState("");
   const [readyVariant, setReadyVariant] = useState<boolean>();
   const [busy, setBusy] = useState(false);
+  const [coverage, setCoverage] = useState<{
+    pageId: string;
+    text: string;
+    missing: ReadonlyMap<string, string | undefined>;
+  }>();
+  const sample = text.replace(/[\r\n]/g, " ");
   const italic = style.italic === true;
   const canShowDevice = wide && supportsDeviceFonts();
 
@@ -199,9 +209,8 @@ export function FontPicker({ pageId, hasDraft, wide, text, blockText, style, onP
           const rows = await Promise.all(
             fonts.map(async (font): Promise<FontChoice> => {
               const id = documentChoiceId(session, pageId, font.id);
-              const bundledId =
-                font.style.family === "serif" ? "lora" : font.style.family === "mono" ? "jet-brains-mono" : "inter";
-              if (!font.bytes) return { id, name: font.name, bundledId, document: font };
+              const choice = pageFontChoice(id, font);
+              if (!font.bytes) return choice;
               const preview = `pdf-preview-${listId.replace(/[^a-zA-Z0-9-]/g, "")}-${font.id}`;
               try {
                 const face = await new FontFace(preview, font.bytes).load();
@@ -209,9 +218,9 @@ export function FontPicker({ pageId, hasDraft, wide, text, blockText, style, onP
                   document.fonts.add(face);
                   previews.push(face);
                 }
-                return { id, name: font.name, bundledId, document: font, preview };
+                return { ...choice, preview };
               } catch {
-                return { id, name: font.name, bundledId, document: font };
+                return choice;
               }
             }),
           );
@@ -227,11 +236,27 @@ export function FontPicker({ pageId, hasDraft, wide, text, blockText, style, onP
     };
   }, [listId, pageId, session]);
 
+  useEffect(() => {
+    if (!pageText || page?.id !== pageId || !sample) return;
+    let current = true;
+    void checkDocumentFontRows(page.fonts, sample, (run) => session.checkPageTextFont(pageId, run)).then((missing) => {
+      if (current) setCoverage({ pageId, text: sample, missing });
+    });
+    return () => {
+      current = false;
+    };
+  }, [page, pageId, pageText, sample, session]);
+
   const pageChoices = page?.id === pageId ? page.fonts : [];
   const block = blockText.replace(/[\r\n]/g, " ");
   const sections = fontSections(pageChoices, recent, query, {
-    text: text.replace(/[\r\n]/g, " "),
+    text: sample,
     italic,
+    documentCoverage: pageText
+      ? coverage?.pageId === pageId && coverage.text === sample
+        ? coverage.missing
+        : new Map()
+      : undefined,
     device: canShowDevice ? (device ?? []) : [],
     files:
       files?.map((record): FontChoice => ({
@@ -262,9 +287,24 @@ export function FontPicker({ pageId, hasDraft, wide, text, blockText, style, onP
     setBusy(true);
     setError("");
     try {
+      const context = { pageId, session, signal: controller.signal };
+      const documentFont = row.font.document;
+      if (pageText && documentFont) {
+        await activateDocumentFont(row.font, context).catch(() =>
+          activateDocumentFont({ ...row.font, document: { ...documentFont, bytes: undefined } }, context),
+        );
+        if (controller.signal.aborted) return;
+        const { family, bold, italic: slanted } = documentFont.style;
+        onPick({
+          fontChoice: row.font.id,
+          fontFamily: family === "serif" ? "Times" : family === "mono" ? "Courier" : "Helvetica",
+          bold,
+          italic: slanted,
+        });
+        return;
+      }
       const useDocument = !!documentFallback([row.font], block);
       let fontChoice: string;
-      const context = { pageId, session, signal: controller.signal };
       let missing = row.missing;
       if (row.font.local) {
         const bytes = await readLocalFont(row.font, session);
@@ -390,7 +430,7 @@ export function FontPicker({ pageId, hasDraft, wide, text, blockText, style, onP
                   const checked = font.standard
                     ? !style.fontChoice && style.fontFamily === font.standard
                     : style.fontChoice === font.id;
-                  const usesFallback = font.document && !documentFallback([font], block);
+                  const usesFallback = !pageText && font.document && !documentFallback([font], block);
                   const meta = blocked
                     ? "Can't be saved in a PDF"
                     : missing

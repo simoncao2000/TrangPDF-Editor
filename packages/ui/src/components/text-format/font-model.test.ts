@@ -2,7 +2,25 @@ import { expect, it } from "bun:test";
 import { MAX_FONT_BYTES, type PageFont } from "@pdf-editor/core";
 import type { FontFileRecord, FontFileStore } from "@pdf-editor/shared";
 import { addFontFile } from "./font-files";
-import { fontSections, type FontChoice } from "./font-model";
+import { checkDocumentFontRows, fontSections, pageFontChoice, type FontChoice } from "./font-model";
+
+it("uses the worker's missing character for PDF faces, even when the browser has no preview bytes", async () => {
+  const style = { family: "serif", bold: true, italic: true } as const;
+  const fonts = [
+    pageFontChoice("doc-1", { id: "1", name: "Subset Serif", style }),
+    pageFontChoice("doc-2", { id: "2", name: "Covered Serif", style }),
+  ];
+  const text = "Đặ";
+  const documentCoverage = await checkDocumentFontRows(fonts, text, async (run) => {
+    expect(run).toMatchObject({ text, bold: true, italic: true, font: { kind: "embedded", weight: 700 } });
+    return run.font?.kind === "embedded" && run.font.documentFontId === "1" ? { missingCharacter: "ặ" } : {};
+  });
+  const [document] = fontSections(fonts, [], "", { text, italic: true, documentCoverage });
+  expect(document?.rows.map(({ blocked, missing }) => ({ blocked, missing }))).toEqual([
+    { blocked: false, missing: "ặ" },
+    { blocked: false, missing: undefined },
+  ]);
+});
 
 it("groups choices, filters by name and flags unavailable or restricted glyphs", async () => {
   const bytes = await Bun.file(new URL("../../assets/fonts/inter.ttf", import.meta.url)).arrayBuffer();

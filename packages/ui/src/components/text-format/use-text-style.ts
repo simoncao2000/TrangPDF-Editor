@@ -40,10 +40,12 @@ const defaults: RunStyle = {
 
 interface DraftStyle {
   readonly pageId: string;
+  readonly pageText: boolean;
   readonly text: string;
   readonly blockText: string;
   readonly style: TextStyle;
   apply(patch: Partial<RunStyle>): void;
+  focus(): void;
 }
 
 const useStyleStore = create<{ next: RunStyle; draft: DraftStyle | null }>(() => ({ next: defaults, draft: null }));
@@ -93,7 +95,8 @@ export function $applyTextStyle(selection: RangeSelection, patch: Partial<RunSty
   const picked = chosenFont(patch.fontChoice);
   if (picked) {
     const fallback = chosenFont(patch.fontFallback);
-    $patchStyleText(selection, "font-family", fallback ? `${picked.css}, ${fallback.css}` : picked.css);
+    const family = fallback?.css ?? (patch.fontFamily && FAMILIES[patch.fontFamily].css);
+    $patchStyleText(selection, "font-family", family ? `${picked.css}, ${family}` : picked.css);
   } else if (patch.fontFamily) $patchStyleText(selection, "font-family", FAMILIES[patch.fontFamily].css);
   if (patch.fontSize !== undefined) {
     $patchStyleText(selection, "font-size", `calc(var(--pdf-text-scale) * ${patch.fontSize})`);
@@ -108,12 +111,18 @@ export function $applyTextStyle(selection: RangeSelection, patch: Partial<RunSty
 
 /**
  * Connects both formatting surfaces to this editor until the draft closes.
- * @param editor The added-text editor.
+ * @param editor The text editor.
  * @param pageId The draft's page.
  * @param base The fixed defaults for this draft.
+ * @param pageText Whether this draft edits an existing PDF line.
  * @returns The draft cleanup.
  */
-export function connectTextStyleDraft(editor: LexicalEditor, pageId: string, base: RunStyle): () => void {
+export function connectTextStyleDraft(
+  editor: LexicalEditor,
+  pageId: string,
+  base: RunStyle,
+  pageText = false,
+): () => void {
   let saved: RangeSelection | null = null;
 
   /** @param patch The requested changes. @returns Nothing. */
@@ -126,10 +135,18 @@ export function connectTextStyleDraft(editor: LexicalEditor, pageId: string, bas
         if (!editor.getRootElement()?.contains(document.activeElement)) $addUpdateTag(SKIP_DOM_SELECTION_TAG);
         $setSelection(selection);
         $applyTextStyle(selection, patch);
-        if (selection.isCollapsed()) setNextStyle(patch);
+        if (!pageText && selection.isCollapsed()) setNextStyle(patch);
       },
       { discrete: true },
     );
+  };
+
+  /** @returns Nothing. */
+  const focus = () => {
+    editor.update(() => {
+      if (saved) $setSelection(saved.clone());
+    });
+    editor.focus();
   };
 
   /** @returns Nothing. */
@@ -138,7 +155,15 @@ export function connectTextStyleDraft(editor: LexicalEditor, pageId: string, bas
     if ($isRangeSelection(selection)) saved = selection.clone();
     const style = saved ? $readTextStyle(saved, base) : base;
     useStyleStore.setState({
-      draft: { pageId, style, text: saved?.getTextContent() ?? "", blockText: $getRoot().getTextContent(), apply },
+      draft: {
+        pageId,
+        pageText,
+        style,
+        text: saved?.getTextContent() ?? "",
+        blockText: $getRoot().getTextContent(),
+        apply,
+        focus,
+      },
     });
   };
 
@@ -152,13 +177,14 @@ export function connectTextStyleDraft(editor: LexicalEditor, pageId: string, bas
 
 /**
  * Registers the editor as the source for both control surfaces.
- * @param editor The added-text editor.
+ * @param editor The text editor.
  * @param pageId The draft's page.
  * @param base The fixed defaults for this draft.
+ * @param pageText Whether this draft edits an existing PDF line.
  * @returns Nothing.
  */
-export function useTextStyleDraft(editor: LexicalEditor, pageId: string, base: RunStyle): void {
-  useLayoutEffect(() => connectTextStyleDraft(editor, pageId, base), [editor, pageId, base]);
+export function useTextStyleDraft(editor: LexicalEditor, pageId: string, base: RunStyle, pageText = false): void {
+  useLayoutEffect(() => connectTextStyleDraft(editor, pageId, base, pageText), [editor, pageId, base, pageText]);
 }
 
 /** @param patch The changed tool defaults. @returns Nothing. */
@@ -183,10 +209,28 @@ export function useTextStyle() {
   return {
     style: draft?.style ?? next,
     pageId: draft?.pageId,
+    pageText: draft?.pageText ?? false,
     selectionText: draft?.text ?? "",
     blockText: draft?.blockText ?? "",
     setStyle: setTextStyle,
   };
+}
+
+/** @returns Whether an existing PDF line is being edited. */
+export function useEditingPageText(): boolean {
+  return useStyleStore((state) => state.draft?.pageText ?? false);
+}
+
+/** @returns Nothing. */
+export function refreshTextStyle(): void {
+  const { draft } = useStyleStore.getState();
+  if (draft) useStyleStore.setState({ draft: { ...draft } });
+}
+
+/** @returns Nothing. */
+export function focusPageTextDraft(): void {
+  const { draft } = useStyleStore.getState();
+  if (draft?.pageText) draft.focus();
 }
 
 /**

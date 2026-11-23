@@ -1,4 +1,5 @@
 import { expect, it } from "bun:test";
+import type { TextRun } from "@pdf-editor/core";
 import {
   $createParagraphNode,
   $createTextNode,
@@ -7,7 +8,16 @@ import {
   $isRangeSelection,
   createEditor,
 } from "lexical";
-import { $patchStyleText, editorTextRuns, FAMILIES, type RunStyle } from "./text-runs";
+import {
+  $loadPageTextRuns,
+  $patchStyleText,
+  editedPageTextRuns,
+  editorTextRuns,
+  FAMILIES,
+  samePageTextRuns,
+  type RunStyle,
+} from "./text-runs";
+import { connectTextStyleDraft, getNextTextStyle, setTextStyle } from "./use-text-style";
 
 const defaults: RunStyle = {
   fontFamily: "Helvetica",
@@ -17,6 +27,77 @@ const defaults: RunStyle = {
   underline: false,
   color: { r: 0, g: 0, b: 0 },
 };
+
+it("round-trips source PDF runs without merging, trimming or rebuilding their face references", () => {
+  const font = {
+    kind: "embedded",
+    fontId: "document:7",
+    documentFontId: "7",
+    name: "Source Serif",
+    weight: 700,
+    italic: true,
+  } as const;
+  const face = { ...defaults, fontFamily: "Times", font, bold: true, italic: true, fontSize: 18.375 } as const;
+  const source: TextRun[] = [
+    { ...defaults, text: "Same " },
+    { ...defaults, text: "style " },
+    { ...face, text: "different ", color: { r: 31, g: 78, b: 121 }, underline: true },
+    { ...face, text: "face  " },
+  ];
+  const editor = createEditor();
+  editor.update(() => $loadPageTextRuns(source, (id) => `source-${id}`), { discrete: true });
+  expect(editedPageTextRuns(editor.getEditorState(), source, defaults)).toEqual(source);
+
+  const before = getNextTextStyle();
+  const disconnect = connectTextStyleDraft(editor, "page", defaults, true);
+  try {
+    const color = { r: 17, g: 34, b: 51 };
+    setTextStyle({ color });
+    expect(editedPageTextRuns(editor.getEditorState(), source, defaults)).toEqual(source);
+    editor.update(
+      () => {
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) throw new Error("Expected caret");
+        selection.insertText("more");
+      },
+      { discrete: true },
+    );
+    const edited = editedPageTextRuns(editor.getEditorState(), source, defaults);
+    expect(edited).toEqual([...source, { ...face, color, text: "more" }]);
+    expect(samePageTextRuns(source, edited)).toBe(false);
+    expect(getNextTextStyle()).toEqual(before);
+  } finally {
+    disconnect();
+  }
+});
+
+it("exports a changed font for the selected part and keeps untouched source runs exact", () => {
+  const source: readonly TextRun[] = [
+    { ...defaults, text: "Before " },
+    { ...defaults, text: "middle" },
+    { ...defaults, text: " after" },
+  ];
+  const editor = createEditor();
+  editor.update(
+    () => {
+      $loadPageTextRuns(source, (id) => id);
+      $getRoot().getAllTextNodes()[1]!.select(0, 3);
+    },
+    { discrete: true },
+  );
+  const disconnect = connectTextStyleDraft(editor, "page", defaults, true);
+  try {
+    setTextStyle({ fontFamily: "Courier" });
+    expect(editedPageTextRuns(editor.getEditorState(), source, defaults)).toEqual([
+      source[0]!,
+      { ...defaults, text: "mid", fontFamily: "Courier" },
+      { ...defaults, text: "dle" },
+      source[2]!,
+    ]);
+  } finally {
+    disconnect();
+  }
+});
 
 it("converts formatted paragraphs to runs with the internal spaces intact", () => {
   const editor = createEditor();

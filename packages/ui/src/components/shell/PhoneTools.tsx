@@ -10,6 +10,7 @@ import { useOpenPanel, useViewMode } from "../../routing/hooks";
 import { ANNOTATION_NAMES } from "../annotations/annotation-display";
 import { usePageAnnotations } from "../annotations/use-page-annotations";
 import { PropertiesPanel } from "../inspector/PropertiesPanel";
+import { useEditingPageText } from "../text-format/use-text-style";
 import { PhoneToolMenu } from "./PhoneToolMenu";
 
 const KEY_STYLE = [
@@ -57,6 +58,7 @@ export function PhoneTools({ keysEnabled, showTray }: PhoneToolsProps) {
   const tool = useAnnotationUi((state) => state.tool);
   const setTool = useAnnotationUi((state) => state.setTool);
   const selected = useAnnotationUi((state) => state.selected);
+  const pageText = useEditingPageText();
   const trayTitleId = useId();
   const [recent, setRecent] = useState<PaletteSlot | null>(null);
   const editable = status === "clean" || status === "dirty";
@@ -82,11 +84,11 @@ export function PhoneTools({ keysEnabled, showTray }: PhoneToolsProps) {
   if (mode === "organize") return null;
   return (
     <>
-      {showTray && (selected || tool !== "select") && (
+      {showTray && (pageText || selected || tool !== "select") && (
         <section aria-labelledby={trayTitleId} className={TRAY_STYLE}>
           <div className="flex items-center justify-between gap-2">
             <h2 id={trayTitleId} className="font-hand text-md/[1.1]">
-              {selected ? <SelectedMarkName selected={selected} /> : TOOL_INFO[tool].label}
+              {pageText ? "Text" : selected ? <SelectedMarkName selected={selected} /> : TOOL_INFO[tool].label}
             </h2>
             <button type="button" className={DONE_STYLE} onClick={() => setTool("select")}>
               Done

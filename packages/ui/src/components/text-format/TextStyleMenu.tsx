@@ -9,6 +9,7 @@ import type { TextStyle } from "./use-text-style";
 interface TextStyleMenuProps {
   readonly blockText: string;
   readonly hasDraft: boolean;
+  readonly pageText?: boolean;
   readonly pageId: string;
   readonly selectionText: string;
   readonly panel: FormatPanel;
@@ -37,6 +38,7 @@ export function TextStyleMenu({
   selectionText,
   hasDraft,
   blockText,
+  pageText,
 }: TextStyleMenuProps) {
   const popup = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -49,6 +51,7 @@ export function TextStyleMenu({
       <FontPicker
         pageId={pageId}
         hasDraft={hasDraft}
+        pageText={pageText}
         blockText={blockText}
         text={selectionText}
         style={style}

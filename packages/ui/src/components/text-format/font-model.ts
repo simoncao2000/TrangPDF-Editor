@@ -5,6 +5,7 @@ import {
   validFontBytes,
   type DocumentSession,
   type PageFont,
+  type TextRun,
   type TextRunFamily,
   type TextRunFont,
 } from "@pdf-editor/core";
@@ -54,7 +55,7 @@ const loadedBytes = new Map<string, ArrayBuffer>();
 const localFaces = new Map<string, { name: string; face: FontFace }>();
 interface DocumentFace {
   readonly choice: FontChoice;
-  readonly face: FontFace;
+  readonly face?: FontFace;
   readonly pageId: string;
   readonly session: DocumentSession;
   unsubscribe(): void;
@@ -90,7 +91,7 @@ export function releaseDocumentFont(id: string | undefined): void {
   const entry = choices.get(id ?? "");
   if (!id || !entry) return;
   entry.unsubscribe();
-  document.fonts.delete(entry.face);
+  if (entry.face) document.fonts.delete(entry.face);
   choices.delete(id);
 }
 
@@ -293,30 +294,96 @@ export async function activateFont(
   useDocument: boolean,
   activation: { pageId: string; session: DocumentSession; signal: AbortSignal },
 ): Promise<string> {
-  const { pageId, session, signal } = activation;
   const id = useDocument ? choice.id : choice.bundledId;
   await Promise.all([loadBundledFont(choice.bundledId), loadBundledFont(choice.bundledId, true)]);
+  activation.signal.throwIfAborted();
+  if (!activation.pageId || !useDocument || !choice.document?.bytes) return choice.bundledId;
+  await activateDocumentFont(choice, activation);
+  return id;
+}
+
+/**
+ * Attaches the source face if it is available to the browser and remembers its PDF identity.
+ * @param choice The document font.
+ * @param activation The draft's page, session and lifetime.
+ * @returns Nothing.
+ */
+export async function activateDocumentFont(
+  choice: FontChoice,
+  activation: { pageId: string; session: DocumentSession; signal: AbortSignal },
+): Promise<void> {
+  const { pageId, session, signal } = activation;
+  const { id, document: source } = choice;
+  if (!source || choices.has(id)) return;
+  const face = source.bytes
+    ? await new FontFace(`pdf-face-${id}`, source.bytes, {
+        weight: source.style.bold ? "700" : "400",
+        style: source.style.italic ? "italic" : "normal",
+      }).load()
+    : undefined;
   signal.throwIfAborted();
-  if (!pageId || !useDocument || !choice.document?.bytes) return choice.bundledId;
-  if (choices.has(id)) return id;
-  const face = new FontFace(`pdf-face-${id}`, choice.document.bytes, {
-    weight: choice.document.style.bold ? "700" : "400",
-    style: choice.document.style.italic ? "italic" : "normal",
-  });
-  await face.load();
-  signal.throwIfAborted();
-  document.fonts.add(face);
+  if (choices.has(id)) return;
+  if (face) document.fonts.add(face);
   const unsubscribe = session.store.subscribe(({ pages }) => {
     if (!pages.some(({ id }) => id === pageId)) releaseDocumentFont(id);
   });
   choices.set(id, {
-    choice: { ...choice, document: { ...choice.document, bytes: undefined } },
+    choice: { ...choice, document: { ...source, bytes: undefined } },
     face,
     pageId,
     session,
     unsubscribe,
   });
-  return id;
+}
+
+/**
+ * Creates a choice for a PDF face and finds the bundled fallback for its family.
+ * @param id The page-scoped browser face id.
+ * @param font The font reported by the worker.
+ * @returns The shared picker choice.
+ */
+export function pageFontChoice(id: string, font: PageFont): FontChoice {
+  const bundledId = font.style.family === "serif" ? "lora" : font.style.family === "mono" ? "jet-brains-mono" : "inter";
+  return { id, name: font.name, bundledId, document: font };
+}
+
+/**
+ * Checks the actual PDF encoding of each document face against the selected text.
+ * @param fonts The document rows to check.
+ * @param text The selected text.
+ * @param check Checks a run on the current PDF page.
+ * @returns Missing characters keyed by picker id, including successful checks with no missing glyph.
+ */
+export async function checkDocumentFontRows(
+  fonts: readonly FontChoice[],
+  text: string,
+  check: (run: TextRun) => Promise<{ missingCharacter?: string }>,
+): Promise<ReadonlyMap<string, string | undefined>> {
+  if (!text) return new Map();
+  const checked = await Promise.allSettled(
+    fonts.flatMap(({ id, document: font }) => {
+      if (!font) return [];
+      const { bold, italic } = font.style;
+      const run: TextRun = {
+        text,
+        fontSize: 12,
+        color: { r: 0, g: 0, b: 0 },
+        bold,
+        italic,
+        underline: false,
+        font: {
+          kind: "embedded",
+          fontId: `document:${font.id}`,
+          name: font.name,
+          documentFontId: font.id,
+          weight: bold ? 700 : 400,
+          italic,
+        },
+      };
+      return [check(run).then(({ missingCharacter }) => [id, missingCharacter] as const)];
+    }),
+  );
+  return new Map(checked.flatMap((row) => (row.status === "fulfilled" ? [row.value] : [])));
 }
 
 /**
@@ -363,7 +430,13 @@ export function fontSections(
   page: readonly FontChoice[],
   recent: readonly FontChoice[],
   query: string,
-  selection: { text: string; italic: boolean; device?: readonly FontChoice[]; files?: readonly FontChoice[] },
+  selection: {
+    text: string;
+    italic: boolean;
+    device?: readonly FontChoice[];
+    files?: readonly FontChoice[];
+    documentCoverage?: ReadonlyMap<string, string | undefined>;
+  },
 ) {
   const bundled: FontChoice[] = BUNDLED_FONTS.map(({ id, name }) => ({ id, name, bundledId: id }));
   const standard: FontChoice[] = [
@@ -401,7 +474,10 @@ export function fontSections(
         return {
           font,
           blocked,
-          missing: missing ?? (font.document && !bytes ? [...selection.text][0] : undefined),
+          missing:
+            font.document && selection.documentCoverage
+              ? selection.documentCoverage.get(font.id)
+              : (missing ?? (font.document && !bytes ? [...selection.text][0] : undefined)),
         };
       }),
   }));

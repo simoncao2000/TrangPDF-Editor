@@ -1,122 +1,486 @@
 import {
   CSS_PIXELS_PER_POINT,
   pdfRectToScreen,
-  type FontFamilyKind,
+  sameRunStyle,
+  type DocumentSession,
   type PageFrame,
   type PageTextObject,
+  type TextRun,
 } from "@pdf-editor/core";
-import { useLayoutEffect, useRef } from "react";
+import { AutoFocusPlugin } from "@lexical/react/LexicalAutoFocusPlugin";
+import { LexicalComposer } from "@lexical/react/LexicalComposer";
+import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
+import { ContentEditable } from "@lexical/react/LexicalContentEditable";
+import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
+import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
+import { SelectionAlwaysOnDisplay } from "@lexical/react/LexicalSelectionAlwaysOnDisplay";
+import {
+  $getSelection,
+  $isRangeSelection,
+  COMMAND_PRIORITY_HIGH,
+  INSERT_LINE_BREAK_COMMAND,
+  INSERT_PARAGRAPH_COMMAND,
+  PASTE_COMMAND,
+  type LexicalEditor,
+} from "lexical";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
+import { useEditorServices } from "../../editor/hooks";
+import { useMediaQuery, WIDE_LAYOUT_QUERY } from "../../hooks/use-media-query";
+import { useToast } from "../../state/toast-store";
 import { cssColor } from "../annotations/annotation-display";
+import { anchorOf, type Anchor } from "../text-format/draft-geometry";
+import {
+  activateDocumentFont,
+  bundledFontBytes,
+  documentChoiceId,
+  loadBundledFont,
+  pageFontChoice,
+  releaseDocumentFonts,
+} from "../text-format/font-model";
+import { FormatBar, type FormatPanel } from "../text-format/FormatBar";
+import {
+  $loadPageTextRuns,
+  editedPageTextRuns,
+  FAMILIES,
+  samePageTextRuns,
+  type RunStyle,
+} from "../text-format/text-runs";
+import { TextStyleMenu } from "../text-format/TextStyleMenu";
+import { useTextPageColors } from "../text-format/use-text-page-colors";
+import {
+  focusPageTextDraft,
+  getNextTextStyle,
+  refreshTextStyle,
+  useTextStyle,
+  useTextStyleDraft,
+  type FormatToggle,
+} from "../text-format/use-text-style";
 import { editorBackground, pixelsIn, ringOf } from "./editor-background";
 
 interface PageTextEditorProps {
   readonly object: PageTextObject;
   readonly frame: PageFrame;
-  /**
-   * Called once when editing ends.
-   * @param text The new text, or `null` when the user pressed Escape.
-   */
-  onDone(text: string | null): void;
+  readonly pageId: string;
+  readonly revision: number;
+  /** @param runs The edited line, or null on cancel. @returns Nothing. */
+  onDone(runs: readonly TextRun[] | null): void;
 }
 
-const FAMILIES: Record<FontFamilyKind, string> = {
-  serif: '"Times New Roman", Times, serif',
-  sans: "Helvetica, Arial, sans-serif",
-  mono: '"Courier New", Courier, monospace',
-};
-
-/** Space around the edited text, in CSS pixels, so it covers the original underneath. */
 const PAD = 2;
-/** How far outside the editor the page's colour is read, in CSS pixels (clear of the text). */
 const SAMPLE_GAP = 2;
 
 /**
- * Editing a line of the page's own text, in place: an input over the text object, in a font that
- * looks like the original, covering it while you type with the page's own colour from around the
- * text (so white text on a dark band stays visible). Enter or clicking away keeps the change;
- * Escape throws it away. The input grows with the text.
- * @param props The text object, how its page is shown, and the done callback.
- * @returns An absolutely positioned input.
+ * Opens the PDF line in Lexical, keeping its source run boundaries for the edit command.
+ * @param props The original line, page geometry and completion callback.
+ * @returns The in-place editor and its formatting controls.
  */
-export function PageTextEditor({ object, frame, onDone }: PageTextEditorProps) {
+export function PageTextEditor(props: PageTextEditorProps) {
+  const { object, pageId } = props;
+  const { session } = useEditorServices();
+  const [defaults] = useState<RunStyle>(() => ({
+    fontFamily: object.style.family === "serif" ? "Times" : object.style.family === "mono" ? "Courier" : "Helvetica",
+    fontSize: object.fontSize,
+    color: object.color,
+    bold: object.style.bold,
+    italic: object.style.italic,
+    underline: false,
+  }));
+  const [source] = useState(() => (object.runs?.length ? object.runs : [{ ...defaults, text: object.text }]));
+
+  return (
+    <LexicalComposer
+      initialConfig={{
+        namespace: "ExistingPageText",
+        theme: { text: { underline: "underline" } },
+        editorState: () => $loadPageTextRuns(source, (id) => documentChoiceId(session, pageId, id)),
+        onError: (error) => {
+          throw error;
+        },
+      }}
+    >
+      <Draft {...props} source={source} defaults={defaults} />
+    </LexicalComposer>
+  );
+}
+
+/**
+ * Registers the fonts needed by changed runs before the edit goes to the worker.
+ * @param session The active editing session.
+ * @param pageId The destination page.
+ * @param runs The changed runs.
+ * @returns When their available font bytes have been registered.
+ */
+async function registerEditFonts(session: DocumentSession, pageId: string, runs: readonly TextRun[]): Promise<void> {
+  const results = await Promise.allSettled(
+    runs.map(async ({ font, fontFamily, italic }) => {
+      const id = font?.kind === "embedded" ? font.fontId : "";
+      const bytes = bundledFontBytes(id);
+      if (bytes) {
+        await session.registerTextFont(pageId, id, bytes);
+        return;
+      }
+      if (id && !id.startsWith("document:") && !id.startsWith("bundled:")) return;
+      const family = font?.kind === "standard" ? font.family : fontFamily;
+      const bundled = id.startsWith("bundled:")
+        ? id.split(":")[1]!
+        : family === "Times"
+          ? "lora"
+          : family === "Courier"
+            ? "jet-brains-mono"
+            : "inter";
+      const fallback = await loadBundledFont(bundled, italic);
+      await session.registerTextFont(pageId, fallback.fontId, fallback.bytes);
+    }),
+  );
+  if (results.some(({ status }) => status === "rejected")) {
+    useToast.getState().show("Some fonts could not be loaded.", { tone: "error" });
+  }
+}
+
+/**
+ * Loads only document faces that the existing line uses.
+ * @param session The editing session.
+ * @param pageId The edited page.
+ * @param source The original runs.
+ * @returns Nothing.
+ */
+function useSourceFaces(session: DocumentSession, pageId: string, source: readonly TextRun[]): void {
+  useEffect(() => {
+    const controller = new AbortController();
+    const activation = { session, pageId, signal: controller.signal };
+    const ids = new Set(source.flatMap(({ font }) => (font?.kind === "embedded" ? [font.documentFontId] : [])));
+    if (ids.size) {
+      void session
+        .readPageFonts(pageId)
+        .then(async (fonts) => {
+          if (controller.signal.aborted) return;
+          await Promise.allSettled(
+            fonts
+              .filter(({ id }) => ids.has(id))
+              .map((font) => {
+                const choice = pageFontChoice(documentChoiceId(session, pageId, font.id), font);
+                return activateDocumentFont(choice, activation).catch(() =>
+                  activateDocumentFont({ ...choice, document: { ...font, bytes: undefined } }, activation),
+                );
+              }),
+          );
+          if (!controller.signal.aborted) refreshTextStyle();
+        })
+        .catch(() => undefined);
+    }
+    return () => {
+      controller.abort();
+      releaseDocumentFonts(pageId, session, getNextTextStyle().fontChoice);
+    };
+  }, [pageId, session, source]);
+}
+
+/**
+ * Draws the draft over the page and commits or discards the line as a unit.
+ * @param props The page, source runs, defaults and completion callback.
+ * @returns The editable line and its live style controls.
+ */
+function Draft({
+  object,
+  frame,
+  pageId,
+  revision,
+  onDone,
+  source,
+  defaults,
+}: PageTextEditorProps & {
+  readonly source: readonly TextRun[];
+  readonly defaults: RunStyle;
+}) {
+  const [editor] = useLexicalComposerContext();
+  const { session } = useEditorServices();
+  const overlay = useRef<HTMLDivElement>(null);
   const finished = useRef(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [pristine, setPristine] = useState(true);
+  const [background, setBackground] = useState(() => cssColor(editorBackground([], object.color)));
   const scale = frame.zoom * CSS_PIXELS_PER_POINT;
   const box = pdfRectToScreen(object.bounds, frame);
-
-  const finish = (text: string | null) => {
-    if (finished.current) return;
-    finished.current = true;
-    onDone(text);
-  };
-
-  // Lay the text out unrotated, then turn it with the page about the box's centre.
   const width = object.bounds.width * scale + 2 * PAD;
   const height = object.bounds.height * scale + 2 * PAD;
-  const turned = frame.rotation !== 0;
+  useTextStyleDraft(editor, pageId, defaults, true);
+  useSourceFaces(session, pageId, source);
 
-  // Once placed, take the colour of the rendered page just outside the editor.
   useLayoutEffect(() => {
-    const input = inputRef.current;
-    const canvas = input?.closest("[data-page]")?.querySelector<HTMLCanvasElement>("canvas[data-page-canvas]");
-    if (!input || !canvas) return;
+    const canvas = overlay.current
+      ?.closest("[data-page]")
+      ?.querySelector<HTMLCanvasElement>("canvas[data-page-canvas]");
+    if (!canvas) return;
     const reach = PAD + SAMPLE_GAP;
-    const area = {
+    const pixels = pixelsIn(canvas, {
       left: box.left - reach,
       top: box.top - reach,
       width: box.width + 2 * reach,
       height: box.height + 2 * reach,
+    });
+    setBackground(cssColor(editorBackground(pixels ? ringOf(pixels) : [], object.color)));
+  }, [box.left, box.top, box.width, box.height, object.color]);
+
+  useLayoutEffect(
+    () =>
+      editor.registerUpdateListener(({ editorState, dirtyElements, dirtyLeaves }) => {
+        if (dirtyElements.size || dirtyLeaves.size) {
+          setPristine(samePageTextRuns(source, editedPageTextRuns(editorState, source, defaults)));
+        }
+      }),
+    [defaults, editor, source],
+  );
+
+  /** @param keep Whether to commit the draft. @returns Nothing. */
+  const finish = useCallback(
+    (keep: boolean) => {
+      if (finished.current) return;
+      finished.current = true;
+      const runs = keep ? editedPageTextRuns(editor.getEditorState(), source, defaults) : null;
+      if (!runs || samePageTextRuns(source, runs)) {
+        onDone(null);
+        return;
+      }
+      const changed = runs.filter((run) => !source.some((old) => old.text === run.text && sameRunStyle(old, run)));
+      if (changed.length) void registerEditFonts(session, pageId, changed).then(() => onDone(runs));
+      else onDone(runs);
+    },
+    [defaults, editor, onDone, pageId, session, source],
+  );
+
+  useEffect(() => {
+    const paste = editor.registerCommand(
+      PASTE_COMMAND,
+      (event) => {
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection) || !("clipboardData" in event) || !event.clipboardData) return false;
+        event.preventDefault();
+        selection.insertText(
+          event.clipboardData
+            .getData("text/plain")
+            .replace(/\r\n?|\n/g, " ")
+            .replaceAll("\0", ""),
+        );
+        return true;
+      },
+      COMMAND_PRIORITY_HIGH,
+    );
+    /** @returns Whether the browser's Enter action was handled. */
+    const enter = () => {
+      queueMicrotask(() => finish(true));
+      return true;
     };
-    const pixels = pixelsIn(canvas, area);
-    input.style.backgroundColor = cssColor(editorBackground(pixels ? ringOf(pixels) : [], object.color));
-    // The page under the editor does not change while it is open.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    const lineBreak = editor.registerCommand(INSERT_LINE_BREAK_COMMAND, enter, COMMAND_PRIORITY_HIGH);
+    const paragraph = editor.registerCommand(INSERT_PARAGRAPH_COMMAND, enter, COMMAND_PRIORITY_HIGH);
+    return () => {
+      paste();
+      lineBreak();
+      paragraph();
+    };
+  }, [editor, finish]);
 
   return (
     <div
+      ref={overlay}
+      data-page-text-editor=""
       data-annotation=""
-      className="absolute"
-      style={{ left: box.left - PAD, top: box.top - PAD, width: box.width + 2 * PAD, height: box.height + 2 * PAD }}
+      className="absolute z-4"
+      style={{ left: box.left - PAD, top: box.top - PAD }}
     >
-      <input
-        ref={inputRef}
-        // Opened by a double-click on the text: typing should start at once.
-        autoFocus
-        aria-label="Page text"
-        defaultValue={object.text}
-        spellCheck
-        // Cursor at the end: a stray key press must not wipe out the whole line.
-        onFocus={(event) =>
-          event.currentTarget.setSelectionRange(event.currentTarget.value.length, event.currentTarget.value.length)
+      <div
+        className="absolute grid w-max items-center rounded-xs outline-2 outline-offset-1 outline-paper-focus/70 outline-dashed"
+        style={
+          {
+            "--pdf-text-scale": `${scale}px`,
+            left: (box.width + 2 * PAD - width) / 2,
+            top: (box.height + 2 * PAD - height) / 2,
+            minWidth: width,
+            minHeight: height,
+            paddingInline: PAD,
+            backgroundColor: pristine ? undefined : background,
+            transform: frame.rotation ? `rotate(${frame.rotation}deg)` : undefined,
+            fontSize: defaults.fontSize * scale,
+            lineHeight: 1,
+            fontFamily: FAMILIES[defaults.fontFamily].css,
+          } as CSSProperties
         }
-        className="absolute [field-sizing:content] outline-2 outline-offset-1 outline-paper-focus outline-dashed"
-        style={{
-          left: turned ? (box.width + 2 * PAD - width) / 2 : 0,
-          top: turned ? (box.height + 2 * PAD - height) / 2 : 0,
-          minWidth: width,
-          height,
-          padding: `0 ${PAD}px`,
-          backgroundColor: cssColor(editorBackground([], object.color)),
-          transform: turned ? `rotate(${frame.rotation}deg)` : undefined,
-          color: cssColor(object.color),
-          fontFamily: FAMILIES[object.style.family],
-          fontWeight: object.style.bold ? 700 : 400,
-          fontStyle: object.style.italic ? "italic" : "normal",
-          fontSize: object.fontSize * scale,
-          lineHeight: 1,
+        onKeyDownCapture={(event) => {
+          if (event.nativeEvent.isComposing || (event.key !== "Escape" && event.key !== "Enter")) return;
+          event.preventDefault();
+          event.stopPropagation();
+          finish(event.key === "Enter");
         }}
-        onBlur={(event) => finish(event.currentTarget.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.preventDefault();
-            finish(null);
-          } else if (event.key === "Enter") {
-            event.preventDefault();
-            finish(event.currentTarget.value);
+      >
+        <RichTextPlugin
+          contentEditable={
+            <ContentEditable
+              aria-label="Page text"
+              aria-multiline={false}
+              enterKeyHint="done"
+              spellCheck
+              data-pristine={pristine}
+              className={
+                "min-w-full whitespace-pre caret-paper-focus outline-none " +
+                "data-[pristine=true]:[-webkit-text-fill-color:transparent] " +
+                "data-[pristine=true]:[&_*]:[text-decoration-color:transparent]"
+              }
+            />
           }
+          ErrorBoundary={LexicalErrorBoundary}
+        />
+        <SelectionAlwaysOnDisplay />
+        <AutoFocusPlugin />
+      </div>
+      <PageTextControls editor={editor} pageId={pageId} revision={revision} finish={finish} />
+    </div>
+  );
+}
+
+/**
+ * Positions the shared text controls and keeps interactions with them inside the draft.
+ * @param props The editor, page, revision and completion callback.
+ * @returns A floating bar on desktop or keyboard dock on phones.
+ */
+function PageTextControls({
+  editor,
+  pageId,
+  revision,
+  finish,
+}: {
+  readonly editor: LexicalEditor;
+  readonly pageId: string;
+  readonly revision: number;
+  finish(keep: boolean): void;
+}) {
+  const wide = useMediaQuery(WIDE_LAYOUT_QUERY);
+  const { style, selectionText, blockText, setStyle } = useTextStyle();
+  const pageColors = useTextPageColors(pageId, revision);
+  const [anchor, setAnchor] = useState<Anchor | null>(null);
+  const [panel, setPanel] = useState<FormatPanel | null>(null);
+  const controls = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const editorFocused = useRef(false);
+
+  useLayoutEffect(() => {
+    /** @returns Nothing. */
+    const position = () => {
+      const root = editor.getRootElement();
+      if (!root) return;
+      const next = anchorOf(root);
+      const focused = document.activeElement?.closest("[data-text-style-controls]");
+      setAnchor((previous) => (previous && focused ? { ...previous, dock: next.dock } : next));
+    };
+    position();
+    const stop = editor.registerUpdateListener(position);
+    window.addEventListener("resize", position);
+    window.addEventListener("scroll", position, true);
+    document.addEventListener("selectionchange", position);
+    window.visualViewport?.addEventListener("resize", position);
+    window.visualViewport?.addEventListener("scroll", position);
+    return () => {
+      stop();
+      window.removeEventListener("resize", position);
+      window.removeEventListener("scroll", position, true);
+      document.removeEventListener("selectionchange", position);
+      window.visualViewport?.removeEventListener("resize", position);
+      window.visualViewport?.removeEventListener("scroll", position);
+    };
+  }, [editor]);
+
+  useEffect(() => {
+    /** @param event The outside interaction. @returns Nothing. */
+    const outside = (event: Event) => {
+      if (!(event.target instanceof Element) || controls.current?.contains(event.target)) return;
+      if (event.target.closest("[data-text-style-controls], [data-page-text-editor]")) {
+        if (event.type === "pointerdown") setPanel(null);
+        return;
+      }
+      finish(true);
+    };
+    document.addEventListener("pointerdown", outside, true);
+    document.addEventListener("focusin", outside, true);
+    return () => {
+      document.removeEventListener("pointerdown", outside, true);
+      document.removeEventListener("focusin", outside, true);
+    };
+  }, [finish]);
+
+  /** @returns Nothing. */
+  const close = () => {
+    setPanel(null);
+    if (editorFocused.current) requestAnimationFrame(focusPageTextDraft);
+    else trigger.current?.focus({ preventScroll: true });
+  };
+
+  /** @param format The style toggle. @returns Nothing. */
+  const toggle = (format: FormatToggle) => setStyle({ [format]: style[format] !== true });
+
+  if (!anchor) return null;
+  const above = anchor.top >= 54;
+  const left = Math.max(8, anchor.left);
+  const top = above ? anchor.top - 10 : anchor.bottom + 10;
+  const barTop = above ? top - 40 : top;
+  const spaceAbove = barTop - 16;
+  const spaceBelow = window.innerHeight - barTop - 56;
+  const popupAbove = spaceAbove > spaceBelow;
+  return createPortal(
+    <div
+      ref={controls}
+      data-annotation=""
+      data-text-style-controls=""
+      className="fixed z-30 max-lg:inset-x-0 max-lg:pb-[env(safe-area-inset-bottom)]"
+      style={
+        wide
+          ? {
+              left,
+              top,
+              transform: `translateX(min(0px, calc(100vw - ${left + 8}px - 100%))) translateY(${above ? "-100%" : "0"})`,
+            }
+          : { bottom: anchor.dock }
+      }
+      onKeyDown={(event) => {
+        if (event.key !== "Escape" || (!wide && panel)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (panel) close();
+        else finish(false);
+      }}
+    >
+      <FormatBar
+        style={style}
+        panel={panel}
+        onToggle={toggle}
+        onSize={(fontSize) => setStyle({ fontSize })}
+        onPanel={(next, button) => {
+          if (panel === next) {
+            close();
+            return;
+          }
+          trigger.current = button;
+          editorFocused.current = !!editor.getRootElement()?.contains(document.activeElement);
+          setPanel(next);
         }}
       />
-    </div>
+      {panel && (
+        <TextStyleMenu
+          panel={panel}
+          pageId={pageId}
+          hasDraft
+          pageText
+          selectionText={selectionText}
+          blockText={blockText}
+          style={style}
+          pageColors={pageColors}
+          wide={wide}
+          position={{
+            maxHeight: Math.max(80, popupAbove ? spaceAbove : spaceBelow),
+            ...(popupAbove ? { bottom: "calc(100% + 8px)" } : { top: "calc(100% + 8px)" }),
+          }}
+          onChange={setStyle}
+          onDismiss={close}
+        />
+      )}
+    </div>,
+    document.body,
   );
 }
