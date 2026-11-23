@@ -1,7 +1,7 @@
 import { expect, it, spyOn } from "bun:test";
-import { fontTable, missingFontCharacter } from "../page-text/sfnt";
+import { canEmbedLocalFont, fontTable, missingFontCharacter, validFontBytes } from "../page-text/sfnt";
 import { corpusFile, pdfiumWasm } from "../testing/fixtures";
-import { subsetEngine, subsetFont } from "./font-subset";
+import { FontSubsetCache, prepareFont, subsetEngine, subsetFont } from "./font-subset";
 import { PdfiumEngine } from "./pdfium-engine";
 
 const inter = new URL("../../../ui/src/assets/fonts/inter.ttf", import.meta.url);
@@ -145,4 +145,66 @@ it("preserves a shared worker font until the last registered document closes", a
   engine.close(next.value.docId);
   expect(engine["fontBytes"].size).toBe(0);
   expect(engine["documentFonts"].size).toBe(0);
+});
+
+it("decodes WOFF2 into a validated TrueType font before subsetting", async () => {
+  const { default: compress } = await import("wawoff2/compress.js");
+  const small = await subsetFont(await interBytes(), "Tặ", 400);
+  const compressed = Uint8Array.from(await compress(new Uint8Array(small))).buffer;
+  expect(new DataView(compressed).getUint32(0)).toBe(0x774f4632);
+  const decoded = await prepareFont(compressed);
+  expect(new DataView(decoded).getUint32(0)).toBe(0x00010000);
+  expect(validFontBytes(decoded)).toBe(true);
+  expect(missingFontCharacter(await subsetFont(decoded, "ặ", 400), "ặ")).toBeUndefined();
+
+  const damaged = compressed.slice(0);
+  new Uint8Array(damaged).fill(0xff, 48);
+  await expect(prepareFont(damaged)).rejects.toThrow("could not be decoded");
+
+  new DataView(compressed).setUint32(16, 21 * 1024 * 1024);
+  await expect(prepareFont(compressed)).rejects.toThrow("20 MB");
+});
+
+it("flags OpenType CFF outlines as unavailable for PDF embedding", async () => {
+  // The directory is sufficient to exercise the outline check without a separate CFF asset.
+  const bytes = new ArrayBuffer(32);
+  const view = new DataView(bytes);
+  view.setUint32(0, 0x4f54544f);
+  view.setUint16(4, 1);
+  view.setUint32(12, 0x43464620);
+  view.setUint32(20, 28);
+  view.setUint32(24, 4);
+  expect(await prepareFont(bytes)).toBe(bytes);
+  expect(canEmbedLocalFont(bytes)).toBe(false);
+  await expect(subsetFont(bytes, "a", 400)).rejects.toThrow("cannot be embedded");
+});
+
+it("registers a sloppy-directory TrueType subset extracted from a corpus PDF", async () => {
+  const bytes = new ArrayBuffer(32);
+  const view = new DataView(bytes);
+  view.setUint32(0, 0x00010000);
+  view.setUint16(4, 1);
+  view.setUint32(12, 0x676c7966);
+  view.setUint32(20, 28);
+  view.setUint32(24, 4);
+  const engine = await PdfiumEngine.create(pdfiumWasm());
+  const opened = engine.open(corpusFile("text.pdf"));
+  if (!opened.ok) throw new Error(opened.error);
+  try {
+    expect(engine.registerTextFont(opened.value.docId, "corpus-subset", bytes).ok).toBe(true);
+  } finally {
+    engine.close(opened.value.docId);
+  }
+});
+
+it("reuses subsets for the same font, NFC character set and pinned weight", async () => {
+  const cache = new FontSubsetCache();
+  const bytes = await interBytes();
+  const first = cache.get("inter", bytes, "bặ", 400);
+  expect(cache.get("inter", bytes, "ặbb".normalize("NFD"), 400)).toBe(first);
+  expect(cache.get("inter", bytes, "bặ", 700)).not.toBe(first);
+  expect(cache.get("other", bytes, "bặ", 400)).not.toBe(first);
+  expect(missingFontCharacter(await first, "ặb")).toBeUndefined();
+  cache.remove(bytes);
+  expect(cache.get("inter", bytes, "bặ", 400)).not.toBe(first);
 });

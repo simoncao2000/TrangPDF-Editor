@@ -110,6 +110,8 @@ export interface EngineMethods {
   /** Replaces a text object's text; the original is switched off and the replacement gets `newId`. */
   replacePageText: { params: PageAddress & { id: string; newId: string; text: string }; result: null };
   getPageFonts: { params: PageAddress; result: PageFont[] };
+  prepareFont: { params: { bytes: ArrayBuffer }; result: ArrayBuffer };
+  releaseTextFont: { params: { fontId: string }; result: null };
   registerTextFont: { params: { docId: DocId; fontId: string; bytes?: ArrayBuffer }; result: null };
   /** Adds page text with one id per run and one per underline. */
   addPageText: {

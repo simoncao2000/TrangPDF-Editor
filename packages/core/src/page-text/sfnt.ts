@@ -26,7 +26,7 @@ export function canSubsetFont(bytes: ArrayBuffer): boolean {
   const os2 = fontTable(bytes, "OS/2");
   if (!os2 || os2.byteLength < 10) return true;
   const flags = os2.getUint16(8);
-  return !(flags & 0x100) && (!(flags & 2) || Boolean(flags & 12));
+  return !(flags & 0x300) && (!(flags & 2) || Boolean(flags & 12));
 }
 
 /**
@@ -109,4 +109,72 @@ export function missingFontCharacter(bytes: ArrayBuffer, text: string): string |
       return format === 4 ? inBmp(map, start, code) : format === 12 && inFullMap(map, start, code);
     });
   });
+}
+
+export const MAX_FONT_BYTES = 20 * 1024 * 1024;
+
+/**
+ * Checks supported signatures and verifies that the complete table directory is in bounds.
+ * @param bytes The untrusted font bytes.
+ * @param compressed Whether WOFF2 input is allowed.
+ * @returns Whether the font envelope is valid.
+ */
+export function validFontBytes(bytes: ArrayBuffer, compressed = false): boolean {
+  if (bytes.byteLength < 12 || bytes.byteLength > MAX_FONT_BYTES) return false;
+  const view = new DataView(bytes);
+  const magic = view.getUint32(0);
+  if (compressed && magic === 0x774f4632) {
+    return (
+      view.byteLength >= 48 &&
+      view.getUint32(8) === view.byteLength &&
+      view.getUint32(16) >= 12 &&
+      view.getUint32(16) <= MAX_FONT_BYTES
+    );
+  }
+  if (![0x00010000, 0x4f54544f, 0x74727565].includes(magic)) return false;
+  const count = view.getUint16(4);
+  const directoryEnd = 12 + count * 16;
+  if (!count || directoryEnd > view.byteLength) return false;
+  for (let entry = 12; entry < directoryEnd; entry += 16) {
+    const offset = view.getUint32(entry + 8);
+    const length = view.getUint32(entry + 12);
+    if (offset < directoryEnd || offset + length > view.byteLength) return false;
+  }
+  return true;
+}
+
+/**
+ * Checks whether a local face can use the PDFium TrueType embedding path.
+ * @param bytes The decoded font.
+ * @returns Whether its outlines and embedding permissions are supported.
+ */
+export function canEmbedLocalFont(bytes: ArrayBuffer): boolean {
+  return Boolean(fontTable(bytes, "glyf") && canSubsetFont(bytes));
+}
+
+/**
+ * Reads a Unicode OpenType name, preferring English when supplied.
+ * @param bytes The decoded font.
+ * @param id The OpenType name identifier.
+ * @returns The name, or undefined if absent.
+ */
+export function fontName(bytes: ArrayBuffer, id: number): string | undefined {
+  const table = fontTable(bytes, "name");
+  if (!table || table.byteLength < 6) return;
+  const count = table.getUint16(2);
+  const storage = table.getUint16(4);
+  if (storage < 6 + count * 12 || storage > table.byteLength) return;
+  let fallback: string | undefined;
+  for (let entry = 6; entry < 6 + count * 12; entry += 12) {
+    const platform = table.getUint16(entry);
+    if ((platform !== 0 && platform !== 3) || table.getUint16(entry + 6) !== id) continue;
+    const length = table.getUint16(entry + 8);
+    const start = storage + table.getUint16(entry + 10);
+    if (!length || length % 2 || start + length > table.byteLength) continue;
+    const value = new TextDecoder("utf-16be").decode(new Uint8Array(bytes, table.byteOffset + start, length)).trim();
+    if (!value) continue;
+    if (platform === 3 && table.getUint16(entry + 4) === 0x0409) return value;
+    fallback ??= value;
+  }
+  return fallback;
 }

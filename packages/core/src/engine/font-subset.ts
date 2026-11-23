@@ -1,5 +1,5 @@
 import subsetUrl from "harfbuzzjs/dist/harfbuzz-subset.wasm?url";
-import { canSubsetFont, fontTable, missingFontCharacter } from "../page-text/sfnt";
+import { canSubsetFont, fontTable, MAX_FONT_BYTES, missingFontCharacter, validFontBytes } from "../page-text/sfnt";
 
 type SubsetWasm = {
   memory: WebAssembly.Memory;
@@ -21,6 +21,74 @@ type SubsetWasm = {
   hb_subset_input_pin_axis_location(input: number, face: number, tag: number, value: number): number;
   hb_subset_or_fail(face: number, input: number): number;
 };
+
+/**
+ * Validates a local font and decodes WOFF2 in the engine.
+ * @param bytes The original font.
+ * @returns Validated sfnt bytes.
+ */
+export async function prepareFont(bytes: ArrayBuffer): Promise<ArrayBuffer> {
+  if (!validFontBytes(bytes, true)) throw new Error("Choose a valid font file up to 20 MB.");
+  if (new DataView(bytes).getUint32(0) !== 0x774f4632) return bytes;
+  try {
+    const { default: decompress } = await import("wawoff2/decompress.js");
+    const decoded = await decompress(new Uint8Array(bytes));
+    if (decoded.byteLength > MAX_FONT_BYTES) throw new Error();
+    const sfnt = Uint8Array.from(decoded).buffer;
+    if (!validFontBytes(sfnt)) throw new Error();
+    return sfnt;
+  } catch {
+    throw new Error("This WOFF2 font could not be decoded into a valid font up to 20 MB.");
+  }
+}
+
+/** A bounded cache shared by commits in a single engine. */
+export class FontSubsetCache {
+  private readonly entries = new Map<string, { source: ArrayBuffer; work: Promise<ArrayBuffer> }>();
+
+  /**
+   * Reuses a subset for the same font, normalized glyph set and pinned weight.
+   * @param id The registered font id.
+   * @param source The registered font bytes.
+   * @param text Text to cover.
+   * @param weight Requested font weight.
+   * @returns The shared subset.
+   */
+  get(id: string, source: ArrayBuffer, text: string, weight: number): Promise<ArrayBuffer> {
+    const characters = [...new Set(text.normalize("NFC") + " ")].sort().join("");
+    const key = JSON.stringify([id, characters, pinnedWeight(source, weight)]);
+    const cached = this.entries.get(key);
+    this.entries.delete(key);
+    if (cached?.source === source) {
+      this.entries.set(key, cached);
+      return cached.work;
+    }
+    const work = subsetFont(source, text, weight);
+    const entry = { source, work };
+    this.entries.set(key, entry);
+    if (this.entries.size > 32) this.entries.delete(this.entries.keys().next().value!);
+    void work.then(
+      (subset) => {
+        if (subset.byteLength > 512 * 1024 && this.entries.get(key) === entry) this.entries.delete(key);
+      },
+      () => {
+        if (this.entries.get(key) === entry) this.entries.delete(key);
+      },
+    );
+    return work;
+  }
+
+  /**
+   * Evicts subsets when the source font is released.
+   * @param source The released source buffer.
+   * @returns Nothing.
+   */
+  remove(source: ArrayBuffer): void {
+    for (const [key, entry] of this.entries) {
+      if (entry.source === source) this.entries.delete(key);
+    }
+  }
+}
 
 let pending: Promise<SubsetWasm> | undefined;
 

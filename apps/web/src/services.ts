@@ -11,7 +11,7 @@ import {
   PageRenderer,
   spawnEngineWorker,
 } from "@pdf-editor/core";
-import { createWebFileAdapter } from "@pdf-editor/platform";
+import { createWebFileAdapter, createWebFontFileStore } from "@pdf-editor/platform";
 import type { EditorServices } from "@pdf-editor/ui";
 
 /**
@@ -24,6 +24,7 @@ export function createWebServices(): EditorServices {
   engine.call("init", { wasmUrl: new URL(wasmUrl, window.location.href).href });
   return {
     files: createWebFileAdapter(),
+    fontFiles: createWebFontFileStore(),
     workspace: createWorkspace(() => createDocumentSession(engine)),
     renderer: new PageRenderer(engine),
   };

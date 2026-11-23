@@ -1,14 +1,23 @@
+import { canEmbedLocalFont, missingFontCharacter } from "@pdf-editor/core";
+import type { FontFileRecord } from "@pdf-editor/shared";
 import { Check, FilePlus2, Lock, Search } from "lucide-react";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { requestDeviceFonts, requestedDeviceFonts, supportsDeviceFonts } from "./device-fonts";
+import { addFontFile } from "./font-files";
 import { useEditorServices } from "../../editor/hooks";
 import {
   activateFont,
+  activateLocalFont,
   BUNDLED_FONTS,
+  bundledFontBytes,
+  chosenFont,
   documentChoiceId,
   documentFallback,
   fontSections,
   loadBundledFont,
+  readLocalFont,
   recentFonts,
+  releaseFontFile,
   rememberFont,
   type FontChoice,
 } from "./font-model";
@@ -26,14 +35,20 @@ interface FontPickerProps {
 }
 
 /**
- * Displays page, recent and bundled faces with search and keyboard selection.
+ * Displays document, bundled and local faces with search and keyboard selection.
  * @param props The active page, formatting selection and picker callback.
  * @returns The searchable font picker.
  */
 export function FontPicker({ pageId, hasDraft, wide, text, blockText, style, onPick }: FontPickerProps) {
-  const { session } = useEditorServices();
+  const { session, fontFiles } = useEditorServices();
   const listId = useId();
   const [page, setPage] = useState<{ id: string; fonts: FontChoice[] }>();
+  const [files, setFiles] = useState<FontFileRecord[]>();
+  const [filePreviews, setFilePreviews] = useState<ReadonlySet<string>>(new Set());
+  const [device, setDevice] = useState<FontChoice[]>();
+  const [deviceRequest, setDeviceRequest] = useState(requestedDeviceFonts);
+  const [deviceError, setDeviceError] = useState("");
+  const fileInput = useRef<HTMLInputElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const activation = useRef<AbortController>(null);
   const [query, setQuery] = useState("");
@@ -43,6 +58,115 @@ export function FontPicker({ pageId, hasDraft, wide, text, blockText, style, onP
   const [readyVariant, setReadyVariant] = useState<boolean>();
   const [busy, setBusy] = useState(false);
   const italic = style.italic === true;
+  const canShowDevice = wide && supportsDeviceFonts();
+
+  useEffect(() => {
+    if (!canShowDevice || !deviceRequest) return;
+    let current = true;
+    void deviceRequest.then(
+      (fonts) => {
+        if (current) setDevice(fonts);
+      },
+      (error: unknown) => {
+        if (!current) return;
+        const denied = error instanceof DOMException && ["NotAllowedError", "SecurityError"].includes(error.name);
+        setDeviceError(
+          denied
+            ? "Font access was denied. Allow local fonts in your browser’s site settings, then reload."
+            : "Your device’s fonts could not be listed.",
+        );
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [canShowDevice, deviceRequest]);
+
+  useEffect(() => {
+    if (!fontFiles) return;
+    let current = true;
+    void fontFiles.list().then(
+      (records) => {
+        if (current) {
+          setFiles(records.map((record) => ({ ...record, bytes: bundledFontBytes(record.id) ?? record.bytes })));
+        }
+      },
+      () => {
+        if (!current) return;
+        setFiles([]);
+        setError("Your saved fonts could not be opened.");
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [fontFiles]);
+
+  useEffect(() => {
+    if (!files?.length) return;
+    let current = true;
+    const faces: FontFace[] = [];
+    for (const record of files) {
+      if (chosenFont(record.id)) continue;
+      void Promise.resolve()
+        .then(() => new FontFace(`pdf-file-preview-${record.id}`, record.bytes).load())
+        .then((face) => {
+          if (!current) return;
+          document.fonts.add(face);
+          faces.push(face);
+          setFilePreviews((previews) => new Set([...previews, record.id]));
+        })
+        .catch(() => {
+          // A failed preview can still be listed with the embedding flag.
+        });
+    }
+    return () => {
+      current = false;
+      for (const face of faces) document.fonts.delete(face);
+    };
+  }, [files]);
+
+  /**
+   * Stores the chosen file after worker validation.
+   * @param file The file selected in the system picker.
+   * @returns Nothing.
+   */
+  const addFile = async (file: File) => {
+    if (!fontFiles || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const record = await addFontFile(fontFiles, file, session.prepareFont);
+      setFiles((current) => [...(current ?? []), record]);
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "This font file could not be saved on this device.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /**
+   * Removes a saved font and its registered source.
+   * @param id The font record id.
+   * @returns Nothing.
+   */
+  const removeFile = async (id: string) => {
+    if (!fontFiles || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await fontFiles.remove(id);
+      releaseFontFile(id);
+      setFiles((current) => current?.filter((record) => record.id !== id));
+      setFilePreviews((current) => new Set([...current].filter((preview) => preview !== id)));
+      setActive(-1);
+      await session.releaseTextFont(id);
+    } catch {
+      setError("The font file could not be removed.");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   useEffect(() => {
     search.current?.focus({ preventScroll: true });
@@ -108,6 +232,16 @@ export function FontPicker({ pageId, hasDraft, wide, text, blockText, style, onP
   const sections = fontSections(pageChoices, recent, query, {
     text: text.replace(/[\r\n]/g, " "),
     italic,
+    device: canShowDevice ? (device ?? []) : [],
+    files:
+      files?.map((record): FontChoice => ({
+        id: record.id,
+        name: record.family,
+        bundledId: "inter",
+        preview:
+          chosenFont(record.id)?.css ?? (filePreviews.has(record.id) ? `pdf-file-preview-${record.id}` : undefined),
+        local: { kind: "file", bytes: record.bytes },
+      })) ?? [],
   });
   const enabled = sections.flatMap(({ rows }) => rows.filter(({ blocked }) => !blocked));
   const selected = enabled[active];
@@ -126,19 +260,32 @@ export function FontPicker({ pageId, hasDraft, wide, text, blockText, style, onP
     const controller = new AbortController();
     activation.current = controller;
     setBusy(true);
+    setError("");
     try {
       const useDocument = !!documentFallback([row.font], block);
       let fontChoice: string;
       const context = { pageId, session, signal: controller.signal };
-      try {
-        fontChoice = await activateFont(row.font, useDocument, context);
-      } catch (error) {
-        if (!useDocument) throw error;
-        fontChoice = await activateFont(row.font, false, context);
+      let missing = row.missing;
+      if (row.font.local) {
+        const bytes = await readLocalFont(row.font, session);
+        controller.signal.throwIfAborted();
+        if (!canEmbedLocalFont(bytes)) {
+          setError("This font can’t be saved in a PDF.");
+          return;
+        }
+        missing = missingFontCharacter(bytes, block);
+        fontChoice = await activateLocalFont(row.font, bytes, context);
+      } else {
+        try {
+          fontChoice = await activateFont(row.font, useDocument, context);
+        } catch (error) {
+          if (!useDocument) throw error;
+          fontChoice = await activateFont(row.font, false, context);
+        }
       }
       let fontFallback: string | undefined;
       const fallback = !row.font.document && hasDraft ? documentFallback(pageChoices, block) : undefined;
-      if (fallback && row.missing) {
+      if (fallback && missing) {
         fontFallback = await activateFont(fallback, true, context).catch(() => undefined);
       }
       if (controller.signal.aborted) return;
@@ -149,8 +296,10 @@ export function FontPicker({ pageId, hasDraft, wide, text, blockText, style, onP
         fontFallback,
         ...(documentStyle && { bold: documentStyle.bold, italic: documentStyle.italic }),
       });
-    } catch {
-      if (!controller.signal.aborted) setError("This font could not be opened.");
+    } catch (failure) {
+      if (!controller.signal.aborted) {
+        setError(row.font.local && failure instanceof Error ? failure.message : "This font could not be opened.");
+      }
     } finally {
       if (!controller.signal.aborted) setBusy(false);
     }
@@ -199,30 +348,61 @@ export function FontPicker({ pageId, hasDraft, wide, text, blockText, style, onP
       </label>
       <div className="min-h-0 overflow-y-auto p-1">
         <div id={listId} role="listbox" aria-label="Fonts" aria-busy={readyVariant !== italic || busy}>
-          {sections.map(
-            ({ title, rows }) =>
-              rows.length > 0 && (
-                <div key={title} role="group" aria-label={title}>
-                  <p aria-hidden="true" className="px-2 pt-3 pb-1 text-xs font-semibold text-muted">
-                    {title}
+          {sections.map(({ title, rows }) => {
+            const deviceSection = title === "On this device";
+            const showEmpty = !query && (deviceSection || title === "Your font files");
+            if (!rows.length && !showEmpty) return null;
+            const heading = deviceSection && !wide ? "On this phone" : title;
+            return (
+              <div key={title} role="group" aria-label={heading}>
+                <p aria-hidden="true" className="px-2 pt-3 pb-1 text-xs font-semibold text-muted">
+                  {heading}
+                  {deviceSection && canShowDevice && device && (
+                    <span className="font-normal"> · {device.length} fonts</span>
+                  )}
+                </p>
+                {deviceSection && !canShowDevice && (
+                  <p className="mx-1 mb-2 rounded-md bg-hover p-3 text-sm text-muted">
+                    {wide
+                      ? "This browser doesn’t share its font list with apps. Add a font file to use any font you have."
+                      : "A phone doesn’t share its font list with apps. Add a font file to use any font you have."}
                   </p>
-                  {rows.map((row) => {
-                    const { font, blocked, missing } = row;
-                    const index = enabled.indexOf(row);
-                    const checked = font.standard
-                      ? !style.fontChoice && style.fontFamily === font.standard
-                      : style.fontChoice === font.id;
-                    const usesFallback = font.document && !documentFallback([font], block);
-                    const meta = blocked
-                      ? "Can't be saved in a PDF"
-                      : missing
-                        ? `Missing ${missing}`
-                        : font.document
-                          ? "Document font"
+                )}
+                {deviceSection && canShowDevice && !device && (
+                  <div className="mx-1 mb-2 grid gap-2 rounded-md bg-hover p-3 text-sm text-muted">
+                    {deviceError ? (
+                      <p role="status">{deviceError}</p>
+                    ) : (
+                      <button
+                        type="button"
+                        className="w-fit text-left font-semibold text-ink hover:underline"
+                        disabled={!!deviceRequest}
+                        onClick={() => setDeviceRequest(requestDeviceFonts())}
+                      >
+                        {deviceRequest ? "Waiting for font access…" : "Show fonts on this device"}
+                      </button>
+                    )}
+                  </div>
+                )}
+                {rows.map((row) => {
+                  const { font, blocked, missing } = row;
+                  const index = enabled.indexOf(row);
+                  const checked = font.standard
+                    ? !style.fontChoice && style.fontFamily === font.standard
+                    : style.fontChoice === font.id;
+                  const usesFallback = font.document && !documentFallback([font], block);
+                  const meta = blocked
+                    ? "Can't be saved in a PDF"
+                    : missing
+                      ? `Missing ${missing}`
+                      : font.document
+                        ? "Document font"
+                        : font.local?.kind === "file"
+                          ? "Added by you"
                           : undefined;
-                    return (
+                  return (
+                    <div key={font.id} className="relative">
                       <div
-                        key={font.id}
                         id={index >= 0 ? `${listId}-${index}` : undefined}
                         role="option"
                         aria-disabled={blocked}
@@ -230,6 +410,7 @@ export function FontPicker({ pageId, hasDraft, wide, text, blockText, style, onP
                         className={[
                           "flex min-h-10 items-center gap-2 rounded-md px-2 max-lg:min-h-12",
                           blocked ? "text-muted" : "cursor-pointer hover:bg-hover",
+                          font.local?.kind === "file" ? "pr-18" : "",
                           checked || (index >= 0 && active === index) ? "bg-selection" : "",
                         ].join(" ")}
                         onMouseDown={(event) => event.preventDefault()}
@@ -262,41 +443,58 @@ export function FontPicker({ pageId, hasDraft, wide, text, blockText, style, onP
                             )}
                           </span>
                         )}
-                        {checked && <Check aria-hidden="true" className="size-4" />}
+                        {checked && <Check aria-hidden="true" className="size-4 shrink-0" />}
                       </div>
-                    );
-                  })}
-                </div>
-              ),
-          )}
+                      {font.local?.kind === "file" && (
+                        <button
+                          type="button"
+                          className="absolute inset-y-0 right-2 px-1 text-xs text-muted hover:text-ink"
+                          aria-label={`Remove ${font.name}`}
+                          disabled={busy}
+                          onClick={() => void removeFile(font.id)}
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
         </div>
         {query && sections.every(({ rows }) => !rows.length) && (
           <p className="p-3 text-sm text-muted">No matching fonts.</p>
         )}
-        {!query && (
-          <>
-            <p className="px-2 pt-3 pb-1 text-xs font-semibold text-muted">On this device</p>
-            <p className="mx-1 mb-2 rounded-md bg-hover p-3 text-sm text-muted">
-              {wide
-                ? "Device fonts will be available in a future update."
-                : "Your phone doesn’t share its font list with apps. Add a font file to use any font you have."}
-            </p>
-            <p className="px-2 pt-3 pb-1 text-xs font-semibold text-muted">Your font files</p>
-          </>
-        )}
+      </div>
+      <div>
         {error && (
-          <p role="status" className="p-2 text-sm text-warning">
+          <p role="status" className="border-t border-divider px-3 py-2 text-sm text-warning">
             {error}
           </p>
         )}
-      </div>
-      {!query && (
-        <div aria-disabled="true" className="flex min-h-11 items-center gap-2 border-t border-divider px-3 text-sm">
+        <input
+          ref={fileInput}
+          type="file"
+          accept=".ttf,.otf,.woff2"
+          hidden
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = "";
+            if (file) void addFile(file);
+          }}
+        />
+        <button
+          type="button"
+          disabled={!fontFiles || !files || busy}
+          onClick={() => fileInput.current?.click()}
+          className="flex min-h-11 w-full items-center gap-2 border-t border-divider px-3 text-left text-sm hover:bg-hover"
+        >
           <FilePlus2 aria-hidden="true" className="size-4 text-muted" />
           Add a font file…
           <span className="ml-auto text-xs text-muted">.ttf .otf .woff2</span>
-        </div>
-      )}
+        </button>
+      </div>
     </div>
   );
 }

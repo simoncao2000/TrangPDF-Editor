@@ -147,6 +147,10 @@ export interface DocumentSession {
    * @returns The registration acknowledgement.
    */
   registerTextFont(pageId: string, fontId: string, bytes: ArrayBuffer): Promise<null>;
+  /** @param bytes Untrusted font bytes to transfer. @returns Validated, decoded sfnt bytes. */
+  prepareFont(bytes: ArrayBuffer): Promise<ArrayBuffer>;
+  /** @param fontId The removed font id. @returns Completion of worker eviction. */
+  releaseTextFont(fontId: string): Promise<null>;
   /**
    * Every piece of the page's own text that can be edited, read once per page revision.
    * @param pageId A page id.
@@ -509,6 +513,15 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
 
     readPageFonts(pageId) {
       return readPage("fonts", pageId, (at) => engine.call("getPageFonts", at).promise);
+    },
+
+    prepareFont(bytes) {
+      return engine.call("prepareFont", { bytes }, [bytes]).promise;
+    },
+
+    releaseTextFont(fontId) {
+      registeredFonts.delete(fontId);
+      return engine.call("releaseTextFont", { fontId }).promise;
     },
 
     registerTextFont(pageId, fontId, bytes) {

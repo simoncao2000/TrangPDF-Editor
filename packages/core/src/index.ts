@@ -39,4 +39,11 @@ export * from "./geometry/page-layout";
 export * from "./geometry/coordinates";
 export { inspectPdfBytes } from "./validate";
 
-export { canSubsetFont, missingFontCharacter } from "./page-text/sfnt";
+export {
+  canEmbedLocalFont,
+  canSubsetFont,
+  fontName,
+  MAX_FONT_BYTES,
+  missingFontCharacter,
+  validFontBytes,
+} from "./page-text/sfnt";

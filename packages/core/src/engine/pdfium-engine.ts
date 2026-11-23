@@ -19,7 +19,8 @@ import type {
 import { PageAnnotations } from "./pdfium-annotations";
 import { PdfiumForms, type FormEnvironment, type FormFieldWriteError } from "./pdfium-forms";
 import { fontRequestKey, PageTextObjects, subsetKey, TextObjectIds, type PageContext } from "./pdfium-page-text";
-import { subsetFont } from "./font-subset";
+import { FontSubsetCache } from "./font-subset";
+import { validFontBytes } from "../page-text/sfnt";
 import { PageText } from "./pdfium-text";
 import type {
   AssembleOptions,
@@ -91,6 +92,7 @@ export class PdfiumEngine {
   private readonly text: PageText;
   private readonly textObjects: PageTextObjects;
 
+  private readonly fontSubsets = new FontSubsetCache();
   private readonly fontBytes = new Map<string, ArrayBuffer>();
   private readonly documentFonts = new Map<DocId, Set<string>>();
 
@@ -108,13 +110,25 @@ export class PdfiumEngine {
   ): Result<null, "unknown-document" | "text-edit-failed"> {
     if (!this.docs.has(docId)) return err("unknown-document");
     if (!this.fontBytes.has(fontId)) {
-      if (!bytes?.byteLength) return err("text-edit-failed");
+      if (!bytes || !validFontBytes(bytes)) return err("text-edit-failed");
       this.fontBytes.set(fontId, bytes);
     }
     const fonts = this.documentFonts.get(docId) ?? new Set<string>();
     fonts.add(fontId);
     this.documentFonts.set(docId, fonts);
     return ok(null);
+  }
+
+  /**
+   * Releases a font registration while leaving existing PDF objects intact.
+   * @param id The registered font id.
+   * @returns Nothing.
+   */
+  releaseFont(id: string): void {
+    const bytes = this.fontBytes.get(id);
+    if (bytes) this.fontSubsets.remove(bytes);
+    this.fontBytes.delete(id);
+    for (const fonts of this.documentFonts.values()) fonts.delete(id);
   }
 
   /**
@@ -187,7 +201,7 @@ export class PdfiumEngine {
     const fonts = this.documentFonts.get(docId);
     this.documentFonts.delete(docId);
     for (const id of fonts ?? []) {
-      if (![...this.documentFonts.values()].some((registered) => registered.has(id))) this.fontBytes.delete(id);
+      if (![...this.documentFonts.values()].some((registered) => registered.has(id))) this.releaseFont(id);
     }
   }
 
@@ -459,7 +473,7 @@ export class PdfiumEngine {
       for (const [key, { font, text }] of needed) {
         const bytes = registered?.has(font.fontId) ? this.fontBytes.get(font.fontId) : undefined;
         if (!bytes) return err("text-edit-failed");
-        subsets.set(key, await subsetFont(bytes, text, font.weight));
+        subsets.set(key, await this.fontSubsets.get(font.fontId, bytes, text, font.weight));
       }
     } catch {
       return err("text-edit-failed");

@@ -31,6 +31,7 @@ import { useEditorServices } from "../../editor/hooks";
 import { useMediaQuery, WIDE_LAYOUT_QUERY } from "../../hooks/use-media-query";
 import { alignDraft, anchorOf, type Anchor } from "../text-format/draft-geometry";
 import { FormatBar, type FormatPanel } from "../text-format/FormatBar";
+import { useToast } from "../../state/toast-store";
 import { bundledFontBytes, releaseDocumentFonts } from "../text-format/font-model";
 import { TextStyleMenu } from "../text-format/TextStyleMenu";
 import { colorHex, displayFont, editorTextRuns, type RunStyle } from "../text-format/text-runs";
@@ -129,7 +130,9 @@ function Draft({
     finished.current = true;
     if (lines.some((line) => line.length)) {
       for (const [fontId, bytes] of fonts) {
-        void session.registerTextFont(pageId, fontId, bytes).catch(() => {});
+        void session.registerTextFont(pageId, fontId, bytes).catch(() => {
+          useToast.getState().show("The font could not be registered.", { tone: "error" });
+        });
       }
       const origin = screenToPdf({ x: at.x, y: at.y + firstBaseline.current }, frame);
       session.dispatch((content) => addPageText(content, pageId, lines, { origin, angle: frame.rotation, fontSize }));

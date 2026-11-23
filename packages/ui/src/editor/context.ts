@@ -1,10 +1,11 @@
 import type { DocumentSession, PageRenderer, Workspace } from "@pdf-editor/core";
-import type { FileAdapter } from "@pdf-editor/shared";
+import type { FileAdapter, FontFileStore } from "@pdf-editor/shared";
 import { createContext } from "react";
 
 /** What every app hands to the shared UI. */
 export interface EditorServices {
   readonly files: FileAdapter;
+  readonly fontFiles?: FontFileStore;
   /** The open documents, one per tab. */
   readonly workspace: Workspace;
   readonly renderer: PageRenderer;

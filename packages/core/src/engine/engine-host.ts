@@ -3,6 +3,7 @@
  * Kept free of `self`/`postMessage` so it can be tested in Node; `engine.worker.ts` wires it up.
  */
 import { legacyTextRuns, textRunFont, type TextRun, type TextRunLineLayout } from "../page-text/page-text";
+import { prepareFont } from "./font-subset";
 import type { EngineParams } from "./protocol";
 import type { PdfiumEngine, PagePixels } from "./pdfium-engine";
 import type { Result } from "@pdf-editor/shared";
@@ -30,6 +31,7 @@ type EngineApi = Pick<
   | "replacePageText"
   | "addPageText"
   | "registerTextFont"
+  | "releaseFont"
   | "getPageFonts"
   | "showPageText"
   | "movePageText"
@@ -266,6 +268,19 @@ export function createEngineHost(deps: EngineHostDeps): { receive(request: Engin
     async getPageFonts(at) {
       const fonts = unwrap(requireEngine().getPageFonts(at));
       return [fonts, fonts.flatMap(({ bytes }) => (bytes ? [bytes] : []))];
+    },
+    async prepareFont({ bytes }) {
+      try {
+        const font = await prepareFont(bytes);
+        return [font, [font]];
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "The font file is invalid.";
+        throw new HostError({ code: "engine-failed", message });
+      }
+    },
+    async releaseTextFont({ fontId }) {
+      requireEngine().releaseFont(fontId);
+      return [null];
     },
     async registerTextFont({ docId, fontId, bytes }) {
       return [unwrap(requireEngine().registerTextFont(docId, fontId, bytes))];

@@ -1,6 +1,8 @@
 import {
+  canEmbedLocalFont,
   canSubsetFont,
   missingFontCharacter,
+  validFontBytes,
   type DocumentSession,
   type PageFont,
   type TextRunFamily,
@@ -31,6 +33,13 @@ export interface FontChoice {
   readonly standard?: TextRunFamily;
   readonly preview?: string;
   readonly document?: PageFont;
+  readonly local?:
+    | {
+        readonly kind: "device";
+        /** @returns The bytes of the installed face. */
+        read(): Promise<ArrayBuffer>;
+      }
+    | { readonly kind: "file"; readonly bytes: ArrayBuffer };
 }
 
 interface FontRow {
@@ -42,6 +51,7 @@ interface FontRow {
 const RECENT_KEY = "trangpdf.recent-text-fonts";
 const assets = new Map<string, Promise<ArrayBuffer>>();
 const loadedBytes = new Map<string, ArrayBuffer>();
+const localFaces = new Map<string, { name: string; face: FontFace }>();
 interface DocumentFace {
   readonly choice: FontChoice;
   readonly face: FontFace;
@@ -115,7 +125,10 @@ export function releaseDocumentFonts(pageId: string, session: DocumentSession, p
  * @returns The visible font name and browser family.
  */
 export function chosenFont(id: string | null | undefined) {
-  const name = choices.get(id ?? "")?.choice.name ?? BUNDLED_FONTS.find((font) => font.id === id)?.name;
+  const name =
+    localFaces.get(id ?? "")?.name ??
+    choices.get(id ?? "")?.choice.name ??
+    BUNDLED_FONTS.find((font) => font.id === id)?.name;
   return id && name ? { name, css: `pdf-face-${id}` } : null;
 }
 
@@ -174,6 +187,10 @@ export function embeddedRunFont(
   italic: boolean,
   originalStyle = false,
 ): TextRunFont | undefined {
+  const local = localFaces.get(id ?? "");
+  if (id && local) {
+    return { kind: "embedded", fontId: id, name: local.name, weight: bold ? 700 : 400, italic };
+  }
   const choice = choices.get(id ?? "")?.choice;
   const family = BUNDLED_FONTS.find((item) => item.id === (choice?.bundledId ?? id));
   if (!family) return;
@@ -200,6 +217,68 @@ export function documentFallback(fonts: readonly FontChoice[], text: string): Fo
     ({ document, preview }) =>
       document?.bytes && preview && canSubsetFont(document.bytes) && !missingFontCharacter(document.bytes, text + " "),
   );
+}
+
+/**
+ * Reads a local face once and validates its actual embedding bytes.
+ * @param choice The local row.
+ * @param session The session providing worker-side font validation.
+ * @returns The decoded font bytes.
+ */
+export async function readLocalFont(choice: FontChoice, session: DocumentSession): Promise<ArrayBuffer> {
+  const local = choice.local;
+  if (local?.kind === "file") return local.bytes;
+  if (!local) throw new Error("The local font is unavailable.");
+  let asset = assets.get(choice.id);
+  if (!asset) {
+    asset = local
+      .read()
+      .then((bytes) => session.prepareFont(bytes))
+      .then((bytes) => {
+        loadedBytes.set(choice.id, bytes);
+        return bytes;
+      });
+    assets.set(choice.id, asset);
+    void asset.catch(() => assets.delete(choice.id));
+  }
+  return asset;
+}
+
+/**
+ * Activates the local face and registers it before it can be applied to a block.
+ * @param choice The local row.
+ * @param bytes The validated font bytes.
+ * @param activation The target session, page and cancellation signal.
+ * @returns The browser family id.
+ */
+export async function activateLocalFont(
+  choice: FontChoice,
+  bytes: ArrayBuffer,
+  activation: { pageId: string; session: DocumentSession; signal: AbortSignal },
+): Promise<string> {
+  const { id, name } = choice;
+  const { pageId, session, signal } = activation;
+  let face = localFaces.get(id)?.face;
+  face ??= await new FontFace(`pdf-face-${id}`, bytes).load();
+  signal.throwIfAborted();
+  if (pageId) await session.registerTextFont(pageId, id, bytes);
+  signal.throwIfAborted();
+  document.fonts.add(face);
+  localFaces.set(id, { name, face });
+  loadedBytes.set(id, bytes);
+  return id;
+}
+
+/**
+ * Drops the browser face and cached bytes for a removed font file.
+ * @param id The removed font file id.
+ * @returns Nothing.
+ */
+export function releaseFontFile(id: string): void {
+  const local = localFaces.get(id);
+  if (local) document.fonts.delete(local.face);
+  localFaces.delete(id);
+  loadedBytes.delete(id);
 }
 
 /**
@@ -263,7 +342,7 @@ export function recentFonts(): FontChoice[] {
  * @returns Nothing.
  */
 export function rememberFont(choice: FontChoice): void {
-  if (choice.document) return;
+  if (choice.document || choice.local) return;
   const recent = [choice, ...recentFonts().filter(({ id }) => id !== choice.id)].slice(0, 5);
   try {
     localStorage.setItem(RECENT_KEY, JSON.stringify(recent.map(({ id, name }) => ({ id, name }))));
@@ -284,7 +363,7 @@ export function fontSections(
   page: readonly FontChoice[],
   recent: readonly FontChoice[],
   query: string,
-  selection: { text: string; italic: boolean },
+  selection: { text: string; italic: boolean; device?: readonly FontChoice[]; files?: readonly FontChoice[] },
 ) {
   const bundled: FontChoice[] = BUNDLED_FONTS.map(({ id, name }) => ({ id, name, bundledId: id }));
   const standard: FontChoice[] = [
@@ -297,6 +376,8 @@ export function fontSections(
     { title: "Recent", fonts: recent },
     { title: "Comes with TrangPDF", fonts: bundled },
     { title: "Standard PDF fonts", fonts: standard },
+    ...(selection.device ? [{ title: "On this device", fonts: selection.device }] : []),
+    ...(selection.files ? [{ title: "Your font files", fonts: selection.files }] : []),
   ];
   return sections.map(({ title, fonts }) => ({
     title,
@@ -304,15 +385,22 @@ export function fontSections(
       .filter(({ name }) => name.toLowerCase().includes(query.trim().toLowerCase()))
       .map((font): FontRow => {
         const reference = embeddedRunFont(font.bundledId, false, selection.italic);
-        const bytes = font.document
-          ? font.document.bytes
-          : reference?.kind === "embedded"
-            ? bundledFontBytes(reference.fontId)
-            : undefined;
-        const missing = bytes ? missingFontCharacter(bytes, selection.text) : undefined;
+        const bytes =
+          font.local?.kind === "file"
+            ? font.local.bytes
+            : font.local
+              ? bundledFontBytes(font.id)
+              : font.document
+                ? font.document.bytes
+                : reference?.kind === "embedded"
+                  ? bundledFontBytes(reference.fontId)
+                  : undefined;
+        const blocked =
+          !!bytes && (font.local ? !validFontBytes(bytes) || !canEmbedLocalFont(bytes) : !canSubsetFont(bytes));
+        const missing = bytes && !blocked ? missingFontCharacter(bytes, selection.text) : undefined;
         return {
           font,
-          blocked: !!bytes && !canSubsetFont(bytes),
+          blocked,
           missing: missing ?? (font.document && !bytes ? [...selection.text][0] : undefined),
         };
       }),

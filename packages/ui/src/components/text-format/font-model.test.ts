@@ -1,5 +1,7 @@
 import { expect, it } from "bun:test";
-import { type PageFont } from "@pdf-editor/core";
+import { MAX_FONT_BYTES, type PageFont } from "@pdf-editor/core";
+import type { FontFileRecord, FontFileStore } from "@pdf-editor/shared";
+import { addFontFile } from "./font-files";
 import { fontSections, type FontChoice } from "./font-model";
 
 it("groups choices, filters by name and flags unavailable or restricted glyphs", async () => {
@@ -32,4 +34,64 @@ it("groups choices, filters by name and flags unavailable or restricted glyphs",
   expect(sections[0]?.rows[0]).toMatchObject({ blocked: false, missing: "🐈" });
   expect(sections[0]?.rows[1]).toMatchObject({ blocked: true });
   expect(fontSections(page, recent, "  LORA ", selection).map(({ rows }) => rows.length)).toEqual([0, 1, 1, 0]);
+});
+
+/** @returns An in-memory implementation of the platform font-file contract. */
+function memoryFontStore(): FontFileStore {
+  const records = new Map<string, FontFileRecord>();
+  return {
+    /** @returns The stored records. */
+    async list() {
+      return [...records.values()];
+    },
+    /** @param record The font to save. @returns Nothing. */
+    async add(record) {
+      records.set(record.id, record);
+    },
+    /** @param id The record to delete. @returns Nothing. */
+    async remove(id) {
+      records.delete(id);
+    },
+  };
+}
+
+/** @param bytes Already decoded test fixture bytes. @returns The unchanged sfnt fixture. */
+async function prepared(bytes: ArrayBuffer): Promise<ArrayBuffer> {
+  return bytes;
+}
+
+it("adds, lists, searches and removes a font through the storage contract", async () => {
+  const store = memoryFontStore();
+  const bytes = await Bun.file(new URL("../../assets/fonts/inter.ttf", import.meta.url)).arrayBuffer();
+  const record = await addFontFile(store, new File([bytes], "my-font.ttf"), prepared);
+  expect(record).toMatchObject({ name: "my-font.ttf", family: "Inter", style: "Regular" });
+  expect(await store.list()).toEqual([record]);
+  const sections = fontSections([], [], "int", {
+    text: "a",
+    italic: false,
+    device: [{ name: "Other", id: "device", bundledId: "inter" }],
+    files: [{ name: record.family, id: record.id, bundledId: "inter", local: { kind: "file", bytes: record.bytes } }],
+  });
+  expect(sections.at(-2)?.rows).toHaveLength(0);
+  expect(sections.at(-1)?.rows[0]).toMatchObject({ blocked: false, font: { id: record.id } });
+  await store.remove(record.id);
+  expect(await store.list()).toEqual([]);
+});
+
+it("rejects bad signatures, bounds, extensions and sizes before writing", async () => {
+  const store = memoryFontStore();
+  const bytes = await Bun.file(new URL("../../assets/fonts/inter.ttf", import.meta.url)).arrayBuffer();
+  const badDirectory = bytes.slice(0);
+  new DataView(badDirectory).setUint32(20, bytes.byteLength + 1);
+  const badMagic = bytes.slice(0);
+  new DataView(badMagic).setUint32(0, 0);
+  for (const file of [
+    new File([badDirectory], "t.ttf"),
+    new File([badMagic], "t.otf"),
+    new File([bytes], "t.woff"),
+    new File([new ArrayBuffer(MAX_FONT_BYTES + 1)], "t.ttf"),
+  ]) {
+    await expect(addFontFile(store, file, prepared)).rejects.toThrow();
+  }
+  expect(await store.list()).toEqual([]);
 });
