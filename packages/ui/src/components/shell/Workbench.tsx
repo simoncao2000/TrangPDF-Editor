@@ -3,7 +3,7 @@ import { useDocument } from "../../editor/hooks";
 import { useElementSize } from "../../hooks/use-element-size";
 import { useMediaQuery } from "../../hooks/use-media-query";
 import { useLayout } from "../../state/layout-store";
-import { useViewer } from "../../state/viewer-store";
+import { useViewSearch } from "../../routing/router";
 import { Inspector } from "../inspector/Inspector";
 import { OrganizeView } from "../organize/OrganizeView";
 import { PageControl } from "../viewer/PageControl";
@@ -33,7 +33,7 @@ interface WorkbenchProps {
 export function Workbench({ keysEnabled }: WorkbenchProps) {
   const status = useDocument((state) => state.status);
   const fileName = useDocument((state) => state.fileName);
-  const organizing = useViewer((state) => state.mode) === "organize";
+  const organizing = useViewSearch().mode === "organize";
   const { pagesOpen, propertiesOpen } = useLayout();
   const roomForProperties = useMediaQuery(PROPERTIES_ROOM_QUERY);
   const areaRef = useRef<HTMLDivElement>(null);
@@ -70,7 +70,7 @@ export function Workbench({ keysEnabled }: WorkbenchProps) {
               <p className="font-hand text-xl">{status === "loading" ? `Opening ${fileName}…` : ""}</p>
             </div>
           )}
-          {ready && <ToolPalette area={area} keysEnabled={keysEnabled} />}
+          {reading && <ToolPalette area={area} keysEnabled={keysEnabled} />}
         </div>
       </div>
       {showProperties && <Inspector />}

@@ -17,6 +17,13 @@ import { useFieldNavigation } from "./use-field-navigation";
 interface FieldsPanelProps {
   readonly fields: readonly DocumentField[];
   readonly validate: boolean;
+  readonly headingHidden?: boolean;
+  /**
+   * Visits a field from the enclosing layout.
+   * @param field The field to visit.
+   * @returns Nothing.
+   */
+  onOpenField?(field: DocumentField): void;
 }
 
 const FIELD_ICONS = {
@@ -37,12 +44,14 @@ const STATUS = {
 
 /**
  * Shows document-wide form progress and lets the user jump to a field.
- * @param props The fields and whether an export requested validation.
+ * @param props Fields, validation and optional layout overrides.
  * @returns The form review and navigation controls.
  */
-export function FieldsPanel({ fields, validate }: FieldsPanelProps) {
+export function FieldsPanel({ fields, validate, headingHidden, onOpenField }: FieldsPanelProps) {
   const fileName = useDocument((state) => state.fileName);
-  const { current, open } = useFieldNavigation();
+  const navigation = useFieldNavigation();
+  const { current } = navigation;
+  const open = onOpenField ?? navigation.open;
   const { done, total, remaining } = fieldProgress(fields);
   const next = nextRequiredField(fields, current);
   const invalid = validate && remaining > 0;
@@ -53,7 +62,7 @@ export function FieldsPanel({ fields, validate }: FieldsPanelProps) {
 
   return (
     <section className="grid gap-(--space-3)" aria-labelledby="form-fields-title">
-      <div className="flex items-baseline justify-between gap-(--space-2)">
+      <div className={headingHidden ? "sr-only" : "flex items-baseline justify-between gap-(--space-2)"}>
         <h3 id="form-fields-title" className="text-sm font-semibold text-ink">
           Form fields
         </h3>

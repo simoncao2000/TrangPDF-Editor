@@ -3,7 +3,9 @@ import { ArrowRight, CornerDownLeft, FileText, Search, TextSearch } from "lucide
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useStore } from "zustand";
 import { useDocument, useEditorServices } from "../../editor/hooks";
-import { usePalette } from "../../state/palette-store";
+import { useMediaQuery, WIDE_LAYOUT_QUERY } from "../../hooks/use-media-query";
+import { useOpenPanel } from "../../routing/hooks";
+import { usePaletteQuery } from "../../state/palette-store";
 import { useViewer } from "../../state/viewer-store";
 import { matchScore, parseQuery, tidySnippet } from "./query";
 import { useCommands } from "../../editor/use-commands";
@@ -29,14 +31,15 @@ interface Item {
  * @returns The palette while open, otherwise nothing.
  */
 export function CommandPalette() {
-  const { open, initialQuery, hide } = usePalette();
-  if (!open) return null;
-  return <PaletteDialog initialQuery={initialQuery} onClose={hide} />;
+  const { panel, closePanel } = useOpenPanel();
+  const initialQuery = usePaletteQuery((state) => state.initialQuery);
+  if (panel !== "search") return null;
+  return <PaletteDialog initialQuery={initialQuery} onClose={closePanel} />;
 }
 
 interface PaletteDialogProps {
   readonly initialQuery: string;
-  onClose(): void;
+  onClose(after?: () => void): void;
 }
 
 /**
@@ -45,6 +48,7 @@ interface PaletteDialogProps {
  * @returns The dialog.
  */
 function PaletteDialog({ initialQuery, onClose }: PaletteDialogProps) {
+  const narrow = !useMediaQuery(WIDE_LAYOUT_QUERY);
   const listId = useId();
   const [raw, setRaw] = useState(initialQuery);
   const [active, setActive] = useState(0);
@@ -58,7 +62,12 @@ function PaletteDialog({ initialQuery, onClose }: PaletteDialogProps) {
     listRef.current?.querySelector(`[data-index="${current}"]`)?.scrollIntoView({ block: "nearest" });
   }, [current]);
 
-  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+  /**
+   * Moves the active result, runs it, or dismisses the palette.
+   * @param event The search input's keyboard event.
+   * @returns Nothing.
+   */
+  function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       const step = event.key === "ArrowDown" ? 1 : -1;
@@ -70,19 +79,23 @@ function PaletteDialog({ initialQuery, onClose }: PaletteDialogProps) {
       event.preventDefault();
       onClose();
     }
-  };
+  }
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-start justify-center bg-scrim/20 px-4 pt-14"
+      className={`fixed inset-0 z-40 flex items-start justify-center ${
+        narrow ? "bg-scrim p-2 pb-0" : "bg-scrim/20 px-4 pt-14"
+      }`}
       onPointerDown={(event) => event.target === event.currentTarget && onClose()}
     >
       <div
         role="dialog"
         aria-label="Command palette"
-        className="flex max-h-[min(70vh,32rem)] w-full max-w-160 flex-col overflow-hidden rounded-md border border-line bg-raised shadow-3"
+        className={`flex w-full flex-col overflow-hidden border border-line bg-raised shadow-3 ${
+          narrow ? "max-h-[calc(100dvh-8px)] rounded-lg" : "max-h-[min(70vh,32rem)] max-w-160 rounded-md"
+        }`}
       >
-        <div className="flex items-center gap-2 border-b border-divider px-3">
+        <div className={`flex items-center gap-2 border-b border-divider px-3 ${narrow ? "h-13 shrink-0" : ""}`}>
           <Search className="size-4 shrink-0 text-muted" aria-hidden="true" />
           <input
             // The palette was just opened to type in.
@@ -101,6 +114,11 @@ function PaletteDialog({ initialQuery, onClose }: PaletteDialogProps) {
             onKeyDown={onKeyDown}
             className="h-11 min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-muted"
           />
+          {narrow && (
+            <button type="button" onClick={() => onClose()} className="min-h-11 px-2 text-sm font-semibold text-signal">
+              Cancel
+            </button>
+          )}
         </div>
         <ul ref={listRef} id={listId} role="listbox" aria-label="Results" className="overflow-y-auto p-1">
           {items.map((item, index) => {
@@ -149,10 +167,10 @@ function emptyMessage(mode: ReturnType<typeof parseQuery>["mode"]): string {
 /**
  * The rows for what is typed: commands, a page to go to, or open files and text matches.
  * @param query The parsed text.
- * @param close Closes the palette (rows close it after running).
+ * @param close Closes the palette before running a row action.
  * @returns The rows, in display order.
  */
-function usePaletteItems(query: ReturnType<typeof parseQuery>, close: () => void): readonly Item[] {
+function usePaletteItems(query: ReturnType<typeof parseQuery>, close: PaletteDialogProps["onClose"]): readonly Item[] {
   const { workspace, session } = useEditorServices();
   const commands = useCommands();
   const tabs = useStore(workspace.store, (state) => state.tabs);
@@ -162,10 +180,12 @@ function usePaletteItems(query: ReturnType<typeof parseQuery>, close: () => void
   const matches = useTextMatches(query.mode === "search" ? query.text : "");
 
   return useMemo(() => {
-    const then = (action: () => void) => () => {
-      close();
-      action();
-    };
+    /**
+     * Runs a palette action after returning to the underlying view.
+     * @param action The selected action.
+     * @returns A handler for the palette row.
+     */
+    const then = (action: () => void) => () => close(action);
     if (query.mode === "commands") {
       return commands
         .filter((command) => command.enabled)

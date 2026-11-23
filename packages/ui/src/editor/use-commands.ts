@@ -35,7 +35,8 @@ import { useExport } from "./use-export";
 import { useInsertPending, useStartInsertPages } from "./use-insert-pages";
 import { useAnnotationUi, type Tool } from "../state/annotation-store";
 import { useLayout } from "../state/layout-store";
-import { usePalette } from "../state/palette-store";
+import { useShowPalette } from "../state/palette-store";
+import { useViewMode } from "../routing/hooks";
 import { useTheme, type ThemePreference } from "../state/theme-store";
 import { useViewer } from "../state/viewer-store";
 import { useDocument, useEditorServices } from "./hooks";
@@ -105,17 +106,18 @@ export function useCommands(): readonly Command[] {
   const undoLabel = useDocument((state) => state.undoLabel);
   const redoLabel = useDocument((state) => state.redoLabel);
   const viewer = useViewer();
+  const { mode, setMode } = useViewMode();
   const layout = useLayout();
   const setTool = useAnnotationUi((state) => state.setTool);
   const setTheme = useTheme((state) => state.setPreference);
-  const showPalette = usePalette((state) => state.show);
+  const showPalette = useShowPalette();
 
   const open = status === "clean" || status === "dirty";
   const page = pages[viewer.currentPage];
   /** Selected pages, or the page being read when none are selected. */
   const target = selection.length > 0 ? selection : page ? [page.id] : [];
   const pickTool = (tool: Tool) => {
-    viewer.setMode("read");
+    setMode("read");
     setTool(tool);
   };
 
@@ -320,12 +322,12 @@ export function useCommands(): readonly Command[] {
 
     {
       id: "organize",
-      title: viewer.mode === "organize" ? "Back to reading" : "Organize pages",
+      title: mode === "organize" ? "Back to reading" : "Organize pages",
       menu: "Pages",
       group: 0,
       icon: LayoutGrid,
       enabled: open,
-      run: () => viewer.setMode(viewer.mode === "organize" ? "read" : "organize"),
+      run: () => setMode(mode === "organize" ? "read" : "organize"),
     },
     {
       id: "rotate-cw",

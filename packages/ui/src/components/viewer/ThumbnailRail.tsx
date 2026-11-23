@@ -2,6 +2,7 @@ import { layoutPages, sizesAtWidth, visibleRange } from "@pdf-editor/core";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useElementSize } from "../../hooks/use-element-size";
 import { LayoutGrid } from "lucide-react";
+import { useViewMode } from "../../routing/hooks";
 import { useViewer } from "../../state/viewer-store";
 import { IconButton } from "../primitives/IconButton";
 import { PanelHeader } from "../primitives/PanelHeader";
@@ -23,7 +24,8 @@ export function ThumbnailRail() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const viewport = useElementSize(scrollRef);
   const [scrollTop, setScrollTop] = useState(0);
-  const { currentPage, goToPage, setMode } = useViewer();
+  const { currentPage, goToPage } = useViewer();
+  const { setMode } = useViewMode();
   const pages = usePageDrawInfo();
   const layout = useMemo(
     () =>

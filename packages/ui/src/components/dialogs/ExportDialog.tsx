@@ -4,9 +4,12 @@ import { baseName, describePages } from "../../editor/file-names";
 import { useDocument, useEditorServices } from "../../editor/hooks";
 import { useDocumentActions } from "../../editor/use-document-actions";
 import { useExport, type BlockedExport, type ExportScope } from "../../editor/use-export";
-import { useMediaQuery } from "../../hooks/use-media-query";
+import { useMediaQuery, WIDE_LAYOUT_QUERY } from "../../hooks/use-media-query";
+import { useViewMode } from "../../routing/hooks";
 import { useLayout } from "../../state/layout-store";
 import { useViewer } from "../../state/viewer-store";
+import { FieldsPanel } from "../forms/FieldsPanel";
+import { useDocumentFields } from "../forms/use-document-fields";
 import { useFieldNavigation } from "../forms/use-field-navigation";
 import { Inspector } from "../inspector/Inspector";
 import { Button } from "../primitives/Button";
@@ -34,25 +37,33 @@ export function ExportDialog() {
 /**
  * Reveals the missing fields without taking focus away from the page.
  * @param props The blocked export and its first missing field.
- * @returns The validation message and a compact Inspector when the side rail is unavailable.
+ * @returns The validation message and field controls when the side rail is unavailable.
  */
 function ExportReview({ request }: { readonly request: BlockedExport }) {
   // The workbench's Inspector rail is available from 1200px.
+  const narrow = !useMediaQuery(WIDE_LAYOUT_QUERY);
   const hasRail = useMediaQuery("(min-width: 1200px)");
   const { open } = useFieldNavigation();
   const { close, exportAnyway } = useExport();
+  const { setMode } = useViewMode();
   const focusFirst = useEffectEvent(() => open(request.first));
 
   useEffect(() => {
-    useViewer.getState().setMode("read");
+    setMode("read");
     const layout = useLayout.getState();
     if (hasRail && !layout.propertiesOpen) layout.toggleProperties();
     const frame = requestAnimationFrame(() => focusFirst());
     return () => cancelAnimationFrame(frame);
-  }, [request, hasRail]);
+  }, [request, hasRail, setMode]);
 
   return (
-    <div className="pointer-events-none fixed inset-x-2 bottom-16 z-40 grid justify-items-center gap-2 min-[1200px]:bottom-20">
+    <div
+      className={`pointer-events-none fixed z-40 grid justify-items-center gap-2 ${
+        narrow
+          ? "inset-x-3 bottom-[calc(136px+max(0px,env(safe-area-inset-bottom)-4px))] mx-auto max-w-136"
+          : "inset-x-2 bottom-16 min-[1200px]:bottom-20"
+      }`}
+    >
       <div className="pointer-events-auto flex min-h-11 max-w-full items-center gap-2 rounded-sm bg-inverse px-3 py-1.5 text-sm text-on-inverse shadow-3">
         <TriangleAlert className="size-4.5 shrink-0" aria-hidden="true" />
         <p role="alert" className="min-w-0 flex-1 wrap-anywhere">
@@ -61,7 +72,7 @@ function ExportReview({ request }: { readonly request: BlockedExport }) {
         <button
           type="button"
           onClick={() => exportAnyway(request)}
-          className="min-h-8 shrink-0 rounded-xs px-2 font-semibold hover:bg-on-inverse/15"
+          className={`shrink-0 rounded-xs px-2 font-semibold hover:bg-on-inverse/15 ${narrow ? "min-h-11" : "min-h-8"}`}
         >
           Export anyway
         </button>
@@ -69,16 +80,32 @@ function ExportReview({ request }: { readonly request: BlockedExport }) {
           type="button"
           aria-label="Dismiss export review"
           onClick={close}
-          className="grid size-8 shrink-0 place-items-center rounded-xs hover:bg-on-inverse/15"
+          className={`grid shrink-0 place-items-center rounded-xs hover:bg-on-inverse/15 ${
+            narrow ? "size-11" : "size-8"
+          }`}
         >
           <X className="size-4" aria-hidden="true" />
         </button>
       </div>
-      {!hasRail && (
+      {narrow && <PhoneReviewFields />}
+      {!narrow && !hasRail && (
         <div className="pointer-events-auto w-full max-w-120 overflow-hidden rounded-md border border-line shadow-3 [&>aside]:max-h-[26dvh]">
           <Inspector />
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Shows the form fields below the phone's export warning.
+ * @returns The scrollable Fields card.
+ */
+function PhoneReviewFields() {
+  const fields = useDocumentFields();
+  return (
+    <div className="pointer-events-auto max-h-[30dvh] w-full overflow-y-auto rounded-lg border border-line bg-raised px-4 py-3 shadow-3">
+      <FieldsPanel fields={fields} validate />
     </div>
   );
 }

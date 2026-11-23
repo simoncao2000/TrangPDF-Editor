@@ -7,7 +7,7 @@ import { useElementSize } from "../../hooks/use-element-size";
 import { useShortcuts } from "../../hooks/use-shortcut";
 import { useAnnotationUi, type Tool } from "../../state/annotation-store";
 import { useLayout } from "../../state/layout-store";
-import { useViewer } from "../../state/viewer-store";
+import { useViewMode } from "../../routing/hooks";
 import { PLACEMENT_MARGIN, placeInside, type Point, type Size } from "./tool-placement";
 import { PaletteButton } from "./PaletteButton";
 import { ToolGroupButton } from "./ToolGroupButton";
@@ -28,11 +28,6 @@ interface ToolPaletteProps {
   readonly area: Size;
   /** False while a dialog is open, so single-key shortcuts do not fire behind it. */
   readonly keysEnabled: boolean;
-  /**
-   * Phone layout: the palette lies flat, starts centred above the bottom bar, and where it is
-   * dragged is kept only for this visit (the desktop position is not disturbed).
-   */
-  readonly phone?: boolean;
 }
 
 /**
@@ -40,34 +35,32 @@ interface ToolPaletteProps {
  * document. Drag its grip to put it anywhere (or press the arrow keys on the grip); the rotate
  * button turns it flat or upright. It is kept inside the document area at every size, so it never
  * goes missing when the window shrinks. V, E, H, D, S and T pick tools; Escape goes back to Select.
- * @param props The area it floats in, whether shortcuts are on, and whether this is the phone layout.
+ * @param props The area it floats in and whether shortcuts are on.
  * @returns The palette.
  */
-export function ToolPalette({ area, keysEnabled, phone = false }: ToolPaletteProps) {
+export function ToolPalette({ area, keysEnabled }: ToolPaletteProps) {
   const actions = useDocumentActions();
   const status = useDocument((state) => state.status);
   const undoLabel = useDocument((state) => state.undoLabel);
   const redoLabel = useDocument((state) => state.redoLabel);
   const tool = useAnnotationUi((state) => state.tool);
   const setTool = useAnnotationUi((state) => state.setTool);
-  const setMode = useViewer((state) => state.setMode);
+  const { setMode } = useViewMode();
   const layout = useLayout();
-  const [phonePosition, setPhonePosition] = useState<Point | null>(null);
-  const savedPosition = phone ? phonePosition : layout.toolPosition;
-  const moveTools = phone ? setPhonePosition : layout.moveTools;
   const paletteRef = useRef<HTMLElement>(null);
   const size = useElementSize(paletteRef);
   const drag = useRef<{ pointerId: number; from: Point; start: Point } | null>(null);
   const [dragged, setDragged] = useState<Point | null>(null);
 
   const editable = status === "clean" || status === "dirty";
-  const upright = !phone && layout.toolOrientation === "vertical";
-  // Phones start centred above the bottom bar; elsewhere near the top-left corner.
-  const start = phone
-    ? { x: (area.width - size.width) / 2, y: area.height - size.height - PLACEMENT_MARGIN }
-    : DEFAULT_POSITION;
-  const placed = placeInside(dragged ?? savedPosition ?? start, size, area);
+  const upright = layout.toolOrientation === "vertical";
+  const placed = placeInside(dragged ?? layout.toolPosition ?? DEFAULT_POSITION, size, area);
 
+  /**
+   * Activates a tool in Read mode.
+   * @param next The tool to activate.
+   * @returns Nothing.
+   */
   const pick = (next: Tool) => {
     setMode("read");
     setTool(next);
@@ -81,11 +74,21 @@ export function ToolPalette({ area, keysEnabled, phone = false }: ToolPalettePro
     keysEnabled && editable,
   );
 
+  /**
+   * Starts dragging the palette.
+   * @param event The pointer press on the grip.
+   * @returns Nothing.
+   */
   const onGripDown = (event: PointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     drag.current = { pointerId: event.pointerId, from: { x: event.clientX, y: event.clientY }, start: placed };
   };
+  /**
+   * Moves the palette while the grip is held.
+   * @param event The pointer movement.
+   * @returns Nothing.
+   */
   const onGripMove = (event: PointerEvent<HTMLButtonElement>) => {
     const state = drag.current;
     if (state?.pointerId !== event.pointerId) return;
@@ -97,17 +100,28 @@ export function ToolPalette({ area, keysEnabled, phone = false }: ToolPalettePro
       ),
     );
   };
+  /**
+   * Saves the dropped palette position.
+   * @param event The pointer release.
+   * @returns Nothing.
+   */
   const onGripUp = (event: PointerEvent<HTMLButtonElement>) => {
     if (drag.current?.pointerId !== event.pointerId) return;
     drag.current = null;
-    if (dragged) moveTools(dragged);
+    if (dragged) layout.moveTools(dragged);
     setDragged(null);
   };
+  /**
+   * Moves the palette from its grip using arrow keys.
+   * @param event The key press on the grip.
+   * @returns Nothing.
+   */
   const onGripKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     const arrow = ARROWS[event.key];
     if (!arrow) return;
     event.preventDefault();
-    moveTools(placeInside({ x: placed.x + arrow[0] * KEY_STEP, y: placed.y + arrow[1] * KEY_STEP }, size, area));
+    const next = { x: placed.x + arrow[0] * KEY_STEP, y: placed.y + arrow[1] * KEY_STEP };
+    layout.moveTools(placeInside(next, size, area));
   };
 
   const divider = (
@@ -192,17 +206,13 @@ export function ToolPalette({ area, keysEnabled, phone = false }: ToolPalettePro
           );
         })}
       </div>
-      {!phone && (
-        <>
-          {divider}
-          <PaletteButton
-            icon={upright ? RectangleHorizontal : RectangleVertical}
-            label={upright ? "Turn the tools flat" : "Turn the tools upright"}
-            muted
-            onClick={layout.turnTools}
-          />
-        </>
-      )}
+      {divider}
+      <PaletteButton
+        icon={upright ? RectangleHorizontal : RectangleVertical}
+        label={upright ? "Turn the tools flat" : "Turn the tools upright"}
+        muted
+        onClick={layout.turnTools}
+      />
     </nav>
   );
 }

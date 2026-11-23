@@ -265,11 +265,15 @@ bun run test
   - [x] Every markup is a comment, Acrobat style: threads with replies, a Comments panel grouped by page
   - [x] Highlight, underline, strikethrough, squiggly, sticky notes, freehand drawing, rectangles, ellipses, lines and arrows, with colour and size properties and undo
   - [x] Redesigned shell: menu bar (File, Edit, View, Tools, Pages), files in their own tab row, a tool palette you drag anywhere and turn flat or upright, tools visible at every width
-  - [x] Phone layout: file switcher, bottom bar, floating tools
+  - [x] Phone layout: file switcher and bottom bar
+  - [x] Phone tool bar with + menu
   - [x] Insert images, draw and save signatures on the device, and flatten on export
   - [x] Fill forms in place, track progress in the Fields tab, undo changes and check required fields before export
-  - [ ] Comments on the phone
-  - [ ] Matching fonts for edited text (bundled open look-alikes, fonts installed on the device)
+  - [x] Phone top bar and bottom tabs with Comments and Fields sheets
+  - [x] Organize on the phone with a touch-and-hold page menu and Move to…
+  - [x] Typed signatures
+  - [ ] Rich text: fonts, size, colour, bold, italic and underline on selected words, with fonts from the PDF, bundled fonts, the device and font files
+    - added text: done
 - [ ] **Phase 4: Desktop app.** Tauri 2, open PDFs from the system, save in place, auto-updates
 - [ ] **Phase 5: Mobile app.** Capacitor, share sheet, touch gestures, bottom sheets
 - [ ] **Phase 6: Sync and paid tier.** Accounts, document sync, OCR

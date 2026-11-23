@@ -2,7 +2,7 @@ import { PanelLeft, PanelRight, Search } from "lucide-react";
 import { useDocument } from "../../editor/hooks";
 import { useShortcuts } from "../../hooks/use-shortcut";
 import { useLayout } from "../../state/layout-store";
-import { usePalette } from "../../state/palette-store";
+import { useShowPalette } from "../../state/palette-store";
 import { IconButton } from "../primitives/IconButton";
 import { Logo } from "../primitives/Logo";
 import { ThemeMenu } from "../primitives/ThemeMenu";
@@ -26,7 +26,7 @@ interface TitleBarProps {
 export function TitleBar({ keysEnabled }: TitleBarProps) {
   const fileName = useDocument((state) => state.fileName);
   const { pagesOpen, propertiesOpen, togglePages, toggleProperties } = useLayout();
-  const showPalette = usePalette((state) => state.show);
+  const showPalette = useShowPalette();
 
   useShortcuts(
     [

@@ -6,3 +6,5 @@ export { EditorProvider } from "./editor/EditorProvider";
 export type { EditorServices } from "./editor/context";
 export { useEditorServices, useDocument } from "./editor/hooks";
 export { EditorApp } from "./components/EditorApp";
+export { EditorRouter } from "./routing/EditorRouter";
+export { createBrowserHistory, createHashHistory, createMemoryHistory } from "@tanstack/react-router";
