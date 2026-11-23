@@ -21,6 +21,8 @@ export interface Command {
   readonly applyInEngine?: (engine: CommandEngine) => Promise<unknown>;
   /** Engine work that goes with `undo`. */
   readonly undoInEngine?: (engine: CommandEngine) => Promise<unknown>;
+  /** Releases engine resources retained for undo or redo. */
+  readonly dropInEngine?: (engine: CommandEngine) => Promise<unknown>;
 }
 
 /**

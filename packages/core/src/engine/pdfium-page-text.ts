@@ -2,10 +2,8 @@
  * The page's own text (PDF text objects) on a loaded PDFium page: finding it, changing it, adding
  * new lines of it.
  *
- * Objects are never deleted. An edit switches the original off ("inactive": not drawn, not saved)
- * and inserts a replacement after it; added text is switched off for undo. Undo and redo switch
- * objects on and off by id, so nothing is lost. Ids map to object handles, which only stay valid
- * while the page stays loaded, so the engine keeps such pages open (see `PdfiumEngine`).
+ * Rich edits exchange detached objects with their exact originals. Added and legacy replacement text
+ * use the active flag for undo. The engine holds pages open so their object handles remain valid.
  *
  * A line is usually one text object. A line whose font cannot draw spaces is written one object
  * per word (`pdfium-text-words.ts`); an id then stands for all of its words.
@@ -14,6 +12,7 @@ import type { WrappedPdfiumModule } from "@embedpdf/pdfium";
 import type { PdfPoint, PdfRect } from "@pdf-editor/shared";
 import {
   layoutTextRuns,
+  sameRunStyle,
   withoutSubsetTag,
   type FontStyle,
   type PageFont,
@@ -37,6 +36,8 @@ const HIT_TOLERANCE = 2;
 const OPAQUE = 255;
 const PATH_OBJECT = 2;
 const WINDING_FILL = 2;
+const EXACT_RUN = -1;
+const UNDERLINE = -2;
 const RUN_FAMILIES = { Helvetica: "sans", Times: "serif", Courier: "mono" } as const;
 /** How far (in points, both ways) switched-off objects are moved: well off any page. */
 const PARKING_OFFSET = -100_000;
@@ -80,6 +81,59 @@ export class TextObjectIds {
   /** Switched-off objects' own matrices, while they are parked off the page. */
   private readonly parked = new Map<number, readonly number[]>();
   private next = 1;
+  private readonly fontIds = new Map<number, string>();
+  private readonly grouped = new Map<number, string>();
+
+  /**
+   * Resolves an opaque id for a font in this document.
+   * @param font A PDFium font handle.
+   * @returns The id shared by the font picker and line extraction.
+   */
+  fontId(font: number): string {
+    const id = this.fontIds.get(font) ?? `font-${this.fontIds.size + 1}`;
+    this.fontIds.set(font, id);
+    return id;
+  }
+
+  /**
+   * Updates the live grouping after an edit or history transition.
+   * @param id The line id.
+   * @param before The previously attached text objects.
+   * @param after The now attached text objects.
+   * @returns Nothing.
+   */
+  group(id: string, before: readonly number[], after: readonly number[]): void {
+    for (const handle of before) this.grouped.delete(handle);
+    for (const handle of after) this.grouped.set(handle, id);
+    this.register(id, after);
+  }
+
+  /**
+   * Finds the live group for a run.
+   * @param handle The page object.
+   * @returns The line id if explicitly grouped.
+   */
+  groupOf(handle: number): string | undefined {
+    return this.grouped.get(handle);
+  }
+
+  /**
+   * Forgets a destroyed object so a recycled handle gets a fresh id.
+   * @param handle The destroyed object.
+   * @returns Nothing.
+   */
+  forget(handle: number): void {
+    const id = this.byHandle.get(handle);
+    if (id && this.byId.get(id)?.includes(handle)) {
+      this.byId.set(
+        id,
+        this.handlesOf(id).filter((candidate) => candidate !== handle),
+      );
+    }
+    this.byHandle.delete(handle);
+    this.grouped.delete(handle);
+    this.parked.delete(handle);
+  }
 
   /**
    * The id of an object, giving it one the first time.
@@ -135,6 +189,55 @@ export class TextObjectIds {
   }
 }
 
+interface LineMember {
+  readonly handle: number;
+  readonly index: number;
+}
+
+/** The source run and any underline that belongs to it. */
+interface EditSourceRun extends LineMember {
+  readonly underline?: LineMember;
+  readonly matrix: readonly number[];
+  readonly advance: number;
+}
+
+export interface LineEditPlan {
+  readonly id: string;
+  readonly markId: string;
+  readonly original: readonly EditSourceRun[];
+  readonly slots: readonly RunSlot[];
+}
+
+interface RunSlot {
+  source?: number;
+  retained?: number;
+}
+
+interface RunTranslation {
+  readonly handle: number;
+  readonly dx: number;
+  readonly dy: number;
+  readonly originalMatrix: readonly number[];
+}
+
+export interface HeldLineEdit {
+  readonly id: string;
+  readonly before: readonly LineMember[];
+  readonly after: readonly LineMember[];
+  readonly originalLine: readonly number[];
+  readonly editedLine: readonly number[];
+  readonly translations: readonly RunTranslation[];
+  readonly markId: string;
+  readonly markTargets: readonly number[];
+  readonly appliedMarks: Map<number, number>;
+}
+
+interface EditLayout {
+  readonly incoming: { handle: number; anchor: number; retained?: boolean }[];
+  readonly inPlace: Set<number>;
+  readonly translations: RunTranslation[];
+}
+
 export class PageTextObjects {
   private readonly pdfium: WrappedPdfiumModule;
   private readonly heap: PdfiumHeap;
@@ -173,7 +276,7 @@ export class PageTextObjects {
       const name = withoutSubsetTag(this.objects.fontName(font));
       if (!name) continue;
       const bytes = this.fontData(font);
-      fonts.push({ id: String(index), name, style: this.pageFontStyle(font, bytes), ...(bytes && { bytes }) });
+      fonts.push({ id: page.ids.fontId(font), name, style: this.pageFontStyle(font, bytes), ...(bytes && { bytes }) });
     }
     return fonts;
   }
@@ -221,11 +324,7 @@ export class PageTextObjects {
    */
   borrowFont(page: PageContext, reference: Extract<TextRunFont, { kind: "embedded" }>, text: string): number {
     if (!reference.documentFontId) return 0;
-    const index = Number(reference.documentFontId);
-    if (!Number.isSafeInteger(index) || index < 0 || index >= this.pdfium.FPDFPage_CountObjects(page.page)) return 0;
-    const object = this.pdfium.FPDFPage_GetObject(page.page, index);
-    if (!this.objects.isActiveText(object)) return 0;
-    const font = this.pdfium.FPDFTextObj_GetFont(object);
+    const font = this.findFont(page, reference.documentFontId);
     if (!font || withoutSubsetTag(this.objects.fontName(font)) !== reference.name) return 0;
     const bytes = this.fontData(font);
     const style = this.pageFontStyle(font, bytes);
@@ -233,14 +332,100 @@ export class PageTextObjects {
     const sample = [...new Set(text)].join("");
     if (!bytes || !canSubsetFont(bytes) || missingFontCharacter(bytes, sample + " ")) return 0;
     const probe = this.pdfium.FPDFPageObj_CreateTextObj(page.doc, font, 12);
-    if (!probe) return 0;
+    return this.probeText(page, probe, sample) === sample ? font : 0;
+  }
+
+  /**
+   * Finds a currently visible font by its document id.
+   * @param page The page to read.
+   * @param id The font id.
+   * @returns The borrowed handle, or zero.
+   */
+  private findFont(page: PageContext, id: string): number {
+    const count = this.pdfium.FPDFPage_CountObjects(page.page);
+    for (let index = 0; index < count; index++) {
+      const object = this.pdfium.FPDFPage_GetObject(page.page, index);
+      if (!this.objects.isActiveText(object)) continue;
+      const font = this.pdfium.FPDFTextObj_GetFont(object);
+      if (font && page.ids.fontId(font) === id) return font;
+    }
+    return 0;
+  }
+
+  /**
+   * Checks the requested document face against both its glyph program and its PDF encoding.
+   * @param page The target page.
+   * @param run The run to write.
+   * @returns A usable handle or the first missing character.
+   */
+  checkDocumentFont(page: PageContext, run: TextRun): { font?: number; missingCharacter?: string } {
+    const reference = run.font;
+    if (reference?.kind !== "embedded" || !reference.documentFontId || !run.text) return {};
+    const characters = [...new Set(run.text)];
+    const font = this.findFont(page, reference.documentFontId);
+    const bytes = font && this.fontData(font);
+    if (
+      !bytes ||
+      !canSubsetFont(bytes) ||
+      this.pdfium.FPDFFont_GetIsEmbedded(font) !== 1 ||
+      withoutSubsetTag(this.objects.fontName(font)) !== reference.name
+    ) {
+      return { missingCharacter: characters[0] };
+    }
+    const sample = characters.join("");
+    const anchor =
+      characters.find(
+        (char) => char.trim() && !missingFontCharacter(bytes, char, true) && this.fontRoundTrips(page, font, char),
+      ) ?? "";
+    if (!missingFontCharacter(bytes, sample, true) && this.fontRoundTrips(page, font, anchor + sample + anchor)) {
+      const style = this.pageFontStyle(font, bytes);
+      return style.bold === run.bold && style.italic === run.italic ? { font } : {};
+    }
+    const missingCharacter = characters.find(
+      (char) => missingFontCharacter(bytes, char, true) || !this.fontRoundTrips(page, font, anchor + char + anchor),
+    );
+    return { missingCharacter: missingCharacter ?? characters[0] };
+  }
+
+  /**
+   * Tests PDFium's inverse Unicode mapping for an existing font.
+   * @param page The target page.
+   * @param font The borrowed document font.
+   * @param text The probe text.
+   * @returns Whether extraction agrees with the requested encoding.
+   */
+  private fontRoundTrips(page: PageContext, font: number, text: string): boolean {
+    const probe = this.pdfium.FPDFPageObj_CreateTextObj(page.doc, font, 12);
+    return this.probeText(page, probe, text) === text;
+  }
+
+  /**
+   * Verifies that a standard face writes the request losslessly.
+   * @param page The target page.
+   * @param run A standard run.
+   * @returns Whether the text can be written with this face.
+   */
+  standardSupports(page: PageContext, run: TextRun): boolean {
+    const probe = this.newRunObject(page, run, new Map());
+    const sample = `A${run.text}A`;
+    return this.probeText(page, probe, sample) === sample;
+  }
+
+  /**
+   * Round-trips an encoding using a temporary object.
+   * @param page The destination page.
+   * @param probe An owned scratch object, or zero.
+   * @param text The candidate text.
+   * @returns Its extracted text, or undefined on failure.
+   */
+  private probeText(page: PageContext, probe: number, text: string): string | undefined {
+    if (!probe) return;
     let inserted = false;
     try {
-      if (!this.heap.withWideString(sample, (ptr) => this.pdfium.FPDFText_SetText(probe, ptr))) return 0;
+      if (!this.heap.withWideString(text, (ptr) => this.pdfium.FPDFText_SetText(probe, ptr))) return;
       this.pdfium.FPDFPage_InsertObject(page.page, probe);
       inserted = true;
-      const read = this.objects.withTextPage(page.page, (textPage) => this.objects.readText(textPage, probe));
-      return read === sample ? font : 0;
+      return this.objects.withTextPage(page.page, (textPage) => this.objects.readText(textPage, probe));
     } finally {
       if (inserted) this.objects.discard(page.page, [probe]);
       else this.pdfium.FPDFPageObj_Destroy(probe);
@@ -257,10 +442,11 @@ export class PageTextObjects {
     for (let index = this.pdfium.FPDFPage_CountObjects(page.page) - 1; index >= 0; index--) {
       const object = this.pdfium.FPDFPage_GetObject(page.page, index);
       if (!this.objects.isActiveText(object) || !hits(this.objects.boundsOf(object), point)) continue;
-      const lineId = this.marks.lineOf(object)?.id;
-      const members = lineId ? this.membersOf(page.page, lineId) : [object];
+      const lineId = page.ids.groupOf(object) ?? this.marks.lineOf(object)?.id;
+      const members = lineId ? this.membersOf(page, lineId) : [{ handle: object, index }];
       const id = lineId ?? page.ids.idOf(object);
-      return this.objects.withTextPage(page.page, (textPage) => this.describeLine(textPage, page.ids, id, members));
+      const context = { ...page, fonts: new Map<number, FontStyle>() };
+      return this.objects.withTextPage(page.page, (textPage) => this.describeLine(textPage, context, id, members));
     }
     return null;
   }
@@ -272,23 +458,25 @@ export class PageTextObjects {
    */
   list(page: PageContext): PageTextObject[] {
     // One pass groups marked words into their lines, keeping each line where its first word is.
-    const order: { readonly id: string | null; readonly object: number }[] = [];
-    const lines = new Map<string, number[]>();
+    const order: { readonly id: string | null; readonly member: LineMember }[] = [];
+    const lines = new Map<string, LineMember[]>();
     for (let index = 0; index < this.pdfium.FPDFPage_CountObjects(page.page); index++) {
       const object = this.pdfium.FPDFPage_GetObject(page.page, index);
       if (!this.objects.isActiveText(object)) continue;
-      const lineId = this.marks.lineOf(object)?.id ?? null;
-      if (!lineId) order.push({ id: null, object });
-      else if (lines.has(lineId)) lines.get(lineId)!.push(object);
+      const lineId = page.ids.groupOf(object) ?? this.marks.lineOf(object)?.id ?? null;
+      const member = { handle: object, index };
+      if (!lineId) order.push({ id: null, member });
+      else if (lines.has(lineId)) lines.get(lineId)!.push(member);
       else {
-        lines.set(lineId, [object]);
-        order.push({ id: lineId, object });
+        lines.set(lineId, [member]);
+        order.push({ id: lineId, member });
       }
     }
+    const context = { ...page, fonts: new Map<number, FontStyle>() };
     return this.objects.withTextPage(page.page, (textPage) =>
       order
-        .map(({ id, object }) =>
-          this.describeLine(textPage, page.ids, id ?? page.ids.idOf(object), id ? lines.get(id)! : [object]),
+        .map(({ id, member }) =>
+          this.describeLine(textPage, context, id ?? page.ids.idOf(member.handle), id ? lines.get(id)! : [member]),
         )
         .filter((line) => line.text.trim()),
     );
@@ -333,6 +521,286 @@ export class PageTextObjects {
   }
 
   /**
+   * Reads one line and matches its unchanged runs before any font is prepared.
+   * @param page The loaded page.
+   * @param id The line id.
+   * @param runs The requested runs.
+   * @returns A plan for staging the edit, or null if the line is stale.
+   */
+  planEdit(page: PageContext, id: string, runs: readonly TextRun[]): LineEditPlan | null {
+    const handles = new Set(page.ids.handlesOf(id));
+    if (!handles.size) return null;
+    const members: LineMember[] = [];
+    const count = this.pdfium.FPDFPage_CountObjects(page.page);
+    for (let index = 0; index < count; index++) {
+      const handle = this.pdfium.FPDFPage_GetObject(page.page, index);
+      if (handles.has(handle) && this.objects.isActiveText(handle)) members.push({ handle, index });
+    }
+    if (members.length !== handles.size) return null;
+    const context = { ...page, fonts: new Map<number, FontStyle>() };
+    const line = this.objects.withTextPage(page.page, (textPage) => this.describeLine(textPage, context, id, members));
+    const original = members.map((member, index) => this.editSource(page, member, line.runs![index]!));
+    const markId = this.marks.lineOf(members[0]!.handle)?.id ?? crypto.randomUUID();
+    return { id, markId, original, slots: matchRuns(line.runs!, runs) };
+  }
+
+  /**
+   * Records the original geometry for a run.
+   * @param page The original page.
+   * @param member The run object.
+   * @param run Its extracted style and text.
+   * @returns The run and its baseline geometry.
+   */
+  private editSource(page: PageContext, member: LineMember, run: TextRun): EditSourceRun {
+    const { handle, index } = member;
+    const matrix = this.measure.matrixOf(handle);
+    const font = this.pdfium.FPDFTextObj_GetFont(handle);
+    const size = this.objects.fontSizeOf(handle);
+    const width = this.measure.advanceOf({ doc: page.doc, font, size }, run.text);
+    const advance = (width ?? this.measure.lengthAlongBaseline(handle)) * Math.hypot(matrix[0]!, matrix[1]!);
+    const underline = this.underlineAt(page.page, index + 1);
+    return { ...member, matrix, advance, underline };
+  }
+
+  /**
+   * Stages a new line and applies it only when every replacement is ready.
+   * @param page The loaded page and prepared fonts.
+   * @param plan The original line and the correspondence between runs.
+   * @param runs The resolved runs.
+   * @returns The exact objects retained for history, or null on failure.
+   */
+  commitEdit(page: PageContext, plan: LineEditPlan, runs: readonly TextRun[]): HeldLineEdit | null {
+    const fonts = new Map<string, number>();
+    const layout: EditLayout = { incoming: [], inPlace: new Set(), translations: [] };
+    let committed = false;
+    try {
+      const editedLine = this.stageEdit({ page, plan, fonts, layout }, runs);
+      if (!editedLine) return null;
+      const originals = plan.original.flatMap(({ handle, index, underline }) =>
+        underline ? [{ handle, index }, underline] : [{ handle, index }],
+      );
+      const before = originals.filter(({ handle }) => !layout.inPlace.has(handle));
+      const after = layout.incoming.map(({ handle, anchor }, offset) => ({
+        handle,
+        index: anchor - before.filter((object) => object.index < anchor).length + offset,
+      }));
+      const originalLine = plan.original.map(({ handle }) => handle);
+      const sourceHandles = new Set(originalLine);
+      const edit = {
+        id: plan.id,
+        before,
+        after,
+        originalLine,
+        editedLine,
+        translations: layout.translations,
+        markId: plan.markId,
+        markTargets:
+          editedLine.length > 1
+            ? editedLine.filter((handle) => sourceHandles.has(handle) && !this.marks.lineOf(handle))
+            : [],
+        appliedMarks: new Map<number, number>(),
+      };
+      committed = this.toggleEdit(page, edit, true);
+      return committed ? edit : null;
+    } finally {
+      if (!committed) {
+        for (const { handle, retained } of layout.incoming) {
+          if (!retained) this.pdfium.FPDFPageObj_Destroy(handle);
+        }
+      }
+      for (const font of fonts.values()) this.pdfium.FPDFFont_Close(font);
+    }
+  }
+
+  /**
+   * Places new objects at the original baseline, preserving spacing between corresponding runs.
+   * @param context The staging state and original line.
+   * @param runs The runs to place.
+   * @returns The text handles in the edited line, or null on failure.
+   */
+  private stageEdit(context: EditStageContext, runs: readonly TextRun[]): number[] | null {
+    const { plan, layout } = context;
+    const first = plan.original[0]!;
+    const [a = 1, b = 0, , , startX = 0, startY = 0] = first.matrix;
+    const scale = Math.hypot(a, b) || 1;
+    const axis = { x: a / scale, y: b / scale };
+    const handles: number[] = [];
+    let previousSource: number | undefined;
+    let shift = 0;
+    for (const [index, run] of runs.entries()) {
+      const { source, retained } = plan.slots[index]!;
+      const original = source === undefined ? undefined : plan.original[source];
+      const previous = previousSource === undefined ? undefined : plan.original[previousSource];
+      const model = original ?? previous ?? first;
+      if (original && previous && source === previousSource! + 1) {
+        const distance =
+          (original.matrix[4]! - previous.matrix[4]!) * axis.x + (original.matrix[5]! - previous.matrix[5]!) * axis.y;
+        shift += distance - previous.advance;
+      }
+      const matrix = [...model.matrix];
+      const originalOffset = (matrix[4]! - startX) * axis.x + (matrix[5]! - startY) * axis.y;
+      matrix[4] = matrix[4]! + axis.x * (shift - originalOffset);
+      matrix[5] = matrix[5]! + axis.y * (shift - originalOffset);
+      const next = plan.slots.slice(index + 1).find((slot) => slot.source !== undefined)?.source;
+      const anchor =
+        original?.index ??
+        (next === undefined ? (model.underline?.index ?? model.index) + 1 : plan.original[next]!.index);
+      const staged =
+        retained === undefined
+          ? this.stageEditRun(context, run, matrix, anchor)
+          : this.stageRetainedRun(layout, plan.original[retained]!, matrix, retained === source ? undefined : anchor);
+      if (!staged) return null;
+      handles.push(staged.handle);
+      shift += staged.advance;
+      if (original) previousSource = source;
+    }
+    return handles;
+  }
+
+  /**
+   * Stages an unchanged object for translation and, if reordered, an indexed reinsert.
+   * @param layout The work to apply atomically.
+   * @param source The retained object and its underline.
+   * @param matrix The target baseline.
+   * @param anchor The new drawing slot, or undefined to keep the existing slot.
+   * @returns The original text handle and its advance.
+   */
+  private stageRetainedRun(layout: EditLayout, source: EditSourceRun, matrix: number[], anchor?: number) {
+    const dx = matrix[4]! - source.matrix[4]!;
+    const dy = matrix[5]! - source.matrix[5]!;
+    for (const handle of [source.handle, source.underline?.handle]) {
+      if (!handle) continue;
+      if (anchor === undefined) layout.inPlace.add(handle);
+      else layout.incoming.push({ handle, anchor, retained: true });
+      if (Math.abs(dx) > 1e-6 || Math.abs(dy) > 1e-6) {
+        const originalMatrix = handle === source.handle ? source.matrix : this.measure.matrixOf(handle);
+        layout.translations.push({ handle, dx, dy, originalMatrix });
+      }
+    }
+    return { handle: source.handle, advance: source.advance };
+  }
+
+  /**
+   * Writes one changed run and stages its underline if requested.
+   * @param context The destination and owned resources.
+   * @param run The run to write.
+   * @param matrix Its baseline transform.
+   * @param anchor Its drawing order relative to the original page.
+   * @returns The text handle and advance, or null on failure.
+   */
+  private stageEditRun(context: EditStageContext, run: TextRun, matrix: number[], anchor: number) {
+    const { page, plan, fonts, layout } = context;
+    const size = run.fontSize / (Math.hypot(matrix[2]!, matrix[3]!) || 1);
+    const sized = { ...run, fontSize: size };
+    const written = this.writeRun(page, sized, fonts);
+    if (!written) return null;
+    const { handle, advance } = written;
+    layout.incoming.push({ handle, anchor });
+    if (!this.setMatrix(handle, matrix) || !this.marks.tag(page.doc, handle, { id: plan.markId, gap: EXACT_RUN })) {
+      return null;
+    }
+    if (run.underline) {
+      const paths: number[] = [];
+      const origin = { x: matrix[4]!, y: matrix[5]! };
+      const staged = this.stageUnderline({ run: sized, advance, origin }, matrix, paths);
+      for (const path of paths) layout.incoming.push({ handle: path, anchor });
+      if (!staged || !this.tagUnderline(page, paths[0]!)) return null;
+    }
+    return { handle, advance: advance * Math.hypot(matrix[0]!, matrix[1]!) };
+  }
+
+  /**
+   * Exchanges the detached and attached objects, rolling back a rejected exchange.
+   * @param page The held page.
+   * @param edit The history record.
+   * @param apply Whether to attach the edited version.
+   * @returns Whether the exchange succeeded.
+   */
+  toggleEdit(page: PageContext, edit: HeldLineEdit, apply: boolean): boolean {
+    const [outgoing, incoming] = apply ? [edit.before, edit.after] : [edit.after, edit.before];
+    const count = this.pdfium.FPDFPage_CountObjects(page.page);
+    if (count < 0) return false;
+    if (outgoing.some(({ handle, index }) => this.pdfium.FPDFPage_GetObject(page.page, index) !== handle)) return false;
+    if (incoming.some(({ index }, offset) => index < 0 || index > count - outgoing.length + offset)) return false;
+
+    const removed: LineMember[] = [];
+    const inserted: LineMember[] = [];
+    for (const object of outgoing) {
+      if (!this.pdfium.FPDFPage_RemoveObject(page.page, object.handle)) break;
+      removed.push(object);
+    }
+    if (removed.length === outgoing.length) {
+      for (const object of incoming) {
+        // Insertion takes ownership even on failure. The page and insertion indices were validated above.
+        this.pdfium.FPDFPage_InsertObjectAtIndex(page.page, object.handle, object.index);
+        inserted.push(object);
+      }
+      if (inserted.length === incoming.length && this.toggleEditMarks(page, edit, apply)) {
+        this.translateRuns(edit.translations, apply);
+        const [oldLine, newLine] = apply ? [edit.originalLine, edit.editedLine] : [edit.editedLine, edit.originalLine];
+        page.ids.group(edit.id, oldLine, newLine);
+        return true;
+      }
+    }
+    for (const { handle } of inserted) this.pdfium.FPDFPage_RemoveObject(page.page, handle);
+    for (const { handle, index } of removed) this.pdfium.FPDFPage_InsertObjectAtIndex(page.page, handle, index);
+    return false;
+  }
+
+  /**
+   * Adds or removes only the private line marks introduced by this edit.
+   * @param page The held page.
+   * @param edit The history entry.
+   * @param apply Whether the new line is attached.
+   * @returns Whether the required marks were applied.
+   */
+  private toggleEditMarks(page: PageContext, edit: HeldLineEdit, apply: boolean): boolean {
+    if (apply) {
+      for (const handle of edit.markTargets) {
+        const mark = this.marks.add(page.doc, handle, { id: edit.markId, gap: EXACT_RUN });
+        if (!mark) break;
+        edit.appliedMarks.set(handle, mark);
+      }
+      if (edit.appliedMarks.size === edit.markTargets.length) return true;
+    }
+    for (const [handle, mark] of edit.appliedMarks) this.pdfium.FPDFPageObj_RemoveMark(handle, mark);
+    edit.appliedMarks.clear();
+    return !apply;
+  }
+
+  /**
+   * Moves retained objects and restores their source matrices exactly on undo.
+   * @param translations The baseline shifts computed at commit.
+   * @param apply Whether to apply the shifts.
+   * @returns Nothing.
+   */
+  private translateRuns(translations: readonly RunTranslation[], apply: boolean): void {
+    const sign = apply ? 1 : -1;
+    for (const { handle, dx, dy, originalMatrix } of translations) {
+      this.pdfium.FPDFPageObj_Transform(handle, 1, 0, 0, 1, dx * sign, dy * sign);
+      // PDFium's transforms use floats. Reset the matrix after the inverse translation to avoid drift.
+      if (!apply) this.setMatrix(handle, originalMatrix);
+    }
+  }
+
+  /**
+   * Destroys only the objects detached from the page by this history entry.
+   * @param ids The document's object registry.
+   * @param edit The history record.
+   * @param applied Whether the edited version is on the page.
+   * @returns Nothing.
+   */
+  dropEdit(ids: TextObjectIds, edit: HeldLineEdit, applied: boolean): void {
+    const [detached, attached] = applied ? [edit.before, edit.after] : [edit.after, edit.before];
+    const live = new Set(attached.map(({ handle }) => handle));
+    for (const { handle } of detached) {
+      if (live.has(handle)) continue;
+      ids.forget(handle);
+      this.pdfium.FPDFPageObj_Destroy(handle);
+    }
+  }
+
+  /**
    * Stages the entire block before adding any of its objects to the page.
    * @param page The destination page.
    * @param lines Styled lines with optional explicit baselines.
@@ -353,19 +821,11 @@ export class PageTextObjects {
     let inserted = false;
     try {
       const positioned = layoutTextRuns(lines, placement, (run) => {
-        const object = this.newRunObject(page, run, fonts);
-        if (!object) return null;
-        texts.push(object);
-        const embedded = run.font?.kind === "embedded";
-        const text = embedded ? run.text.normalize("NFC") : run.text;
-        const written = this.heap.withWideString(text, (ptr) => this.pdfium.FPDFText_SetText(object, ptr));
-        if (!written || !this.fillRun(object, run)) return null;
-        const font = this.pdfium.FPDFTextObj_GetFont(object);
-        return this.measure.advanceOf(
-          { doc: page.doc, font, size: run.fontSize },
-          text,
-          embedded ? ([...text].find((char) => char.trim()) ?? " ") : "A",
-        );
+        const text = run.font?.kind === "embedded" ? run.text.normalize("NFC") : run.text;
+        const written = this.writeRun(page, { ...run, text }, fonts);
+        if (!written) return null;
+        texts.push(written.handle);
+        return written.advance;
       });
       if (!positioned) return false;
       const radians = (placement.angle * Math.PI) / 180;
@@ -376,7 +836,9 @@ export class PageTextObjects {
         const object = texts[index]!;
         if (!this.setMatrix(object, matrix)) return false;
         staged.push(object);
-        if (run.run.underline && !this.stageUnderline(run, matrix, staged)) return false;
+        if (run.run.underline) {
+          if (!this.stageUnderline(run, matrix, staged) || !this.tagUnderline(page, staged.at(-1)!)) return false;
+        }
       }
       if (ids.length !== staged.length) return false;
       staged.forEach((object, index) => {
@@ -390,6 +852,29 @@ export class PageTextObjects {
         for (const object of new Set([...staged, ...texts])) this.pdfium.FPDFPageObj_Destroy(object);
       }
       for (const font of fonts.values()) this.pdfium.FPDFFont_Close(font);
+    }
+  }
+
+  /**
+   * Writes and measures a single run using the prepared face.
+   * @param page The destination and its prepared fonts.
+   * @param run The resolved text and style.
+   * @param fonts Font handles owned by this write.
+   * @returns The detached run and its measured advance, or null on failure.
+   */
+  private writeRun(page: PageContext, run: TextRun, fonts: Map<string, number>) {
+    const handle = this.newRunObject(page, run, fonts);
+    if (!handle) return null;
+    let advance: number | null = null;
+    try {
+      const written = this.heap.withWideString(run.text, (ptr) => this.pdfium.FPDFText_SetText(handle, ptr));
+      if (!written || !this.fillRun(handle, run)) return null;
+      const font = this.pdfium.FPDFTextObj_GetFont(handle);
+      const probe = run.font?.kind === "embedded" ? ([...run.text].find((char) => char.trim()) ?? " ") : "A";
+      advance = this.measure.advanceOf({ doc: page.doc, font, size: run.fontSize }, run.text, probe);
+      return advance === null ? null : { handle, advance };
+    } finally {
+      if (advance === null) this.pdfium.FPDFPageObj_Destroy(handle);
     }
   }
 
@@ -455,6 +940,27 @@ export class PageTextObjects {
   }
 
   /**
+   * Identifies an underline staged by the run writer.
+   * @param page The destination page.
+   * @param handle The underline path.
+   * @returns Whether the private marker was added.
+   */
+  private tagUnderline(page: PageContext, handle: number): boolean {
+    return this.marks.tag(page.doc, handle, { id: "underline", gap: UNDERLINE });
+  }
+
+  /**
+   * Reads an underline immediately following its text object.
+   * @param page A loaded page.
+   * @param index The index after the text.
+   * @returns Its underline, if one was written by the run writer.
+   */
+  private underlineAt(page: number, index: number): LineMember | undefined {
+    const handle = this.pdfium.FPDFPage_GetObject(page, index);
+    if (this.marks.lineOf(handle)?.gap === UNDERLINE) return { index, handle };
+  }
+
+  /**
    * Switches lines on and off (undo and redo).
    * @param page The page.
    * @param show Ids to switch on.
@@ -478,7 +984,14 @@ export class PageTextObjects {
    */
   move(page: PageContext, id: string, dx: number, dy: number): boolean {
     if (!this.onPage(page, id)) return false;
-    for (const handle of page.ids.handlesOf(id)) this.pdfium.FPDFPageObj_Transform(handle, 1, 0, 0, 1, dx, dy);
+    const handles = new Set(page.ids.handlesOf(id));
+    for (let index = 0; index < this.pdfium.FPDFPage_CountObjects(page.page); index++) {
+      const handle = this.pdfium.FPDFPage_GetObject(page.page, index);
+      if (!handles.has(handle)) continue;
+      this.pdfium.FPDFPageObj_Transform(handle, 1, 0, 0, 1, dx, dy);
+      const underline = this.underlineAt(page.page, index + 1);
+      if (underline) this.pdfium.FPDFPageObj_Transform(underline.handle, 1, 0, 0, 1, dx, dy);
+    }
     return true;
   }
 
@@ -612,31 +1125,139 @@ export class PageTextObjects {
    * @param lineId The line's id.
    * @returns Its objects in drawing order.
    */
-  private membersOf(page: number, lineId: string): number[] {
-    const members: number[] = [];
-    for (let index = 0; index < this.pdfium.FPDFPage_CountObjects(page); index++) {
-      const object = this.pdfium.FPDFPage_GetObject(page, index);
-      if (this.objects.isActiveText(object) && this.marks.lineOf(object)?.id === lineId) members.push(object);
+  private membersOf(page: PageContext, lineId: string): LineMember[] {
+    const members: LineMember[] = [];
+    for (let index = 0; index < this.pdfium.FPDFPage_CountObjects(page.page); index++) {
+      const object = this.pdfium.FPDFPage_GetObject(page.page, index);
+      const group = page.ids.groupOf(object) ?? this.marks.lineOf(object)?.id;
+      if (this.objects.isActiveText(object) && group === lineId) {
+        members.push({ handle: object, index });
+      }
     }
     return members;
   }
 
   /**
-   * Describes a line (one object, or a line of words) for the editor, and records its id.
+   * Describes a line (one object, or a line of words) and registers its handles in the worker.
    * @param textPage The page's loaded text page.
-   * @param ids The document's id registry.
+   * @param context The document's id registry and font styles read so far.
    * @param id The line's id.
    * @param members Its objects in drawing order.
-   * @returns The record: the first object's look, all the words, the bounds around them.
+   * @returns The line and each member's style.
    */
-  private describeLine(textPage: number, ids: TextObjectIds, id: string, members: readonly number[]): PageTextObject {
-    ids.register(id, members);
-    const bounds = unionOf(members.map((member) => this.objects.boundsOf(member)));
-    const first = this.objects.describe(textPage, members[0]!, id, bounds);
-    if (members.length === 1) return first;
-    // PDFium reads the gap after a word as a space at the end of it.
-    return { ...first, text: members.map((member) => this.objects.readText(textPage, member).trim()).join(" ") };
+  private describeLine(
+    textPage: number,
+    context: PageContext & { fonts: Map<number, FontStyle> },
+    id: string,
+    members: readonly LineMember[],
+  ): PageTextObject {
+    const handles = members.map(({ handle }) => handle);
+    context.ids.register(id, handles);
+    const bounds = unionOf(handles.map((handle) => this.objects.boundsOf(handle)));
+    const objects = handles.map((handle) => this.objects.describe(textPage, handle, id, bounds));
+    const runs = members.map((member, index) => {
+      const object = objects[index]!;
+      const mark = this.marks.lineOf(member.handle);
+      // Legacy word lines use an implicit space between separately drawn words.
+      const text =
+        mark && mark.gap >= 0 && members.length > 1
+          ? object.text.trim() + (index < members.length - 1 ? " " : "")
+          : object.text;
+      return this.describeRun(member, object, text, context);
+    });
+    return { ...objects[0]!, text: runs.map((run) => run.text).join(""), runs };
   }
+
+  /**
+   * Resolves a member's text style to a document font reference.
+   * @param member The page object and index.
+   * @param object Its extracted size and colour.
+   * @param text The member's logical text.
+   * @param context The document font ids and current style cache.
+   * @returns A styled run containing no PDFium handles.
+   */
+  private describeRun(
+    member: LineMember,
+    object: PageTextObject,
+    text: string,
+    context: PageContext & { fonts: Map<number, FontStyle> },
+  ): TextRun {
+    const { ids, fonts } = context;
+    const handle = this.pdfium.FPDFTextObj_GetFont(member.handle);
+    const name = withoutSubsetTag(this.objects.fontName(handle));
+    const style = fonts.get(handle) ?? this.pageFontStyle(handle, this.fontData(handle));
+    fonts.set(handle, style);
+    const { family, bold, italic } = style;
+    const documentFontId = ids.fontId(handle);
+    return {
+      text,
+      font: {
+        kind: "embedded",
+        fontId: `document:${documentFontId}`,
+        name,
+        documentFontId,
+        weight: bold ? 700 : 400,
+        italic,
+      },
+      fontFamily: family === "serif" ? "Times" : family === "mono" ? "Courier" : "Helvetica",
+      fontSize: object.fontSize,
+      color: object.color,
+      bold,
+      italic,
+      underline: Boolean(this.underlineAt(context.page, member.index + 1)),
+    };
+  }
+}
+
+interface EditStageContext {
+  readonly page: PageContext;
+  readonly plan: LineEditPlan;
+  readonly fonts: Map<string, number>;
+  readonly layout: EditLayout;
+}
+
+/**
+ * Assigns drawing slots between unchanged anchors and matches reordered runs by identity.
+ * @param original The extracted runs.
+ * @param requested The requested runs.
+ * @returns The source slot and retention decision for each requested run.
+ */
+function matchRuns(original: readonly TextRun[], requested: readonly TextRun[]): LineEditPlan["slots"] {
+  /** @param a The original run. @param b The requested run. @returns Whether both runs match exactly. */
+  const same = (a: TextRun, b: TextRun) => a.text === b.text && sameRunStyle(a, b);
+  const count = Array.from({ length: original.length + 1 }, () => new Uint16Array(requested.length + 1));
+  for (let i = original.length - 1; i >= 0; i--) {
+    for (let j = requested.length - 1; j >= 0; j--) {
+      count[i]![j] = same(original[i]!, requested[j]!)
+        ? count[i + 1]![j + 1]! + 1
+        : Math.max(count[i + 1]![j]!, count[i]![j + 1]!);
+    }
+  }
+  const slots: RunSlot[] = requested.map(() => ({}));
+  const used = new Set<number>();
+  let source = 0;
+  let target = 0;
+  for (let i = 0, j = 0; i < original.length && j < requested.length;) {
+    if (same(original[i]!, requested[j]!)) {
+      for (let k = 0; k < Math.min(i - source, j - target); k++) slots[target + k]!.source = source + k;
+      slots[j] = { source: i, retained: i };
+      used.add(i);
+      source = ++i;
+      target = ++j;
+    } else if (count[i + 1]![j]! >= count[i]![j + 1]!) i++;
+    else j++;
+  }
+  for (let k = 0; k < Math.min(original.length - source, requested.length - target); k++) {
+    slots[target + k]!.source = source + k;
+  }
+  for (const [index, slot] of slots.entries()) {
+    if (slot.retained !== undefined) continue;
+    const match = original.findIndex((run, i) => !used.has(i) && same(run, requested[index]!));
+    if (match === -1) continue;
+    slot.retained = match;
+    used.add(match);
+  }
+  return slots;
 }
 
 /**

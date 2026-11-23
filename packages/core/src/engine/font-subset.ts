@@ -134,15 +134,21 @@ function pinnedWeight(bytes: ArrayBuffer, weight: number): number | undefined {
 }
 
 /**
- * Subsets a TrueType font to the block's NFC text and space, instancing its variation axes.
+ * Subsets a TrueType font to the block's text and space, instancing its variation axes.
  * @param bytes The original font bytes.
  * @param text The block text.
  * @param weight The desired font weight.
+ * @param exact Whether to preserve the original Unicode form.
  * @returns A static font suitable for loading in PDFium.
  */
-export async function subsetFont(bytes: ArrayBuffer, text: string, weight: number): Promise<ArrayBuffer> {
-  const characters = text.normalize("NFC") + " ";
-  if (!canSubsetFont(bytes) || !fontTable(bytes, "glyf") || missingFontCharacter(bytes, characters)) {
+export async function subsetFont(
+  bytes: ArrayBuffer,
+  text: string,
+  weight: number,
+  exact = false,
+): Promise<ArrayBuffer> {
+  const characters = (exact ? text : text.normalize("NFC")) + " ";
+  if (!canSubsetFont(bytes) || !fontTable(bytes, "glyf") || missingFontCharacter(bytes, characters, exact)) {
     throw new Error("The font cannot be embedded for this text.");
   }
   const wasm = await subsetEngine();

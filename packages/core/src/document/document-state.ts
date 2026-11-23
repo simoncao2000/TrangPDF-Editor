@@ -98,6 +98,21 @@ export function annotationRevisionOf(content: Pick<DocumentContent, "annotationR
   return content.annotationRevisions[pageId] ?? 0;
 }
 
+const pageIndexes = new WeakMap<readonly PageRef[], ReadonlyMap<string, PageRef>>();
+
+/**
+ * Indexes an immutable page list once, when the list changes.
+ * @param pages The document's current pages.
+ * @returns The pages by stable id.
+ */
+export function indexPages(pages: readonly PageRef[]): ReadonlyMap<string, PageRef> {
+  const cached = pageIndexes.get(pages);
+  if (cached) return cached;
+  const index = new Map(pages.map((page) => [page.id, page]));
+  pageIndexes.set(pages, index);
+  return index;
+}
+
 /**
  * Where a page lives in the engine.
  * @param content Sources and pages.
@@ -105,7 +120,7 @@ export function annotationRevisionOf(content: Pick<DocumentContent, "annotationR
  * @returns Its engine document and page index, or `null` if the page or its source is unknown.
  */
 export function pageAddressOf(content: DocumentContent, pageId: string): PageAddress | null {
-  const page = content.pages.find((candidate) => candidate.id === pageId);
+  const page = indexPages(content.pages).get(pageId);
   const docId = page ? docIdOf(content, page) : null;
   return page && docId ? { docId, pageIndex: page.sourceIndex } : null;
 }

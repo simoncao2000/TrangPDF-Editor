@@ -16,6 +16,8 @@ export interface PageEngineWork {
   apply(engine: CommandEngine, at: PageAddress): Promise<unknown>;
   /** Work for undo. */
   undo(engine: CommandEngine, at: PageAddress): Promise<unknown>;
+  /** Releases retained PDF objects when the history entry is discarded. */
+  drop?(engine: CommandEngine, at: PageAddress): Promise<unknown>;
 }
 
 /**
@@ -35,6 +37,8 @@ export function pageEditCommand(
   const at = pageAddressOf(content, pageId);
   if (!at) throw new Error(`Unknown page ${pageId}.`);
   const before = annotationRevisionOf(content, pageId);
+  const { drop } = work;
+  // Retained-object edits resolve text and font IDs afresh on every history transition.
   const after = ++lastRevision;
   const withRevision = (current: DocumentContent, revision: number): DocumentContent => ({
     ...current,
@@ -42,9 +46,10 @@ export function pageEditCommand(
   });
   return {
     label,
-    apply: (current) => withRevision(current, after),
-    undo: (current) => withRevision(current, before),
+    apply: (current) => withRevision(current, drop ? ++lastRevision : after),
+    undo: (current) => withRevision(current, drop ? ++lastRevision : before),
     applyInEngine: (engine) => work.apply(engine, at),
     undoInEngine: (engine) => work.undo(engine, at),
+    ...(drop && { dropInEngine: (engine: CommandEngine) => drop(engine, at) }),
   };
 }

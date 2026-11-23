@@ -87,11 +87,12 @@ function inFullMap(map: DataView, start: number, code: number): boolean {
  * Finds the first character without a glyph in the font's Unicode cmap.
  * @param bytes The original font.
  * @param text The selection or block.
+ * @param exact Whether to check the input without Unicode normalization.
  * @returns The first missing character, or undefined.
  */
-export function missingFontCharacter(bytes: ArrayBuffer, text: string): string | undefined {
+export function missingFontCharacter(bytes: ArrayBuffer, text: string, exact = false): string | undefined {
   const map = fontTable(bytes, "cmap");
-  const characters = [...new Set(text.normalize("NFC"))];
+  const characters = [...new Set(exact ? text : text.normalize("NFC"))];
   if (!map || map.byteLength < 4) return characters[0];
   const subtables: number[] = [];
   for (let index = 0; index < map.getUint16(2) && 12 + index * 8 <= map.byteLength; index++) {

@@ -7,7 +7,15 @@ import { prepareFont } from "./font-subset";
 import type { EngineParams } from "./protocol";
 import type { PdfiumEngine, PagePixels } from "./pdfium-engine";
 import type { Result } from "@pdf-editor/shared";
-import type { EngineError, EngineErrorCode, EngineMethod, EngineRequest, EngineResponse, OpenSource } from "./protocol";
+import type {
+  EngineError,
+  EngineErrorCode,
+  EngineMethod,
+  EngineRequest,
+  EngineResponse,
+  OpenSource,
+  PageAddress,
+} from "./protocol";
 
 /** The engine methods the host forwards calls to. */
 type EngineApi = Pick<
@@ -29,9 +37,13 @@ type EngineApi = Pick<
   | "getTextObjects"
   | "getTextObjectAt"
   | "replacePageText"
+  | "editPageText"
+  | "togglePageTextEdit"
+  | "dropPageTextEdit"
   | "addPageText"
   | "registerTextFont"
   | "releaseFont"
+  | "checkPageTextFont"
   | "getPageFonts"
   | "showPageText"
   | "movePageText"
@@ -84,19 +96,68 @@ function unwrap<T>(result: Result<T, EngineErrorCode>): T {
   throw new HostError({ code: result.error, message: FAILURE_MESSAGES[result.error] ?? "The engine failed." });
 }
 
+/** @returns The error returned for cancelled work. */
+function cancelledCall(): HostError {
+  return new HostError({ code: "cancelled", message: "Cancelled." });
+}
+
+/** @returns A typed request failure for an invalid added text block. */
+function invalidTextRuns(): HostError {
+  return new HostError({ code: "invalid-text-runs", message: "Invalid added text block." });
+}
+
+/**
+ * Bounds a size to the engine's supported range.
+ * @param size The requested font size.
+ * @returns The supported font size.
+ */
+function clampTextSize(size: number): number {
+  return Math.max(6, Math.min(96, size));
+}
+
+/**
+ * Validates and normalizes a single run before it reaches PDFium.
+ * @param run The requested run.
+ * @returns The validated run.
+ */
+function checkedTextRun(run: TextRun): TextRun {
+  if (
+    !run ||
+    typeof run.text !== "string" ||
+    !run.text ||
+    !Number.isFinite(run.fontSize) ||
+    !(run.font?.kind === "embedded"
+      ? typeof run.font.fontId === "string" &&
+        typeof run.font.name === "string" &&
+        [400, 700].includes(run.font.weight) &&
+        typeof run.font.italic === "boolean"
+      : ["Helvetica", "Times", "Courier"].includes(
+          (run.font?.kind === "standard" ? run.font.family : run.fontFamily) ?? "",
+        )) ||
+    !run.color ||
+    ![run.bold, run.italic, run.underline].every((flag) => typeof flag === "boolean") ||
+    ![run.color.r, run.color.g, run.color.b].every((c) => Number.isInteger(c) && c >= 0 && c <= 255)
+  ) {
+    throw invalidTextRuns();
+  }
+  return { ...run, font: textRunFont(run) };
+}
+
+/**
+ * Checks a baseline origin.
+ * @param point The baseline origin.
+ * @returns Whether the origin is finite.
+ */
+function pointIsValid(point: { x: number; y: number } | undefined): boolean {
+  return Boolean(point && Number.isFinite(point.x) && Number.isFinite(point.y));
+}
+
 /**
  * Validates and bounds added text before it reaches PDFium.
  * @param input The request payload.
  * @returns The validated runs and placement.
  */
-function checkedTextRuns(input: EngineParams<"addPageText">) {
-  /** @returns A typed request failure. */
-  const invalid = () => new HostError({ code: "invalid-text-runs", message: "Invalid added text block." });
-  /** @param size A requested font size. @returns The supported size. */
-  const clamp = (size: number) => Math.max(6, Math.min(96, size));
-  /** @param point A baseline origin. @returns Whether the origin is finite. */
-  const pointIsValid = (point: { x: number; y: number } | undefined) =>
-    point && Number.isFinite(point.x) && Number.isFinite(point.y);
+function checkedTextBlock(input: EngineParams<"addPageText">) {
   const source = "runs" in input ? input.runs : input.lines;
   if (
     !Array.isArray(source) ||
@@ -105,14 +166,14 @@ function checkedTextRuns(input: EngineParams<"addPageText">) {
     !Number.isFinite(input.fontSize) ||
     !Array.isArray(input.ids)
   )
-    throw invalid();
+    throw invalidTextRuns();
 
   if (!("runs" in input) && Array.from(input.lines).some((line) => !line || !pointIsValid(line.origin))) {
-    throw invalid();
+    throw invalidTextRuns();
   }
   const lines: readonly TextRunLineLayout[] = "runs" in input ? input.runs : legacyTextRuns(input.lines, input);
   const origin = "runs" in input ? input.origin : { x: 0, y: 0 };
-  if (!pointIsValid(origin)) throw invalid();
+  if (!pointIsValid(origin)) throw invalidTextRuns();
   let characters = 0;
   let count = 0;
   const runs = Array.from(lines, (line) => {
@@ -122,33 +183,15 @@ function checkedTextRuns(input: EngineParams<"addPageText">) {
       line.runs.length > 256 ||
       (line.origin !== undefined && !pointIsValid(line.origin))
     )
-      throw invalid();
+      throw invalidTextRuns();
     return {
       ...line,
       runs: Array.from(line.runs, (run: TextRun) => {
-        if (
-          !run ||
-          typeof run.text !== "string" ||
-          !run.text ||
-          !Number.isFinite(run.fontSize) ||
-          !(run.font?.kind === "embedded"
-            ? typeof run.font.fontId === "string" &&
-              typeof run.font.name === "string" &&
-              [400, 700].includes(run.font.weight) &&
-              typeof run.font.italic === "boolean"
-            : ["Helvetica", "Times", "Courier"].includes(
-                (run.font?.kind === "standard" ? run.font.family : run.fontFamily) ?? "",
-              )) ||
-          !run.color ||
-          ![run.bold, run.italic, run.underline].every((flag) => typeof flag === "boolean") ||
-          ![run.color.r, run.color.g, run.color.b].every((c) => Number.isInteger(c) && c >= 0 && c <= 255)
-        ) {
-          throw invalid();
-        }
+        const checked = checkedTextRun(run);
         characters += run.text.length;
         count += run.underline ? 2 : 1;
-        if (characters > 65536) throw invalid();
-        return { ...run, font: textRunFont(run), fontSize: clamp(run.fontSize) };
+        if (characters > 65536) throw invalidTextRuns();
+        return { ...checked, fontSize: clampTextSize(checked.fontSize) };
       }),
     };
   });
@@ -157,8 +200,33 @@ function checkedTextRuns(input: EngineParams<"addPageText">) {
     new Set(input.ids).size !== count ||
     !input.ids.every((id) => typeof id === "string" && id.length > 0 && id.length <= 128)
   )
-    throw invalid();
-  return { runs, placement: { origin, angle: input.angle, fontSize: clamp(input.fontSize) } };
+    throw invalidTextRuns();
+  return { runs, placement: { origin, angle: input.angle, fontSize: clampTextSize(input.fontSize) } };
+}
+
+/**
+ * Validates a line edit while preserving existing font sizes, including imported PDF sizes.
+ * @param runs The requested line and its styles.
+ * @returns The validated runs.
+ */
+function checkedEditRuns(runs: readonly TextRun[]): readonly TextRun[] {
+  if (!Array.isArray(runs) || runs.length > 256) throw invalidTextRuns();
+  let characters = 0;
+  return Array.from(runs, (run: TextRun) => {
+    const checked = checkedTextRun(run);
+    characters += checked.text.length;
+    if (characters > 65536 || checked.fontSize <= 0 || /[\0\r\n]/.test(checked.text)) throw invalidTextRuns();
+    return checked;
+  });
+}
+
+/**
+ * Identifies the page of a render or text edit.
+ * @param at The page address.
+ * @returns A key shared by work on this page.
+ */
+function pageKey(at: PageAddress): string {
+  return `${at.docId}#${at.pageIndex}`;
 }
 
 /**
@@ -169,6 +237,7 @@ function checkedTextRuns(input: EngineParams<"addPageText">) {
 export function createEngineHost(deps: EngineHostDeps): { receive(request: EngineRequest): void } {
   const queue: CallRequest[] = [];
   const cancelled = new Set<number>();
+  const renders = new Map<string, Set<number>>();
   /** Bytes of encrypted files waiting for a password, so a retry does not resend the file. */
   const locked = new Map<string, ArrayBuffer>();
   let engine: Engine | null = null;
@@ -265,6 +334,19 @@ export function createEngineHost(deps: EngineHostDeps): { receive(request: Engin
     async replacePageText({ id, newId, text, ...at }) {
       return [unwrap(requireEngine().replacePageText(at, id, newId, text))];
     },
+    async editPageText({ id, editId, runs, ...at }) {
+      return [unwrap(await requireEngine().editPageText(at, id, editId, checkedEditRuns(runs)))];
+    },
+    async togglePageTextEdit({ editId, applied, ...at }) {
+      return [unwrap(requireEngine().togglePageTextEdit(at, editId, applied))];
+    },
+    async dropPageTextEdit({ editId, ...at }) {
+      requireEngine().dropPageTextEdit(at, editId);
+      return [null];
+    },
+    async checkPageTextFont({ run, ...at }) {
+      return [unwrap(requireEngine().checkPageTextFont(at, checkedEditRuns([run])[0]!))];
+    },
     async getPageFonts(at) {
       const fonts = unwrap(requireEngine().getPageFonts(at));
       return [fonts, fonts.flatMap(({ bytes }) => (bytes ? [bytes] : []))];
@@ -286,7 +368,7 @@ export function createEngineHost(deps: EngineHostDeps): { receive(request: Engin
       return [unwrap(requireEngine().registerTextFont(docId, fontId, bytes))];
     },
     async addPageText(input) {
-      const { runs, placement } = checkedTextRuns(input);
+      const { runs, placement } = checkedTextBlock(input);
       const { docId, pageIndex, ids } = input;
       return [unwrap(await requireEngine().addPageText({ docId, pageIndex }, runs, placement, ids))];
     },
@@ -312,18 +394,30 @@ export function createEngineHost(deps: EngineHostDeps): { receive(request: Engin
   };
 
   const run = async (request: CallRequest): Promise<void> => {
-    if (cancelled.delete(request.requestId)) {
-      deps.post({ requestId: request.requestId, ok: false, error: { code: "cancelled", message: "Cancelled." } });
-      return;
-    }
     try {
+      if (cancelled.delete(request.requestId)) throw cancelledCall();
       const handler = handlers[request.method] as (params: unknown) => Promise<[unknown, Transferable[]?]>;
       const [result, transfer] = await handler(request.params);
+      if (
+        (request.method === "renderPage" || request.method === "renderTextObject") &&
+        cancelled.delete(request.requestId)
+      ) {
+        (result as { bitmap: ImageBitmap }).bitmap.close();
+        throw cancelledCall();
+      }
       deps.post({ requestId: request.requestId, ok: true, result }, transfer);
     } catch (error) {
       const detail: EngineError =
         error instanceof HostError ? error.detail : { code: "engine-failed", message: String(error) };
       deps.post({ requestId: request.requestId, ok: false, error: detail });
+    } finally {
+      cancelled.delete(request.requestId);
+      if (request.method === "renderPage") {
+        const key = pageKey(request.params);
+        const pending = renders.get(key);
+        pending?.delete(request.requestId);
+        if (!pending?.size) renders.delete(key);
+      }
     }
   };
 
@@ -345,6 +439,14 @@ export function createEngineHost(deps: EngineHostDeps): { receive(request: Engin
       if (request.kind === "cancel") {
         cancelled.add(request.requestId);
         return;
+      }
+      if (request.method === "renderPage") {
+        const key = pageKey(request.params);
+        const pending = renders.get(key) ?? new Set<number>();
+        pending.add(request.requestId);
+        renders.set(key, pending);
+      } else if (request.method === "editPageText" || request.method === "togglePageTextEdit") {
+        for (const id of renders.get(pageKey(request.params)) ?? []) cancelled.add(id);
       }
       queue.push(request);
       void drain();

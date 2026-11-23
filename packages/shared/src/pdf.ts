@@ -31,3 +31,10 @@ export interface PdfRect {
   readonly width: number;
   readonly height: number;
 }
+
+/** A colour with 0–255 channels. */
+export interface Rgb {
+  readonly r: number;
+  readonly g: number;
+  readonly b: number;
+}

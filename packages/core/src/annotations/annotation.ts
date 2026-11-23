@@ -3,15 +3,10 @@
  * (architecture §6.1); these records are what crosses the worker boundary, what commands remember
  * for undo, and what the annotation layer draws.
  */
-import type { PdfPoint, PdfRect } from "@pdf-editor/shared";
+import type { PdfPoint, PdfRect, Rgb } from "@pdf-editor/shared";
 import type { CommentNote, CommentReply } from "./comment";
 
-/** A colour with 0–255 channels. */
-export interface Rgb {
-  readonly r: number;
-  readonly g: number;
-  readonly b: number;
-}
+export type { Rgb } from "@pdf-editor/shared";
 
 interface AnnotationBase {
   /** Stable id, stored in the PDF as the annotation's name (/NM). */

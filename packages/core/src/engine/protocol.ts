@@ -4,7 +4,7 @@
  * and cancel calls it no longer needs. This file and `pdfium-engine.ts` are the only places that know
  * which PDF engine runs behind the protocol.
  */
-import type { PdfPoint, PdfRect } from "@pdf-editor/shared";
+import type { PdfPoint, PdfRect, TextRunFontCheck } from "@pdf-editor/shared";
 import type { Annotation, EditableAnnotation } from "../annotations/annotation";
 import type { CommentReply } from "../annotations/comment";
 import type { FormField } from "../forms/form-field";
@@ -14,6 +14,7 @@ import type {
   PageFont,
   PageTextObject,
   TextMatch,
+  TextRun,
   TextRunLineLayout,
   TextRunPlacement,
   TextSelection,
@@ -109,6 +110,14 @@ export interface EngineMethods {
   getTextObjectAt: { params: PageAddress & { point: PdfPoint }; result: PageTextObject | null };
   /** Replaces a text object's text; the original is switched off and the replacement gets `newId`. */
   replacePageText: { params: PageAddress & { id: string; newId: string; text: string }; result: null };
+  /** Commits one line edit, identified by an opaque history key. */
+  editPageText: {
+    params: PageAddress & { id: string; editId: string; runs: readonly TextRun[] };
+    result: TextRunFontCheck;
+  };
+  togglePageTextEdit: { params: PageAddress & { editId: string; applied: boolean }; result: null };
+  dropPageTextEdit: { params: PageAddress & { editId: string }; result: null };
+  checkPageTextFont: { params: PageAddress & { run: TextRun }; result: TextRunFontCheck };
   getPageFonts: { params: PageAddress; result: PageFont[] };
   prepareFont: { params: { bytes: ArrayBuffer }; result: ArrayBuffer };
   releaseTextFont: { params: { fontId: string }; result: null };

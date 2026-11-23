@@ -2,8 +2,9 @@
  * Text that is part of the page itself (not an annotation): one PDF text object, as the editor sees
  * it, and the rules for choosing a font when the original cannot write the new text.
  */
-import type { PdfPoint, PdfRect } from "@pdf-editor/shared";
-import type { Rgb } from "../annotations/annotation";
+import type { PdfPoint, PdfRect, Rgb, TextRun, TextRunFont, TextRunLines } from "@pdf-editor/shared";
+
+export type { TextRun, TextRunFamily, TextRunFont, TextRunLines } from "@pdf-editor/shared";
 
 export type FontFamilyKind = "serif" | "sans" | "mono";
 
@@ -25,6 +26,8 @@ export interface PageTextObject {
   readonly fontSize: number;
   readonly color: Rgb;
   readonly style: FontStyle;
+  /** Styles of the individual objects that make up this line. */
+  readonly runs?: readonly TextRun[];
 }
 
 /** One new line of page text. */
@@ -42,43 +45,13 @@ export interface NewTextStyle {
   readonly angle: number;
 }
 
-/** Standard PDF families used for added text. */
-export type TextRunFamily = "Helvetica" | "Times" | "Courier";
-
-/** A face used by added text. Embedded identifiers are independent of asset locations. */
-export type TextRunFont =
-  | { readonly kind: "standard"; readonly family: TextRunFamily }
-  | {
-      readonly kind: "embedded";
-      readonly fontId: string;
-      readonly name: string;
-      readonly weight: 400 | 700;
-      readonly italic: boolean;
-      readonly documentFontId?: string;
-    };
-
-/** A font used by a text object on one page. The identifier is scoped to that page. */
+/** A font used by a text object on one page. The identifier is scoped to the open document. */
 export interface PageFont {
   readonly id: string;
   readonly name: string;
   readonly style: FontStyle;
   readonly bytes?: ArrayBuffer;
 }
-
-/** One span with a uniform style, in PDF points and RGB channels. */
-export interface TextRun {
-  readonly text: string;
-  readonly fontFamily?: TextRunFamily;
-  readonly font?: TextRunFont;
-  readonly fontSize: number;
-  readonly bold: boolean;
-  readonly italic: boolean;
-  readonly underline: boolean;
-  readonly color: Rgb;
-}
-
-/** Paragraphs of text, including empty lines. */
-export type TextRunLines = readonly (readonly TextRun[])[];
 
 /** A line with an optional explicit baseline for legacy callers. */
 export interface TextRunLineLayout {
@@ -180,7 +153,7 @@ function sameRunFont(a: TextRunFont, b: TextRunFont): boolean {
  * @param b The second run.
  * @returns Whether their styles match.
  */
-function sameRunStyle(a: TextRun, b: TextRun): boolean {
+export function sameRunStyle(a: TextRun, b: TextRun): boolean {
   return (
     sameRunFont(textRunFont(a), textRunFont(b)) &&
     a.fontSize === b.fontSize &&

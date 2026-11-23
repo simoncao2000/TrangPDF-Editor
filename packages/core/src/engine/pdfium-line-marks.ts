@@ -42,12 +42,26 @@ export class LineMarks {
    * @returns False if PDFium could not add the mark.
    */
   tag(doc: number, object: number, line: LineMark): boolean {
+    return this.add(doc, object, line) !== 0;
+  }
+
+  /**
+   * Adds a line mark and returns its handle so it can be removed on undo.
+   * @param doc The document handle.
+   * @param object The page object.
+   * @param line The line id and gap.
+   * @returns The new mark, or zero on failure.
+   */
+  add(doc: number, object: number, line: LineMark): number {
     const mark = this.pdfium.FPDFPageObj_AddMark(object, LINE_MARK);
-    return (
-      mark !== 0 &&
+    if (!mark) return 0;
+    if (
       this.pdfium.FPDFPageObjMark_SetStringParam(doc, object, mark, ID_KEY, line.id) &&
       this.pdfium.FPDFPageObjMark_SetFloatParam(doc, object, mark, GAP_KEY, line.gap)
-    );
+    )
+      return mark;
+    this.pdfium.FPDFPageObj_RemoveMark(object, mark);
+    return 0;
   }
 
   /**
@@ -56,6 +70,7 @@ export class LineMarks {
    * @returns Its line mark, or `null` if it has none.
    */
   lineOf(object: number): LineMark | null {
+    if (!object) return null;
     const count = this.pdfium.FPDFPageObj_CountMarks(object);
     for (let index = 0; index < count; index++) {
       const mark = this.pdfium.FPDFPageObj_GetMark(object, index);

@@ -16,7 +16,7 @@ import {
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { Annotation } from "../annotations/annotation";
 import type { FormField } from "../forms/form-field";
-import type { PageFont, PageTextObject, TextMatch, TextSelection } from "../page-text/page-text";
+import type { PageFont, PageTextObject, TextMatch, TextRun, TextSelection } from "../page-text/page-text";
 import { EngineCallError } from "../engine/engine-client";
 import type {
   AssembleOptions,
@@ -36,6 +36,7 @@ import {
   annotationRevisionOf,
   EMPTY_DOCUMENT,
   docIdOf,
+  indexPages,
   pageAddressOf,
   type DocumentContent,
   type DocumentState,
@@ -139,6 +140,13 @@ export interface DocumentSession {
    * @returns Its distinct document font programs.
    */
   readPageFonts(pageId: string): Promise<readonly PageFont[]>;
+  /**
+   * Checks a document face against the exact text in a draft run.
+   * @param pageId The page where the font was read.
+   * @param run The draft text and requested face.
+   * @returns The first missing character, when present.
+   */
+  checkPageTextFont(pageId: string, run: TextRun): Promise<EngineResult<"checkPageTextFont">>;
   /**
    * Makes the font available for added text on a page's source document.
    * @param pageId The destination page.
@@ -353,11 +361,11 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
   const commit = (content: DocumentContent, nextHistory: History, extra: Partial<DocumentState> = {}): void => {
     history = nextHistory;
     const current = store.getState();
-    const pageIds = new Set(content.pages.map((page) => page.id));
+    const pageIds = content.pages === current.pages ? null : indexPages(content.pages);
     store.setState({
       ...current,
       ...content,
-      selection: current.selection.filter((id) => pageIds.has(id)),
+      selection: pageIds ? current.selection.filter((id) => pageIds.has(id)) : current.selection,
       status: isDirty(history) ? "dirty" : "clean",
       undoLabel: history.undoStack.at(-1)?.label ?? null,
       redoLabel: history.redoStack.at(-1)?.label ?? null,
@@ -482,25 +490,27 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
       if (!editable()) return;
       const current = contentOf(store.getState());
       const command = typeof input === "function" ? input(current) : input;
+      const dropped = history.redoStack;
       const step = execute({ content: current, history }, command);
-      commit(step.content, step.history);
+      for (const entry of dropped) runInEngine(entry.dropInEngine, entry.label);
       runInEngine(command.applyInEngine, command.label);
+      commit(step.content, step.history);
     },
 
     undo() {
       const command = history.undoStack.at(-1);
       if (!editable() || !command) return;
       const step = undo({ content: contentOf(store.getState()), history });
-      commit(step.content, step.history);
       runInEngine(command.undoInEngine, command.label);
+      commit(step.content, step.history);
     },
 
     redo() {
       const command = history.redoStack.at(-1);
       if (!editable() || !command) return;
       const step = redo({ content: contentOf(store.getState()), history });
-      commit(step.content, step.history);
       runInEngine(command.applyInEngine, command.label);
+      commit(step.content, step.history);
     },
 
     async settled() {
@@ -513,6 +523,12 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
 
     readPageFonts(pageId) {
       return readPage("fonts", pageId, (at) => engine.call("getPageFonts", at).promise);
+    },
+
+    checkPageTextFont(pageId, run) {
+      const at = pageAddressOf(store.getState(), pageId);
+      if (!at || !run.text) return Promise.resolve({});
+      return engine.call("checkPageTextFont", { ...at, run }).promise;
     },
 
     prepareFont(bytes) {

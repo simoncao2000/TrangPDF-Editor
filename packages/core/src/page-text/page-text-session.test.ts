@@ -1,5 +1,5 @@
 /** Editing page text through a real session and engine: undo, redo, save. */
-import { beforeAll, describe, expect, it } from "bun:test";
+import { beforeAll, describe, expect, it, spyOn } from "bun:test";
 import { createDocumentSession } from "../document/document-session";
 import type { EngineClient } from "../engine/engine-client";
 import { corpusFile, createTestEngine } from "../testing/fixtures";
@@ -154,4 +154,56 @@ describe("page text in a session", () => {
     session.dispatch(rotatePages([pageId], 90));
     expect((await session.findText("before", 10))[0]?.pageNumber).toBe(1);
   });
+});
+
+it("refreshes only the edited page and drops the edit when its redo branch is cleared", async () => {
+  const session = createDocumentSession(engine);
+  await session.load({ name: "Tide.pdf", bytes: corpusFile("three-pages.pdf") });
+  const [first, second] = session.store.getState().pages;
+  const pageId = first!.id;
+  const origin = { x: 72, y: 500 };
+  const style = { fontSize: 16, angle: 0, color: { r: 0, g: 0, b: 0 } };
+  session.dispatch((content) => addPageText(content, pageId, [{ text: "Original", origin }], style));
+  const initial = await session.readTextObjects(pageId);
+  const other = await session.readTextObjects(second!.id);
+  const line = initial[0]!;
+  let refreshed: ReturnType<typeof session.readTextObjects> | undefined;
+  const unsubscribe = session.store.subscribe(() => {
+    refreshed = session.readTextObjects(pageId);
+  });
+  session.dispatch((content) => editPageText(content, pageId, line, [{ ...line.runs![0]!, text: "Edited" }]));
+  expect((await refreshed)?.[0]?.text).toBe("Edited");
+  expect(await session.readTextObjects(second!.id)).toBe(other);
+  session.undo();
+  const restored = await refreshed;
+  expect(restored?.[0]?.text).toBe("Original");
+  expect(restored).not.toBe(initial);
+  session.dispatch(rotatePages([second!.id], 90));
+  await session.settled();
+  expect(session.store.getState()).toMatchObject({ redoLabel: null, failedEdit: null });
+  expect((await session.readTextObjects(pageId))[0]?.text).toBe("Original");
+  unsubscribe();
+  await session.close();
+});
+
+it("drops every invalidated page text redo entry when a new command executes", async () => {
+  const session = createDocumentSession(engine);
+  await session.load({ name: "Tide.pdf", bytes: corpusFile("text.pdf") });
+  const pageId = session.store.getState().pages[0]!.id;
+  const source = (await session.readTextObjects(pageId))[0]!;
+  session.dispatch((content) => editPageText(content, pageId, source, "First edit"));
+  const first = (await session.readTextObjects(pageId))[0]!;
+  session.dispatch((content) => editPageText(content, pageId, first, "Second edit"));
+  session.undo();
+  session.undo();
+
+  const call = spyOn(engine, "call");
+  session.dispatch(rotatePages([pageId], 90));
+  const dropped = call.mock.calls
+    .filter(([name]) => name === "dropPageTextEdit")
+    .map(([, args]) => (args as { editId: string }).editId);
+  expect(dropped).toHaveLength(2);
+  expect(new Set(dropped).size).toBe(2);
+  call.mockRestore();
+  await session.close();
 });

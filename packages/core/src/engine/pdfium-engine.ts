@@ -3,13 +3,14 @@
  * (the worker in the app, Node in tests) and returns plain pixels, never DOM objects.
  */
 import { init, type WrappedPdfiumModule } from "@embedpdf/pdfium";
-import { err, ok, type PdfPoint, type PdfRect, type Result } from "@pdf-editor/shared";
+import { err, ok, type PdfPoint, type PdfRect, type Result, type TextRunFontCheck } from "@pdf-editor/shared";
 import type { Annotation, EditableAnnotation } from "../annotations/annotation";
 import type { CommentReply } from "../annotations/comment";
 import type { FormField } from "../forms/form-field";
 import type {
   PageFont,
   PageTextObject,
+  TextRun,
   TextRunFont,
   TextMatch,
   TextRunLineLayout,
@@ -18,9 +19,16 @@ import type {
 } from "../page-text/page-text";
 import { PageAnnotations } from "./pdfium-annotations";
 import { PdfiumForms, type FormEnvironment, type FormFieldWriteError } from "./pdfium-forms";
-import { fontRequestKey, PageTextObjects, subsetKey, TextObjectIds, type PageContext } from "./pdfium-page-text";
-import { FontSubsetCache } from "./font-subset";
-import { validFontBytes } from "../page-text/sfnt";
+import {
+  fontRequestKey,
+  PageTextObjects,
+  subsetKey,
+  TextObjectIds,
+  type HeldLineEdit,
+  type PageContext,
+} from "./pdfium-page-text";
+import { FontSubsetCache, subsetFont } from "./font-subset";
+import { missingFontCharacter, validFontBytes } from "../page-text/sfnt";
 import { PageText } from "./pdfium-text";
 import type {
   AssembleOptions,
@@ -68,6 +76,12 @@ interface OpenDoc {
   readonly held: Map<number, number>;
   /** Ids of the text objects on held pages. */
   readonly textIds: TextObjectIds;
+  readonly textEdits: Map<string, { pageIndex: number; edit: HeldLineEdit; applied: boolean }>;
+}
+
+interface EditFonts {
+  readonly borrowed: Map<string, number>;
+  readonly sources: Map<string, { bytes: ArrayBuffer; text: string; weight: number }>;
 }
 
 const QUARTER_TURN = 90;
@@ -182,6 +196,7 @@ export class PdfiumEngine {
       password: password ?? "",
       held: new Map(),
       textIds: new TextObjectIds(),
+      textEdits: new Map(),
     });
     return ok({ docId, pages: this.readPageGeometry(handle) });
   }
@@ -193,6 +208,7 @@ export class PdfiumEngine {
   close(docId: DocId): void {
     const doc = this.docs.get(docId);
     if (!doc) return;
+    for (const { edit, applied } of doc.textEdits.values()) this.textObjects.dropEdit(doc.textIds, edit, applied);
     for (const page of doc.held.values()) this.closePage(page, doc.form);
     this.forms.close(doc.form);
     this.pdfium.FPDF_CloseDocument(doc.handle);
@@ -424,6 +440,143 @@ export class PdfiumEngine {
     return this.withHeldPage(at, (page) =>
       this.textObjects.replace(page, id, newId, text) ? ok(null) : err("text-edit-failed"),
     );
+  }
+
+  /**
+   * Checks whether a draft run can use the requested document font.
+   * @param at The target page.
+   * @param run The draft and its style.
+   * @returns The first missing character if the font cannot encode the run.
+   */
+  checkPageTextFont(at: PageAddress, run: TextRun): Result<TextRunFontCheck, "unknown-document"> {
+    return this.withHeldPage(at, (page) => {
+      const { missingCharacter } = this.textObjects.checkDocumentFont(page, run);
+      return ok(missingCharacter ? { missingCharacter } : {});
+    });
+  }
+
+  /**
+   * Stages and commits one rich line edit, retaining exactly the detached PDF objects.
+   * @param at The target page.
+   * @param id The current line id.
+   * @param editId The history key.
+   * @param runs The replacement runs.
+   * @returns Any missing glyph from the requested document face, or an engine error.
+   */
+  async editPageText(
+    at: PageAddress,
+    id: string,
+    editId: string,
+    runs: readonly TextRun[],
+  ): Promise<Result<TextRunFontCheck, "unknown-document" | "text-edit-failed">> {
+    const doc = this.docs.get(at.docId);
+    if (!doc) return err("unknown-document");
+    if (doc.textEdits.has(editId)) return err("text-edit-failed");
+    const source = this.withHeldPage(at, (page) => ok({ page, plan: this.textObjects.planEdit(page, id, runs) }));
+    if (!source.ok) return source;
+    const { page, plan } = source.value;
+    if (!plan) return err("text-edit-failed");
+    const fonts: EditFonts = { borrowed: new Map(), sources: new Map() };
+    const subsets = new Map<string, ArrayBuffer>();
+    const resolved: TextRun[] = [];
+    let missingCharacter: string | undefined;
+    try {
+      for (const [index, run] of runs.entries()) {
+        const choice =
+          plan.slots[index]!.retained !== undefined ? { run } : this.prepareEditRun({ at, page, fonts }, run);
+        if (!choice) return err("text-edit-failed");
+        missingCharacter ??= choice.missingCharacter;
+        resolved.push(choice.run);
+      }
+      for (const [key, { bytes, text, weight }] of fonts.sources) {
+        subsets.set(key, await subsetFont(bytes, text, weight, true));
+      }
+    } catch {
+      return err("text-edit-failed");
+    }
+    const edit = this.textObjects.commitEdit({ ...page, subsets, borrowed: fonts.borrowed }, plan, resolved);
+    if (!edit) return err("text-edit-failed");
+    doc.textEdits.set(editId, { pageIndex: at.pageIndex, edit, applied: true });
+    return ok(missingCharacter ? { missingCharacter } : {});
+  }
+
+  /**
+   * Resolves a changed run through its document font, a standard face or an available bundled face.
+   * @param context The destination and the edit's staging resources.
+   * @param run The requested run.
+   * @returns The resolved run and first missing document glyph, if any.
+   */
+  private prepareEditRun(
+    context: { at: PageAddress; page: PageContext; fonts: EditFonts },
+    run: TextRun,
+  ): (TextRunFontCheck & { run: TextRun }) | null {
+    const { at, page, fonts } = context;
+    const { font, missingCharacter } = this.textObjects.checkDocumentFont(page, run);
+    const reference = run.font;
+    if (font && reference?.kind === "embedded") {
+      fonts.borrowed.set(fontRequestKey(reference), font);
+      return { run };
+    }
+    const standard = { ...run, font: reference?.kind === "standard" ? reference : undefined };
+    if (reference?.kind !== "embedded" || reference.documentFontId) {
+      if (this.textObjects.standardSupports(page, standard)) return { run: standard, missingCharacter };
+    }
+    const available = this.documentFonts.get(at.docId);
+    const bundled = [...(available ?? [])].filter((id) => id.startsWith("bundled:"));
+    const candidates = new Set([...(reference?.kind === "embedded" ? [reference.fontId] : []), ...bundled]);
+    for (const id of candidates) {
+      const bytes = available?.has(id) ? this.fontBytes.get(id) : undefined;
+      if (!bytes || missingFontCharacter(bytes, run.text + " ", true)) continue;
+      const embedded = {
+        kind: "embedded",
+        fontId: id,
+        name: reference?.kind === "embedded" ? reference.name : (run.fontFamily ?? "Helvetica"),
+        weight: run.bold ? 700 : 400,
+        italic: run.italic,
+      } as const;
+      const key = subsetKey(embedded);
+      const source = fonts.sources.get(key) ?? { bytes, text: "", weight: embedded.weight };
+      source.text += run.text;
+      fonts.sources.set(key, source);
+      return { run: { ...run, font: embedded }, missingCharacter };
+    }
+    return null;
+  }
+
+  /**
+   * Attaches the line version selected by undo or redo.
+   * @param at The original page address.
+   * @param editId The history key.
+   * @param applied Whether to attach the edited version.
+   * @returns The result of exchanging objects.
+   */
+  togglePageTextEdit(
+    at: PageAddress,
+    editId: string,
+    applied: boolean,
+  ): Result<null, "unknown-document" | "text-edit-failed"> {
+    const record = this.docs.get(at.docId)?.textEdits.get(editId);
+    if (!record || record.pageIndex !== at.pageIndex) return err("text-edit-failed");
+    if (record.applied === applied) return ok(null);
+    return this.withHeldPage(at, (page) => {
+      if (!this.textObjects.toggleEdit(page, record.edit, applied)) return err("text-edit-failed");
+      record.applied = applied;
+      return ok(null);
+    });
+  }
+
+  /**
+   * Releases a history entry and any PDF objects it owns.
+   * @param at The original page address.
+   * @param editId The history key.
+   * @returns Nothing.
+   */
+  dropPageTextEdit(at: PageAddress, editId: string): void {
+    const doc = this.docs.get(at.docId);
+    const record = doc?.textEdits.get(editId);
+    if (!doc || !record || record.pageIndex !== at.pageIndex) return;
+    doc.textEdits.delete(editId);
+    this.textObjects.dropEdit(doc.textIds, record.edit, record.applied);
   }
 
   /**

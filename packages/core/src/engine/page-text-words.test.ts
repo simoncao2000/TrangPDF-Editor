@@ -62,6 +62,12 @@ describe("page text in fonts with a zero-width space", () => {
     expect(Math.abs(original.bounds.width - GAP - edited.bounds.width)).toBeLessThan(TOLERANCE);
   });
 
+  it("loads a marked word line as separate runs with its logical spaces", async () => {
+    const { edited } = await editOneSpace();
+    expect(edited.runs?.map((run) => run.text)).toEqual(["Dean ", "List7 ", "times ", "recipient"]);
+    expect(edited.runs?.every((run) => run.font?.kind === "embedded")).toBe(true);
+  });
+
   it("reads the words as one line, from any of them", async () => {
     const { docId, edited } = await editOneSpace();
     expect(await lines(docId)).toHaveLength(1);

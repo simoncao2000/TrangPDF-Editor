@@ -1,14 +1,11 @@
-/**
- * Commands for the page's own text. The engine never deletes text objects: an edit switches the
- * original off and adds a replacement, and added text is switched off on undo. Undo and redo switch
- * objects on and off by id.
- */
+/** Commands for editing, adding and moving the page's own text. */
 import type { Command } from "../document/commands";
 import type { DocumentContent } from "../document/document-state";
 import { pageEditCommand } from "../document/page-edit-command";
 import {
   legacyTextRuns,
   normalizeTextRuns,
+  type TextRun,
   type NewTextLine,
   type NewTextStyle,
   type PageTextObject,
@@ -17,31 +14,45 @@ import {
 } from "./page-text";
 
 /**
- * Changes the text of one text object on a page. Removing all of its text deletes it.
+ * Replaces a line in a single history step.
  * @param content The current content.
  * @param pageId The page.
- * @param object The text object, as the engine reported it.
- * @param text The new text.
+ * @param line The line reported by the engine.
+ * @param runs The new runs, or plain text from the legacy editor.
  * @returns The command.
  */
-export function editPageText(content: DocumentContent, pageId: string, object: PageTextObject, text: string): Command {
-  if (!text.trim()) {
-    return pageEditCommand(content, pageId, "Delete text", {
-      apply: (engine, at) => engine("showPageText", { ...at, show: [], hide: [object.id] }),
-      undo: (engine, at) => engine("showPageText", { ...at, show: [object.id], hide: [] }),
-    });
-  }
-  const newId = crypto.randomUUID();
-  // The replacement is made the first time the command runs; redo switches it back on. The flag is
-  // set when the call is sent, and calls reach the worker in order, so a quick undo still works.
-  let made = false;
-  return pageEditCommand(content, pageId, "Edit text", {
+export function editPageText(
+  content: DocumentContent,
+  pageId: string,
+  line: PageTextObject,
+  runs: readonly TextRun[] | string,
+): Command {
+  const style =
+    line.runs?.[0] ??
+    ({
+      fontFamily: line.style.family === "serif" ? "Times" : line.style.family === "mono" ? "Courier" : "Helvetica",
+      fontSize: line.fontSize,
+      color: line.color,
+      bold: line.style.bold,
+      italic: line.style.italic,
+      underline: false,
+    } satisfies Omit<TextRun, "text">);
+  let input: { id: string; runs: readonly TextRun[] } | undefined = {
+    id: line.id,
+    runs: typeof runs === "string" ? [{ ...style, text: runs }] : runs.filter((run) => run.text),
+  };
+  if (!input.runs.some(({ text }) => text.trim())) input.runs = [];
+  const editId = crypto.randomUUID();
+  return pageEditCommand(content, pageId, input.runs.length ? "Edit text" : "Delete text", {
     apply: (engine, at) => {
-      if (made) return engine("showPageText", { ...at, show: [newId], hide: [object.id] });
-      made = true;
-      return engine("replacePageText", { ...at, id: object.id, newId, text });
+      const pending = input;
+      input = undefined;
+      return pending
+        ? engine("editPageText", { ...at, ...pending, editId })
+        : engine("togglePageTextEdit", { ...at, editId, applied: true });
     },
-    undo: (engine, at) => engine("showPageText", { ...at, show: [object.id], hide: [newId] }),
+    undo: (engine, at) => engine("togglePageTextEdit", { ...at, editId, applied: false }),
+    drop: (engine, at) => engine("dropPageTextEdit", { ...at, editId }),
   });
 }
 

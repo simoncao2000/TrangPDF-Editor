@@ -75,6 +75,32 @@ describe("page text", () => {
     expect(await engine.call("getTextObjectAt", { docId, pageIndex: 0, point: { x: 300, y: 300 } }).promise).toBeNull();
   });
 
+  it("loads PDF text as a run with the source font and style", async () => {
+    const docId = await openText();
+    const at = { docId, pageIndex: 0 };
+    const [font] = await engine.call("getPageFonts", at).promise;
+    const line = await objectAt(docId, FIRST_LINE);
+    expect(line.runs).toEqual([
+      {
+        text: line.text,
+        font: {
+          kind: "embedded",
+          fontId: `document:${font!.id}`,
+          documentFontId: font!.id,
+          name: font!.name,
+          weight: 400,
+          italic: false,
+        },
+        fontFamily: "Helvetica",
+        fontSize: 24,
+        color: BLACK,
+        bold: false,
+        italic: false,
+        underline: false,
+      },
+    ]);
+  });
+
   it("gives each text object the same id every time it is read", async () => {
     const docId = await openText();
     const ids = (await engine.call("getTextObjects", { docId, pageIndex: 0 }).promise).map((object) => object.id);
@@ -188,6 +214,20 @@ describe("page text", () => {
       color: BLACK,
     });
     expect(first?.text.trimEnd()).toBe("Low");
+    expect(first?.runs?.[0]).toMatchObject({
+      font: { kind: "embedded", weight: 700, italic: true },
+      fontSize: 20,
+      bold: true,
+      italic: true,
+      color: BLACK,
+    });
+    expect(second?.runs?.[0]).toMatchObject({
+      font: { kind: "embedded", weight: 400, italic: true },
+      fontSize: 16,
+      bold: false,
+      italic: true,
+      color: tide.color,
+    });
     expect(second).toMatchObject({
       text: "tide",
       fontSize: 16,
@@ -361,5 +401,115 @@ it.each([400, 700] as const)("saves and reopens Vietnamese in embedded Inter %i"
   expect((await texts(savedAgain)).slice(-2)).toEqual([text, text]);
   await engine.call("close", { docId: savedAgain }).promise;
   await engine.call("close", { docId: reopened.docId }).promise;
+  await engine.call("close", { docId }).promise;
+});
+
+it("edits Vietnamese and preserves its combining characters after saving", async () => {
+  const docId = await openText();
+  const at = { docId, pageIndex: 0 };
+  const [line] = await engine.call("getTextObjects", at).promise;
+  const bytes = await Bun.file(new URL("../../../ui/src/assets/fonts/inter.ttf", import.meta.url)).arrayBuffer();
+  const fontId = "edit-inter";
+  await engine.call("registerTextFont", { docId, fontId, bytes }, [bytes]).promise;
+  const text = "Tiếng Việt rất đẹp, ở ngoài khơi.".normalize("NFD");
+  const font = { kind: "embedded", fontId, name: "Inter", weight: 400, italic: false } as const;
+  await engine.call("editPageText", {
+    ...at,
+    id: line!.id,
+    editId: "vietnamese-edit",
+    runs: [{ ...line!.runs![0]!, text, font }],
+  }).promise;
+  const saved = await saveAndReopen(docId);
+  expect((await texts(saved))[0]).toBe(text);
+  await engine.call("close", { docId: saved }).promise;
+  await engine.call("close", { docId }).promise;
+});
+
+it("reports the first missing glyph and falls back from a document subset", async () => {
+  const docId = await openText();
+  const at = { docId, pageIndex: 0 };
+  const bytes = await Bun.file(new URL("../../../ui/src/assets/fonts/inter.ttf", import.meta.url)).arrayBuffer();
+  const fontId = "subset-inter";
+  await engine.call("registerTextFont", { docId, fontId, bytes }, [bytes]).promise;
+  const font = { kind: "embedded", fontId, name: "Inter", weight: 400, italic: false } as const;
+  const run = { ...COURIER_RUN, font, text: "ABC", bold: false, italic: false, underline: false };
+  await engine.call("addPageText", { ...at, ...PLACEMENT, ids: ["subset"], runs: [{ runs: [run] }] }).promise;
+  const saved = await saveAndReopen(docId);
+  const target = { docId: saved, pageIndex: 0 };
+  const line = (await engine.call("getTextObjects", target).promise).at(-1)!;
+  const eligible = { ...line.runs![0]!, text: "CAB" };
+  expect(await engine.call("checkPageTextFont", { ...target, run: eligible }).promise).toEqual({});
+  const committed = await engine.call("editPageText", {
+    ...target,
+    id: line.id,
+    editId: "borrow-subset",
+    runs: [eligible],
+  }).promise;
+  expect(committed).toEqual({});
+  const borrowed = (await engine.call("getTextObjects", target).promise).at(-1)!;
+  expect(borrowed.runs?.[0]?.font).toEqual(line.runs![0]!.font);
+  await engine.call("togglePageTextEdit", { ...target, editId: "borrow-subset", applied: false }).promise;
+  const changed = { ...line.runs![0]!, text: "ABZQ" };
+  expect(await engine.call("checkPageTextFont", { ...target, run: changed }).promise).toEqual({
+    missingCharacter: "Z",
+  });
+  const result = await engine.call("editPageText", {
+    ...target,
+    id: line.id,
+    editId: "subset-edit",
+    runs: [changed],
+  }).promise;
+  expect(result.missingCharacter).toBe("Z");
+  const [edited] = (await engine.call("getTextObjects", target).promise).slice(-1);
+  expect(edited?.text).toBe("ABZQ");
+  expect(edited?.runs?.[0]?.font).toMatchObject({ name: "Helvetica" });
+  await engine.call("close", { docId: saved }).promise;
+  await engine.call("close", { docId }).promise;
+});
+
+it("cancels pending renders of the edited page and completes renders of other pages", async () => {
+  const { docId } = await engine.call("open", { source: { bytes: corpusFile("three-pages.pdf") } }).promise;
+  const at = { docId, pageIndex: 0 };
+  await engine.call("addPageText", {
+    ...at,
+    ...PLACEMENT,
+    runs: [{ runs: [{ ...COURIER_RUN, text: "Original", underline: false }] }],
+    ids: ["render"],
+  }).promise;
+  const [line] = await engine.call("getTextObjects", at).promise;
+  const render = { ...at, width: 48, height: 64 };
+  const stale = engine.call("renderPage", render).promise;
+  const separate = engine.call("renderPage", { ...render, pageIndex: 1 }).promise;
+  const edit = engine.call("editPageText", {
+    ...at,
+    id: line!.id,
+    editId: "render-edit",
+    runs: [{ ...line!.runs![0]!, text: "New tide tables" }],
+  }).promise;
+  const fresh = engine.call("renderPage", render).promise;
+  await expect(stale).rejects.toMatchObject({ detail: { code: "cancelled" } });
+  expect((await separate).width).toBe(48);
+  await edit;
+  expect((await fresh).width).toBe(48);
+  expect((await texts(docId))[0]).toBe("New tide tables");
+  await engine.call("close", { docId }).promise;
+});
+
+it("reopens a line with both its original run and the newly inserted run", async () => {
+  const docId = await openText();
+  const at = { docId, pageIndex: 0 };
+  const line = await objectAt(docId, FIRST_LINE);
+  const accent = { ...COURIER_RUN, text: "!", fontSize: 24 };
+  await engine.call("editPageText", {
+    ...at,
+    id: line.id,
+    editId: "append",
+    runs: [...line.runs!, accent],
+  }).promise;
+  const saved = await saveAndReopen(docId);
+  const reopened = await objectAt(saved, FIRST_LINE);
+  expect(reopened.text).toBe(line.text + "!");
+  expect(reopened.runs?.map(({ underline }) => underline)).toEqual([false, true]);
+  await engine.call("close", { docId: saved }).promise;
   await engine.call("close", { docId }).promise;
 });
