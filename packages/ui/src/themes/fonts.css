@@ -5,3 +5,8 @@
 @import "@fontsource-variable/playpen-sans-hebrew/index.css";
 @import "@fontsource-variable/playpen-sans-thai/index.css";
 @import "@fontsource-variable/playpen-sans-deva/index.css";
+
+/* Signature styles (OFL-1.1), including their Vietnamese subsets. */
+@import "@fontsource/great-vibes/index.css";
+@import "@fontsource/allura/index.css";
+@import "@fontsource-variable/caveat/index.css";

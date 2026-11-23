@@ -4,29 +4,31 @@ import { SignaturePreview } from "./SignaturePreview";
 
 /**
  * The signatures saved on this device, for the Sign tool: pick the one to place, remove one, or
- * draw a new one.
+ * create a new one.
  * @returns The list.
  */
 export function SignatureList() {
-  const { signatures, currentId, choose, remove, setDrawing } = useSignatures();
+  const { signatures, currentId, temporary, choose, remove, setDrawing } = useSignatures();
   return (
     <div className="grid gap-2">
       {signatures.map((signature) => (
         <div
           key={signature.id}
           className={`group relative grid gap-1 rounded-sm p-2 ring-1 transition-colors duration-(--duration-press) ${
-            signature.id === currentId ? "bg-raised ring-action" : "ring-divider hover:bg-hover"
+            !temporary && signature.id === currentId ? "bg-raised ring-action" : "ring-divider hover:bg-hover"
           }`}
         >
           <button
             type="button"
-            aria-pressed={signature.id === currentId}
-            aria-label="Use this signature"
+            aria-pressed={!temporary && signature.id === currentId}
+            aria-label={signature.kind === "typed" ? `Use signature: ${signature.text}` : "Use this signature"}
             onClick={() => choose(signature.id)}
-            className="grid gap-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-focus"
+            className="grid min-w-0 gap-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-focus"
           >
             <SignaturePreview signature={signature} />
-            <span className="text-xs text-muted">Saved on this device</span>
+            <span className="text-xs text-muted">
+              {signature.kind === "typed" ? "Typed · saved on this device" : "Saved on this device"}
+            </span>
           </button>
           <button
             type="button"
@@ -45,7 +47,7 @@ export function SignatureList() {
         className="flex h-9 items-center justify-center gap-1.5 rounded-sm border border-dashed border-line text-sm text-ink transition-colors duration-(--duration-press) hover:bg-hover"
       >
         <Plus className="size-4" aria-hidden="true" />
-        Draw a new signature
+        New signature
       </button>
     </div>
   );

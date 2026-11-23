@@ -5,6 +5,8 @@ import {
   screenRectToPdf,
   screenToPdf,
   type EditableAnnotation,
+  type ImageAnnotation,
+  type ImageFile,
   type PageFrame,
   type ScreenPoint,
   type TextMarkupKind,
@@ -17,8 +19,10 @@ import { cssColor } from "./annotation-display";
 import { AnnotationShape } from "./AnnotationShape";
 import { CLICK_SLOP, extendStroke, rectBetween } from "./drawing-geometry";
 import { useImageTool } from "../../state/image-store";
+import { useToast } from "../../state/toast-store";
 import { useSignatures } from "../../state/signature-store";
 import { placeSignature } from "../signatures/signature-geometry";
+import { renderTypedSignature } from "../signatures/typed-signature";
 
 /** A sticky note's size on the page, in points. */
 const NOTE_SIZE = 24;
@@ -155,7 +159,10 @@ export function DrawingSurface({ pageId, tool, style, frame, width, height, onCr
       return;
     }
     if (tool === "sign" && finished.kind === "drag") {
-      const signed = signAt(screenToPdf(finished.start, frame), style);
+      const surface = event.currentTarget;
+      const placement = signAt(screenToPdf(finished.start, frame), style);
+      const signed = placement instanceof Promise ? await placement : placement;
+      if (!surface.isConnected || useAnnotationUi.getState().tool !== "sign") return;
       if (!signed) return;
       onCreate({ ...signed, id });
       useAnnotationUi.getState().setTool("select");
@@ -217,21 +224,43 @@ function imageFrom(draft: Extract<Draft, { kind: "drag" }>, frame: PageFrame): E
     : dragged;
   const height = clicked || keepProportions ? box.width * aspect : box.height;
   const rect = screenRectToPdf({ ...box, height }, frame);
-  return { kind: "image", id: "", rect, color: { r: 0, g: 0, b: 0 }, opacity: 1, image: pending.file };
+  return placedImage(rect, pending.file);
+}
+
+/**
+ * Creates the image annotation that the editor embeds on the page.
+ * @param rect Image bounds in PDF space.
+ * @param image Encoded image bytes and format.
+ * @returns The new annotation with an empty id.
+ */
+function placedImage(rect: PdfRect, image: ImageFile): ImageAnnotation {
+  return { kind: "image", id: "", rect, color: { r: 0, g: 0, b: 0 }, opacity: 1, image };
 }
 
 /**
  * The chosen signature placed at a point, or the drawing pad opened when there is none yet.
  * @param at Where its top-left corner goes, in PDF space.
  * @param style The Sign tool's style.
- * @returns The ink, or `null` while the pad is opened instead.
+ * @returns The drawn ink or pending typed image, or null when the pad is opened.
  */
-function signAt(at: PdfPoint, style: ToolStyle): EditableAnnotation | null {
-  const { signatures, currentId, setDrawing } = useSignatures.getState();
-  const signature = signatures.find((candidate) => candidate.id === currentId);
+function signAt(at: PdfPoint, style: ToolStyle): EditableAnnotation | Promise<EditableAnnotation | null> | null {
+  const { signatures, currentId, temporary, setDrawing } = useSignatures.getState();
+  const signature = temporary ?? signatures.find((candidate) => candidate.id === currentId);
   if (!signature) {
     setDrawing(true);
     return null;
+  }
+  if (signature.kind === "typed") {
+    return renderTypedSignature(signature)
+      .then(({ bytes, aspect }) => {
+        const height = SIGNATURE_WIDTH * aspect;
+        const rect = { x: at.x, y: at.y - height, width: SIGNATURE_WIDTH, height };
+        return placedImage(rect, { bytes, format: "png" });
+      })
+      .catch(() => {
+        useToast.getState().show("Could not render the signature. Try another name or style.", { tone: "error" });
+        return null;
+      });
   }
   return placeSignature(signature, at, { color: style.color, lineWidth: style.lineWidth, width: SIGNATURE_WIDTH });
 }
