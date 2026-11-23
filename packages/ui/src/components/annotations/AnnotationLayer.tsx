@@ -1,6 +1,5 @@
 import {
   addAnnotation,
-  addPageText,
   editAnnotation,
   isEditable,
   isTextMarkup,
@@ -14,20 +13,29 @@ import {
   type ScreenPoint,
   type TextBoxAnnotation,
 } from "@pdf-editor/core";
-import { useCallback, useEffect, useMemo, useState, type KeyboardEvent, type PointerEvent } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent,
+} from "react";
 import { useEditorServices } from "../../editor/hooks";
 import { isDrawingTool, useAnnotationUi } from "../../state/annotation-store";
 import type { PageDrawInfo } from "../viewer/use-page-geometry";
 import { ANNOTATION_NAMES } from "./annotation-display";
 import { AnnotationShape } from "./AnnotationShape";
-import { newTextLines } from "./drawing-geometry";
 import { DrawingSurface } from "./DrawingSurface";
-import { NewTextEditor } from "./NewTextEditor";
 import { TextBoxEditor } from "./TextBoxEditor";
 import { CommentCard } from "../comments/CommentCard";
 import { HANDLES, handlePosition, type Handle } from "./resize-handles";
 import { useAnnotationDrag } from "./use-annotation-drag";
 import { usePageAnnotations } from "./use-page-annotations";
+
+const NewTextEditor = lazy(async () => ({ default: (await import("./NewTextEditor")).NewTextEditor }));
 
 interface AnnotationLayerProps {
   readonly page: PageDrawInfo;
@@ -106,16 +114,6 @@ export function AnnotationLayer({ page, zoom, width, height }: AnnotationLayerPr
     const { rect } = draft;
     const after = { ...draft, text, rect: { ...rect, y: rect.y + rect.height - height, height } };
     if (text !== draft.text || height !== rect.height) commit(draft, after);
-  };
-
-  const finishNewText = (text: string | null) => {
-    const at = newTextAt;
-    setNewTextAt(null);
-    if (!at || !text?.trim() || !toolStyle) return;
-    const { lines, angle } = newTextLines(text, at, toolStyle.fontSize, frame);
-    session.dispatch((content) =>
-      addPageText(content, page.id, lines, { fontSize: toolStyle.fontSize, color: toolStyle.color, angle }),
-    );
   };
 
   const withPreview = preview
@@ -202,13 +200,15 @@ export function AnnotationLayer({ page, zoom, width, height }: AnnotationLayerPr
         <CommentCard pageId={page.id} annotation={selected} frame={frame} pageWidth={width} />
       )}
       {newTextAt && toolStyle && (
-        <NewTextEditor
-          at={newTextAt}
-          frame={frame}
-          fontSize={toolStyle.fontSize}
-          color={toolStyle.color}
-          onDone={finishNewText}
-        />
+        <Suspense fallback={null}>
+          <NewTextEditor
+            at={newTextAt}
+            frame={frame}
+            pageId={page.id}
+            revision={page.revision}
+            onDone={() => setNewTextAt(null)}
+          />
+        </Suspense>
       )}
     </>
   );

@@ -57,6 +57,34 @@ describe("page text in a session", () => {
     ]);
   });
 
+  it("undoes and redoes all styled runs in a block with one command", async () => {
+    const session = createDocumentSession(engine);
+    await session.load({ name: "Tide.pdf", bytes: corpusFile("text.pdf") });
+    const pageId = session.store.getState().pages[0]!.id;
+    const first = {
+      text: "Low ",
+      fontFamily: "Helvetica",
+      fontSize: 14,
+      bold: false,
+      italic: false,
+      underline: false,
+      color: { r: 0, g: 0, b: 0 },
+    } as const;
+    const second = { ...first, text: "tide  ", fontFamily: "Times", underline: true } as const;
+    session.dispatch((content) =>
+      addPageText(content, pageId, [[first, second]], { origin: { x: 72, y: 500 }, angle: 0, fontSize: 14 }),
+    );
+
+    expect(session.store.getState().undoLabel).toBe("Add text");
+    const objects = await session.readTextObjects(pageId);
+    expect(objects.at(-1)).toMatchObject({ text: "tide", style: { family: "serif" } });
+    expect(objects.slice(-2).map((object) => object.text.trimEnd())).toEqual(["Low", "tide"]);
+    session.undo();
+    expect(await session.readTextObjects(pageId)).toHaveLength(2);
+    session.redo();
+    expect((await session.readTextObjects(pageId)).slice(-2)).toEqual(objects.slice(-2));
+  });
+
   it("adds text with undo and redo, and the added text is editable like any other", async () => {
     const session = createDocumentSession(engine);
     await session.load({ name: "Tide.pdf", bytes: corpusFile("text.pdf") });

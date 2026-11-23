@@ -15,6 +15,7 @@ import { usePageAnnotations } from "../annotations/use-page-annotations";
 import { ColorSwatches } from "../primitives/ColorSwatches";
 import { PaperBoat } from "../primitives/PaperBoat";
 import { RangeField } from "../primitives/RangeField";
+import { TextProperties } from "../text-format/TextProperties";
 
 const TOOL_NAMES: Record<DrawingTool, string> = {
   note: "Note",
@@ -65,10 +66,10 @@ const FIELDS: Record<EditableAnnotation["kind"], readonly StyleField[]> = {
   textBox: ["color", "opacity", "fontSize"],
 };
 
-/** The style fields each tool uses. New text is page text, so it has no opacity. */
+/** The style fields shown in the inspector for each tool. */
 const TOOL_FIELDS: Record<DrawingTool, readonly StyleField[]> = {
   ...FIELDS,
-  textBox: ["color", "fontSize"],
+  textBox: [],
   sign: ["color", "lineWidth"],
 };
 
@@ -78,19 +79,23 @@ const points = (value: number) => `${value} pt`;
 /**
  * The Properties section of the inspector: the selected annotation's style, or the style the tool
  * in hand will use, or a hint when there is neither.
+ * @param props Whether to hide the panel's heading.
  * @returns The panel's content.
  */
-export function PropertiesPanel() {
+export function PropertiesPanel({ hideHeading = false }: { readonly hideHeading?: boolean } = {}) {
   const selected = useAnnotationUi((state) => state.selected);
   const tool = useAnnotationUi((state) => state.tool);
-  if (selected) return <SelectedProperties selected={selected} />;
-  if (isDrawingTool(tool)) return <ToolProperties tool={tool} />;
+  if (selected) return <SelectedProperties selected={selected} hideHeading={hideHeading} />;
+  if (tool === "textBox") return <TextProperties hideHeading={hideHeading} />;
+  if (isDrawingTool(tool)) return <ToolProperties tool={tool} hideHeading={hideHeading} />;
   if (tool === "editText") {
     return (
-      <section className="grid gap-1" aria-labelledby="edit-text-title">
-        <h3 id="edit-text-title" className="font-hand text-xl">
-          Edit text
-        </h3>
+      <section className="grid gap-1" aria-labelledby={hideHeading ? undefined : "edit-text-title"}>
+        {!hideHeading && (
+          <h3 id="edit-text-title" className="font-hand text-xl">
+            Edit text
+          </h3>
+        )}
         <p className="text-sm text-muted">
           Click any outlined text on the page to change it. Enter keeps the change; Esc cancels. If the original font
           lacks a letter you type, the line uses the closest standard font.
@@ -109,18 +114,20 @@ export function PropertiesPanel() {
 
 /**
  * Style controls for the tool in hand. Changes apply to the next annotation it makes.
- * @param props The tool.
+ * @param props The tool and whether to hide its heading.
  * @returns The tool's controls.
  */
-function ToolProperties({ tool }: { readonly tool: DrawingTool }) {
+function ToolProperties({ tool, hideHeading }: { readonly tool: DrawingTool; readonly hideHeading: boolean }) {
   const style = useAnnotationUi((state) => state.styles[tool]);
   const setStyle = useAnnotationUi((state) => state.setStyle);
   return (
-    <section className="grid gap-4" aria-labelledby="tool-properties-title">
+    <section className="grid gap-4" aria-labelledby={hideHeading ? undefined : "tool-properties-title"}>
       <div className="grid gap-1">
-        <h3 id="tool-properties-title" className="font-hand text-xl">
-          {TOOL_NAMES[tool]} tool
-        </h3>
+        {!hideHeading && (
+          <h3 id="tool-properties-title" className="font-hand text-xl">
+            {TOOL_NAMES[tool]} tool
+          </h3>
+        )}
         <p className="text-sm text-muted">{TOOL_HINTS[tool]}</p>
       </div>
       {tool === "sign" && <SignatureList />}
@@ -132,23 +139,29 @@ function ToolProperties({ tool }: { readonly tool: DrawingTool }) {
 
 /**
  * Style controls for the selected annotation. Each change is one undoable edit.
- * @param props Which annotation is selected.
+ * @param props The selection and whether to hide its heading.
  * @returns Its controls, or a note when it cannot be changed.
  */
-function SelectedProperties({ selected }: { readonly selected: SelectedAnnotation }) {
+function SelectedProperties({
+  selected,
+  hideHeading,
+}: {
+  readonly selected: SelectedAnnotation;
+  readonly hideHeading: boolean;
+}) {
   const { session } = useEditorServices();
   const revision = useDocument((state) => annotationRevisionOf(state, selected.pageId));
   const annotation = usePageAnnotations(selected.pageId, revision).find((candidate) => candidate.id === selected.id);
   if (!annotation) return null;
 
-  const title = (
+  const title = !hideHeading && (
     <h3 id="selected-properties-title" className="font-hand text-xl">
       {ANNOTATION_NAMES[annotation.kind]}
     </h3>
   );
   if (!isEditable(annotation)) {
     return (
-      <section className="grid gap-1" aria-labelledby="selected-properties-title">
+      <section className="grid gap-1" aria-labelledby={hideHeading ? undefined : "selected-properties-title"}>
         {title}
         <p className="text-sm text-muted">Made in another app. You can delete it, but not change it here.</p>
       </section>
@@ -166,7 +179,7 @@ function SelectedProperties({ selected }: { readonly selected: SelectedAnnotatio
     fontSize: "fontSize" in annotation ? annotation.fontSize : 14,
   };
   return (
-    <section className="grid gap-4" aria-labelledby="selected-properties-title">
+    <section className="grid gap-4" aria-labelledby={hideHeading ? undefined : "selected-properties-title"}>
       {title}
       <StyleControls fields={FIELDS[annotation.kind]} style={style} onChange={change} />
     </section>

@@ -16,12 +16,13 @@ import {
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { Annotation } from "../annotations/annotation";
 import type { FormField } from "../forms/form-field";
-import type { PageTextObject, TextMatch, TextSelection } from "../page-text/page-text";
+import type { PageFont, PageTextObject, TextMatch, TextSelection } from "../page-text/page-text";
 import { EngineCallError } from "../engine/engine-client";
 import type {
   AssembleOptions,
   AssemblePart,
   EngineErrorCode,
+  DocId,
   EngineMethod,
   EngineParams,
   EngineResult,
@@ -50,6 +51,26 @@ export interface SessionEngine {
     params: EngineParams<M>,
     transfer?: Transferable[],
   ): CancellableWork<EngineResult<M>>;
+}
+
+interface RegisteredFont {
+  readonly documents: Set<DocId>;
+  readonly work: Promise<null>;
+}
+
+const fontsByEngine = new WeakMap<SessionEngine, Map<string, RegisteredFont>>();
+
+/**
+ * Gets registration state shared by sessions using the same worker.
+ * @param engine The worker connection.
+ * @returns The cache of font registrations.
+ */
+function fontRegistrations(engine: SessionEngine): Map<string, RegisteredFont> {
+  const existing = fontsByEngine.get(engine);
+  if (existing) return existing;
+  const registrations = new Map<string, RegisteredFont>();
+  fontsByEngine.set(engine, registrations);
+  return registrations;
 }
 
 /** Writes finished bytes somewhere (the UI passes a FileAdapter call). Resolves `null` if cancelled. */
@@ -112,6 +133,20 @@ export interface DocumentSession {
    * @returns The widgets in page order; empty for an unknown page.
    */
   readFormFields(pageId: string): Promise<readonly FormField[]>;
+  /**
+   * Reads the fonts used by text on one page.
+   * @param pageId The page to inspect.
+   * @returns Its distinct document font programs.
+   */
+  readPageFonts(pageId: string): Promise<readonly PageFont[]>;
+  /**
+   * Makes the font available for added text on a page's source document.
+   * @param pageId The destination page.
+   * @param fontId The stable font identifier.
+   * @param bytes Original font bytes retained by the caller.
+   * @returns The registration acknowledgement.
+   */
+  registerTextFont(pageId: string, fontId: string, bytes: ArrayBuffer): Promise<null>;
   /**
    * Every piece of the page's own text that can be edited, read once per page revision.
    * @param pageId A page id.
@@ -258,6 +293,8 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
   /** Page reads by revision; dropped when a document opens or closes. */
   const pageReads = new Map<string, Promise<unknown>>();
 
+  const registeredFonts = fontRegistrations(engine);
+
   const callEngine: CommandEngine = (method, params) => engine.call(method, params).promise;
 
   /**
@@ -268,7 +305,7 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
    * @returns The cached or fresh result; an empty list for an unknown page.
    */
   const readPage = <T>(
-    kind: "annotations" | "forms" | "text",
+    kind: "annotations" | "forms" | "text" | "fonts",
     pageId: string,
     read: (at: PageAddress) => Promise<readonly T[]>,
   ): Promise<readonly T[]> => {
@@ -336,9 +373,12 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
   };
 
   const closeSources = async (sources: Readonly<Record<string, SourceDoc>>): Promise<void> => {
-    await Promise.allSettled(
-      Object.values(sources).map((source) => engine.call("close", { docId: source.docId }).promise),
-    );
+    const closing = Object.values(sources);
+    for (const [fontId, registered] of registeredFonts) {
+      for (const { docId } of closing) registered.documents.delete(docId);
+      if (!registered.documents.size) registeredFonts.delete(fontId);
+    }
+    await Promise.allSettled(closing.map((source) => engine.call("close", { docId: source.docId }).promise));
   };
 
   const buildPdf = async (pageIds?: readonly string[], options: AssembleOptions = {}): Promise<ArrayBuffer> => {
@@ -466,6 +506,30 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
     readAnnotations,
     readFormFields,
     readTextObjects,
+
+    readPageFonts(pageId) {
+      return readPage("fonts", pageId, (at) => engine.call("getPageFonts", at).promise);
+    },
+
+    registerTextFont(pageId, fontId, bytes) {
+      const at = pageAddressOf(store.getState(), pageId);
+      if (!at) return Promise.reject(new Error("The destination page is no longer open."));
+      const registered = registeredFonts.get(fontId);
+      if (registered?.documents.has(at.docId)) return registered.work;
+      const copy = registered ? undefined : bytes.slice(0);
+      const work = engine.call(
+        "registerTextFont",
+        { docId: at.docId, fontId, bytes: copy },
+        copy ? [copy] : [],
+      ).promise;
+      const entry = { work, documents: registered?.documents ?? new Set<DocId>() };
+      entry.documents.add(at.docId);
+      registeredFonts.set(fontId, entry);
+      void work.catch(() => {
+        if (registeredFonts.get(fontId)?.documents === entry.documents) registeredFonts.delete(fontId);
+      });
+      return work;
+    },
 
     async textRects(pageId, from, to) {
       const at = pageAddressOf(store.getState(), pageId);

@@ -8,7 +8,16 @@ import type { PdfPoint, PdfRect } from "@pdf-editor/shared";
 import type { Annotation, EditableAnnotation } from "../annotations/annotation";
 import type { CommentReply } from "../annotations/comment";
 import type { FormField } from "../forms/form-field";
-import type { NewTextLine, NewTextStyle, PageTextObject, TextMatch, TextSelection } from "../page-text/page-text";
+import type {
+  NewTextLine,
+  NewTextStyle,
+  PageFont,
+  PageTextObject,
+  TextMatch,
+  TextRunLineLayout,
+  TextRunPlacement,
+  TextSelection,
+} from "../page-text/page-text";
 
 /** Identifies an open document inside the worker. */
 export type DocId = string;
@@ -100,9 +109,13 @@ export interface EngineMethods {
   getTextObjectAt: { params: PageAddress & { point: PdfPoint }; result: PageTextObject | null };
   /** Replaces a text object's text; the original is switched off and the replacement gets `newId`. */
   replacePageText: { params: PageAddress & { id: string; newId: string; text: string }; result: null };
-  /** Adds lines of page text, one text object (with the matching id) per line. */
+  getPageFonts: { params: PageAddress; result: PageFont[] };
+  registerTextFont: { params: { docId: DocId; fontId: string; bytes?: ArrayBuffer }; result: null };
+  /** Adds page text with one id per run and one per underline. */
   addPageText: {
-    params: PageAddress & NewTextStyle & { lines: readonly NewTextLine[]; ids: readonly string[] };
+    params: PageAddress & { ids: readonly string[] } & (
+        (NewTextStyle & { lines: readonly NewTextLine[] }) | (TextRunPlacement & { runs: readonly TextRunLineLayout[] })
+      );
     result: null;
   };
   /** Moves a page text object by a distance in PDF space. */
@@ -129,6 +142,7 @@ export type EngineErrorCode =
   | "unknown-annotation"
   | "annotation-failed"
   | "form-field-write-failed"
+  | "invalid-text-runs"
   | "text-edit-failed"
   | "engine-failed";
 

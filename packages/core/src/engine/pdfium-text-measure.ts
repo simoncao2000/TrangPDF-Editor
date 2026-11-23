@@ -90,11 +90,11 @@ export class TextMeasure {
    * How far the pen moves after a word: where a character written right after it would start.
    * @param face The font, size and document.
    * @param word The word.
+   * @param probe An inked character known to exist in the font.
    * @returns The advance in text space units, or `null` if the font cannot write the word.
    */
-  advanceOf(face: FontFace, word: string): number | null {
-    // A probe glyph the font surely has (the word's first) lands one advance after the word starts.
-    const probe = word[0]!;
+  advanceOf(face: FontFace, word: string, probe = word[0]!): number | null {
+    // An inked probe lands one advance after the word, including any trailing spaces.
     const withProbe = this.inkOf(face, word + probe);
     const alone = this.inkOf(face, probe);
     return withProbe && alone ? withProbe.right - alone.right : null;

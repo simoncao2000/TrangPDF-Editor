@@ -7,10 +7,19 @@ import { err, ok, type PdfPoint, type PdfRect, type Result } from "@pdf-editor/s
 import type { Annotation, EditableAnnotation } from "../annotations/annotation";
 import type { CommentReply } from "../annotations/comment";
 import type { FormField } from "../forms/form-field";
-import type { NewTextLine, NewTextStyle, PageTextObject, TextMatch, TextSelection } from "../page-text/page-text";
+import type {
+  PageFont,
+  PageTextObject,
+  TextRunFont,
+  TextMatch,
+  TextRunLineLayout,
+  TextRunPlacement,
+  TextSelection,
+} from "../page-text/page-text";
 import { PageAnnotations } from "./pdfium-annotations";
 import { PdfiumForms, type FormEnvironment, type FormFieldWriteError } from "./pdfium-forms";
-import { PageTextObjects, TextObjectIds, type PageContext } from "./pdfium-page-text";
+import { fontRequestKey, PageTextObjects, subsetKey, TextObjectIds, type PageContext } from "./pdfium-page-text";
+import { subsetFont } from "./font-subset";
 import { PageText } from "./pdfium-text";
 import type {
   AssembleOptions,
@@ -82,6 +91,32 @@ export class PdfiumEngine {
   private readonly text: PageText;
   private readonly textObjects: PageTextObjects;
 
+  private readonly fontBytes = new Map<string, ArrayBuffer>();
+  private readonly documentFonts = new Map<DocId, Set<string>>();
+
+  /**
+   * Registers a transferred font for an open document.
+   * @param docId The document using the font.
+   * @param fontId The stable font identifier.
+   * @param bytes The original TrueType bytes.
+   * @returns Whether registration succeeded.
+   */
+  registerTextFont(
+    docId: DocId,
+    fontId: string,
+    bytes?: ArrayBuffer,
+  ): Result<null, "unknown-document" | "text-edit-failed"> {
+    if (!this.docs.has(docId)) return err("unknown-document");
+    if (!this.fontBytes.has(fontId)) {
+      if (!bytes?.byteLength) return err("text-edit-failed");
+      this.fontBytes.set(fontId, bytes);
+    }
+    const fonts = this.documentFonts.get(docId) ?? new Set<string>();
+    fonts.add(fontId);
+    this.documentFonts.set(docId, fonts);
+    return ok(null);
+  }
+
   /**
    * Use `PdfiumEngine.create()`.
    * @param pdfium An initialised PDFium module.
@@ -149,6 +184,11 @@ export class PdfiumEngine {
     this.pdfium.FPDF_CloseDocument(doc.handle);
     this.pdfium.pdfium.wasmExports.free(doc.bufferPtr);
     this.docs.delete(docId);
+    const fonts = this.documentFonts.get(docId);
+    this.documentFonts.delete(docId);
+    for (const id of fonts ?? []) {
+      if (![...this.documentFonts.values()].some((registered) => registered.has(id))) this.fontBytes.delete(id);
+    }
   }
 
   /**
@@ -345,6 +385,15 @@ export class PdfiumEngine {
   }
 
   /**
+   * Lists font programs used by text on the requested page.
+   * @param at An open document's page.
+   * @returns The page's font choices.
+   */
+  getPageFonts(at: PageAddress): Result<PageFont[], "unknown-document"> {
+    return this.withHeldPage(at, (page) => ok(this.textObjects.listFonts(page)));
+  }
+
+  /**
    * Replaces a line's text, keeping the original (switched off) for undo.
    * @param at An open document's page.
    * @param id The line's id.
@@ -364,21 +413,59 @@ export class PdfiumEngine {
   }
 
   /**
-   * Adds lines of page text in Helvetica.
+   * Adds styled runs of page text.
    * @param at An open document's page.
    * @param lines The lines and where each baseline starts.
-   * @param style Size, colour and angle.
-   * @param ids One id per line.
+   * @param style The first baseline, blank line size and angle.
+   * @param ids One id per object.
    * @returns `text-edit-failed` if PDFium refused the text.
    */
-  addPageText(
+  async addPageText(
     at: PageAddress,
-    lines: readonly NewTextLine[],
-    style: NewTextStyle,
+    lines: readonly TextRunLineLayout[],
+    style: TextRunPlacement,
     ids: readonly string[],
-  ): Result<null, "unknown-document" | "text-edit-failed"> {
+  ): Promise<Result<null, "unknown-document" | "text-edit-failed">> {
+    const registered = this.documentFonts.get(at.docId);
+    const subsets = new Map<string, ArrayBuffer>();
+    const borrowed = new Map<string, number>();
+    const textByFont = new Map<string, { font: Extract<TextRunFont, { kind: "embedded" }>; text: string }>();
+    for (const { runs } of lines) {
+      for (const { font, text } of runs) {
+        if (font?.kind !== "embedded") continue;
+        const key = fontRequestKey(font);
+        const block = textByFont.get(key) ?? { font, text: "" };
+        block.text += text.normalize("NFC") + " ";
+        textByFont.set(key, block);
+      }
+    }
+    const entireBlock = lines.flatMap(({ runs }) => runs.map(({ text }) => text.normalize("NFC"))).join(" ");
+    const needed = new Map<string, { font: Extract<TextRunFont, { kind: "embedded" }>; text: string }>();
+    try {
+      for (const [key, { font, text }] of textByFont) {
+        if (font.documentFontId) {
+          const existing = this.withHeldPage(at, (page) => ok(this.textObjects.borrowFont(page, font, entireBlock)));
+          if (!existing.ok) return existing;
+          if (existing.value) {
+            borrowed.set(key, existing.value);
+            continue;
+          }
+        }
+        const keyForSubset = subsetKey(font);
+        const request = needed.get(keyForSubset) ?? { font, text: "" };
+        request.text += text;
+        needed.set(keyForSubset, request);
+      }
+      for (const [key, { font, text }] of needed) {
+        const bytes = registered?.has(font.fontId) ? this.fontBytes.get(font.fontId) : undefined;
+        if (!bytes) return err("text-edit-failed");
+        subsets.set(key, await subsetFont(bytes, text, font.weight));
+      }
+    } catch {
+      return err("text-edit-failed");
+    }
     return this.withHeldPage(at, (page) =>
-      this.textObjects.add(page, lines, style, ids) ? ok(null) : err("text-edit-failed"),
+      this.textObjects.add({ ...page, subsets, borrowed }, lines, style, ids) ? ok(null) : err("text-edit-failed"),
     );
   }
 

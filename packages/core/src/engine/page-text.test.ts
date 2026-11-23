@@ -1,6 +1,7 @@
 /** Editing and adding a page's own text through the engine, on a page with two lines of Helvetica. */
 import { beforeAll, describe, expect, it } from "bun:test";
 import { corpusFile, createTestEngine, type FakeBitmap } from "../testing/fixtures";
+import type { TextRun } from "../page-text/page-text";
 import type { EngineClient } from "./engine-client";
 
 let engine: EngineClient;
@@ -50,6 +51,17 @@ async function saveAndReopen(docId: string): Promise<string> {
   const { bytes } = await engine.call("assemble", { parts: [{ docId, pageIndex: 0, rotation: 0 }] }).promise;
   return (await engine.call("open", { source: { bytes } }).promise).docId;
 }
+
+const COURIER_RUN: TextRun = {
+  text: "Low ",
+  fontFamily: "Courier",
+  fontSize: 20,
+  bold: true,
+  italic: true,
+  underline: true,
+  color: BLACK,
+};
+const PLACEMENT = { origin: { x: 72, y: 500 }, angle: 0, fontSize: 14 };
 
 describe("page text", () => {
   it("finds the text object under a point, with its size, colour and font style", async () => {
@@ -148,6 +160,120 @@ describe("page text", () => {
     expect(await texts(docId)).toEqual(["Tide tables for the headland", "Check before you walk"]);
   });
 
+  it("saves and reopens a styled run block with the expected advances and styles", async () => {
+    const docId = await openText();
+    const ids = ["low", "low-underline", "tide"];
+    const tide: TextRun = {
+      ...COURIER_RUN,
+      text: "tide",
+      fontFamily: "Times",
+      fontSize: 16,
+      bold: false,
+      underline: false,
+      color: { r: 31, g: 78, b: 121 },
+    };
+    const at = { docId, pageIndex: 0 };
+    await engine.call("addPageText", {
+      ...at,
+      ...PLACEMENT,
+      ids,
+      runs: [{ runs: [COURIER_RUN, tide] }],
+    }).promise;
+    const saved = await saveAndReopen(docId);
+    const objects = await engine.call("getTextObjects", { ...at, docId: saved }).promise;
+    const [first, second] = objects.slice(-2);
+    expect(first).toMatchObject({
+      fontSize: 20,
+      style: { family: "mono", bold: true, italic: true },
+      color: BLACK,
+    });
+    expect(first?.text.trimEnd()).toBe("Low");
+    expect(second).toMatchObject({
+      text: "tide",
+      fontSize: 16,
+      style: { family: "serif", bold: false, italic: true },
+      color: tide.color,
+    });
+    // Four Courier characters advance 48 pt. The Times italic t starts its ink just past that.
+    expect(second!.bounds.x).toBeCloseTo(120.592, 2);
+    await engine.call("showPageText", { ...at, show: [], hide: ids }).promise;
+    expect(await texts(docId)).toEqual(["Tide tables for the headland", "Check before you walk"]);
+    await engine.call("showPageText", { ...at, show: ids, hide: [] }).promise;
+    expect((await texts(docId)).slice(-2).map((value) => value.trimEnd())).toEqual(["Low", "tide"]);
+  });
+
+  it("preserves the legacy WinAnsi result for Vietnamese text", async () => {
+    const oldDoc = await openText();
+    const newDoc = await openText();
+    const text = "Tiếng Việt có dấu";
+    const defaults = { ...COURIER_RUN, text, fontFamily: "Helvetica" } as const;
+    const run = { ...defaults, fontSize: 14, bold: false, italic: false, underline: false };
+    await engine.call("addPageText", {
+      docId: oldDoc,
+      pageIndex: 0,
+      ids: ["legacy"],
+      lines: [{ text, origin: PLACEMENT.origin }],
+      fontSize: 14,
+      color: BLACK,
+      angle: 0,
+    }).promise;
+    await engine.call("addPageText", {
+      docId: newDoc,
+      pageIndex: 0,
+      ids: ["styled"],
+      ...PLACEMENT,
+      runs: [{ runs: [run] }],
+    }).promise;
+    const legacy = (await texts(await saveAndReopen(oldDoc))).at(-1);
+    expect(legacy).toBe("Tiÿng Viÿt có dÿu");
+    expect((await texts(await saveAndReopen(newDoc))).at(-1)).toBe(legacy);
+  });
+
+  it("rejects invalid worker input and clamps valid font sizes", async () => {
+    const docId = await openText();
+    const at = { docId, pageIndex: 0 };
+    const run = { ...COURIER_RUN, text: "Size", underline: false, fontSize: 999 };
+    const params = { ...at, ...PLACEMENT, ids: ["test"] };
+    for (const bad of [
+      { ...run, fontFamily: "Other" },
+      { ...run, text: 42 },
+      { ...run, text: "x".repeat(65537) },
+      { ...run, color: { r: 0, g: 1.5, b: 256 } },
+      { ...run, fontSize: Infinity },
+    ]) {
+      const promise = engine.call("addPageText", {
+        ...params,
+        runs: [{ runs: [bad as TextRun] }],
+      }).promise;
+      expect(await promise.catch((error: { detail: unknown }) => error.detail)).toMatchObject({
+        code: "invalid-text-runs",
+      });
+    }
+    for (const runs of [
+      Array.from({ length: 257 }, () => ({ runs: [run] })),
+      [{ runs: Array.from({ length: 257 }, () => run) }],
+    ]) {
+      const promise = engine.call("addPageText", { ...params, runs }).promise;
+      expect(await promise.catch((error: { detail: unknown }) => error.detail)).toMatchObject({
+        code: "invalid-text-runs",
+      });
+    }
+    const plain = { ...run, underline: false };
+    const underlined = { ...plain, underline: true };
+    for (const [ids, mismatchRun] of [
+      [["one", "two"], plain],
+      [["one"], underlined],
+    ] as const) {
+      const promise = engine.call("addPageText", { ...params, ids, runs: [{ runs: [mismatchRun] }] }).promise;
+      expect(await promise.catch((error: { detail: unknown }) => error.detail)).toMatchObject({
+        code: "invalid-text-runs",
+      });
+    }
+    expect(await texts(docId)).toHaveLength(2);
+    await engine.call("addPageText", { ...params, runs: [{ runs: [run] }] }).promise;
+    expect((await engine.call("getTextObjects", at).promise).at(-1)?.fontSize).toBe(96);
+  });
+
   it("refuses an unknown id", async () => {
     const docId = await openText();
     const error = await engine
@@ -189,4 +315,51 @@ describe("page text", () => {
     expect(alphas.has(0)).toBe(true);
     expect([...alphas].some((alpha) => alpha! > 200)).toBe(true);
   });
+});
+
+it.each([400, 700] as const)("saves and reopens Vietnamese in embedded Inter %i", async (weight) => {
+  const docId = await openText();
+  const bytes = await Bun.file(new URL("../../../ui/src/assets/fonts/inter.ttf", import.meta.url)).arrayBuffer();
+  const fontId = "test-inter";
+  await engine.call("registerTextFont", { docId, fontId, bytes }, [bytes]).promise;
+  const text = "Tiếng Việt rất đẹp.";
+  const run: TextRun = {
+    text: text.normalize("NFD"),
+    font: { kind: "embedded", fontId, name: "Inter", weight, italic: false },
+    fontSize: 16,
+    color: BLACK,
+    bold: weight === 700,
+    italic: false,
+    underline: false,
+  };
+  await engine.call("addPageText", {
+    docId,
+    pageIndex: 0,
+    ...PLACEMENT,
+    ids: ["vietnamese"],
+    runs: [{ runs: [run] }],
+  }).promise;
+  const { bytes: saved } = await engine.call("assemble", { parts: [{ docId, pageIndex: 0, rotation: 0 }] }).promise;
+  console.info(`Inter ${weight}: ${saved.byteLength} bytes`);
+  const reopened = await engine.call("open", { source: { bytes: saved } }).promise;
+  expect((await texts(reopened.docId)).at(-1)).toBe(text);
+
+  const target = { docId: reopened.docId, pageIndex: 0 };
+  const documentFont = (await engine.call("getPageFonts", target).promise).find(({ name }) => name.includes("Inter"));
+  expect(documentFont).toBeDefined();
+  if (!documentFont || run.font?.kind !== "embedded") throw new Error("Inter was not embedded.");
+  const reference = { ...run.font, name: documentFont.name, documentFontId: documentFont.id };
+  // The reopened document has no registered fallback. This commit must borrow its existing font.
+  await engine.call("addPageText", {
+    ...target,
+    ...PLACEMENT,
+    origin: { x: 72, y: 450 },
+    ids: ["borrowed"],
+    runs: [{ runs: [{ ...run, font: reference }] }],
+  }).promise;
+  const savedAgain = await saveAndReopen(reopened.docId);
+  expect((await texts(savedAgain)).slice(-2)).toEqual([text, text]);
+  await engine.call("close", { docId: savedAgain }).promise;
+  await engine.call("close", { docId: reopened.docId }).promise;
+  await engine.call("close", { docId }).promise;
 });

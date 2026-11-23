@@ -42,6 +42,212 @@ export interface NewTextStyle {
   readonly angle: number;
 }
 
+/** Standard PDF families used for added text. */
+export type TextRunFamily = "Helvetica" | "Times" | "Courier";
+
+/** A face used by added text. Embedded identifiers are independent of asset locations. */
+export type TextRunFont =
+  | { readonly kind: "standard"; readonly family: TextRunFamily }
+  | {
+      readonly kind: "embedded";
+      readonly fontId: string;
+      readonly name: string;
+      readonly weight: 400 | 700;
+      readonly italic: boolean;
+      readonly documentFontId?: string;
+    };
+
+/** A font used by a text object on one page. The identifier is scoped to that page. */
+export interface PageFont {
+  readonly id: string;
+  readonly name: string;
+  readonly style: FontStyle;
+  readonly bytes?: ArrayBuffer;
+}
+
+/** One span with a uniform style, in PDF points and RGB channels. */
+export interface TextRun {
+  readonly text: string;
+  readonly fontFamily?: TextRunFamily;
+  readonly font?: TextRunFont;
+  readonly fontSize: number;
+  readonly bold: boolean;
+  readonly italic: boolean;
+  readonly underline: boolean;
+  readonly color: Rgb;
+}
+
+/** Paragraphs of text, including empty lines. */
+export type TextRunLines = readonly (readonly TextRun[])[];
+
+/** A line with an optional explicit baseline for legacy callers. */
+export interface TextRunLineLayout {
+  readonly runs: readonly TextRun[];
+  readonly origin?: PdfPoint;
+}
+
+/** Placement of an added text block in PDF space. */
+export interface TextRunPlacement {
+  readonly origin: PdfPoint;
+  readonly angle: number;
+  readonly fontSize: number;
+}
+
+/** Line height shared by the editor and writer. */
+export const TEXT_RUN_LINE_HEIGHT = 1.15;
+
+/**
+ * Adapts old explicitly positioned Helvetica lines.
+ * @param lines The old lines.
+ * @param style The old shared style.
+ * @returns A run per line, preserving the baselines.
+ */
+export function legacyTextRuns(lines: readonly NewTextLine[], style: NewTextStyle) {
+  return lines.map(({ text, origin }) => ({
+    origin,
+    runs: [
+      {
+        text,
+        fontFamily: "Helvetica",
+        fontSize: style.fontSize,
+        color: style.color,
+        bold: false,
+        italic: false,
+        underline: false,
+      },
+    ] satisfies TextRun[],
+  }));
+}
+
+/**
+ * Removes trailing whitespace and combines adjacent spans of the same style.
+ * @param lines Paragraphs of unprocessed runs.
+ * @returns Normalised paragraphs, retaining blank lines.
+ */
+export function normalizeTextRuns(lines: TextRunLines): TextRunLines {
+  return lines.map((line) => {
+    const merged: TextRun[] = [];
+    for (const run of line) {
+      if (!run.text) continue;
+      const last = merged.at(-1);
+      if (last && sameRunStyle(last, run)) {
+        merged[merged.length - 1] = { ...last, text: last.text + run.text };
+      } else {
+        merged.push(run);
+      }
+    }
+    while (merged.length) {
+      const last = merged.pop()!;
+      const text = last.text.trimEnd();
+      if (!text) continue;
+      merged.push({ ...last, text });
+      break;
+    }
+    return merged;
+  });
+}
+
+/**
+ * Reads the explicit face or adapts a legacy standard family.
+ * @param run The run's font fields.
+ * @returns The explicit font reference.
+ */
+export function textRunFont(run: Pick<TextRun, "font" | "fontFamily">): TextRunFont {
+  return run.font ?? { kind: "standard", family: run.fontFamily ?? "Helvetica" };
+}
+
+/**
+ * Compares two run fonts by face and instance.
+ * @param a The first font.
+ * @param b The second font.
+ * @returns Whether both references describe the same face.
+ */
+function sameRunFont(a: TextRunFont, b: TextRunFont): boolean {
+  if (a.kind === "standard") return b.kind === "standard" && a.family === b.family;
+  return (
+    b.kind === "embedded" &&
+    a.fontId === b.fontId &&
+    a.weight === b.weight &&
+    a.italic === b.italic &&
+    a.documentFontId === b.documentFontId &&
+    a.name === b.name
+  );
+}
+
+/**
+ * Checks whether two runs can share one PDF text object.
+ * @param a The first run.
+ * @param b The second run.
+ * @returns Whether their styles match.
+ */
+function sameRunStyle(a: TextRun, b: TextRun): boolean {
+  return (
+    sameRunFont(textRunFont(a), textRunFont(b)) &&
+    a.fontSize === b.fontSize &&
+    a.bold === b.bold &&
+    a.italic === b.italic &&
+    a.underline === b.underline &&
+    a.color.r === b.color.r &&
+    a.color.g === b.color.g &&
+    a.color.b === b.color.b
+  );
+}
+
+/** A run and its measured placement in PDF space. */
+export interface PositionedTextRun {
+  readonly run: TextRun;
+  readonly origin: PdfPoint;
+  readonly advance: number;
+}
+
+/**
+ * Finds the size controlling the line's pitch.
+ * @param runs The runs on one line.
+ * @param fallback The pitch size for an empty line.
+ * @returns The largest size on the line, or the fallback.
+ */
+export function textRunLineSize(runs: readonly TextRun[], fallback: number): number {
+  return runs.reduce((largest, run) => Math.max(largest, run.fontSize), 0) || fallback;
+}
+
+/**
+ * Places runs along rotated baselines and uses the largest size for each line's pitch.
+ * @param lines The paragraphs, optionally with explicit legacy baselines.
+ * @param placement The first baseline, blank line size and page angle.
+ * @param measure Returns a run's advance or null on failure.
+ * @returns The flattened positioned runs or null on measurement failure.
+ */
+export function layoutTextRuns(
+  lines: readonly TextRunLineLayout[],
+  placement: TextRunPlacement,
+  measure: (run: TextRun) => number | null,
+): PositionedTextRun[] | null {
+  const radians = (placement.angle * Math.PI) / 180;
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  const positioned: PositionedTextRun[] = [];
+  let down = 0;
+  for (const line of lines) {
+    const baseline = line.origin ?? {
+      x: placement.origin.x + down * sin,
+      y: placement.origin.y - down * cos,
+    };
+    let across = 0;
+    for (const run of line.runs) {
+      const advance = measure(run);
+      if (advance === null) return null;
+      positioned.push({
+        run,
+        advance,
+        origin: { x: baseline.x + across * cos, y: baseline.y + across * sin },
+      });
+      across += advance;
+    }
+    down += textRunLineSize(line.runs, placement.fontSize) * TEXT_RUN_LINE_HEIGHT;
+  }
+  return positioned;
+}
+
 /** Page text a reader selected. */
 export interface TextSelection {
   /** One rectangle per line, top line first, in PDF space. */

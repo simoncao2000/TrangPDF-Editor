@@ -12,7 +12,20 @@
  */
 import type { WrappedPdfiumModule } from "@embedpdf/pdfium";
 import type { PdfPoint, PdfRect } from "@pdf-editor/shared";
-import { standardFontFor, type NewTextLine, type NewTextStyle, type PageTextObject } from "../page-text/page-text";
+import {
+  layoutTextRuns,
+  withoutSubsetTag,
+  type FontStyle,
+  type PageFont,
+  standardFontFor,
+  type PageTextObject,
+  type PositionedTextRun,
+  type TextRun,
+  type TextRunFont,
+  type TextRunLineLayout,
+  type TextRunPlacement,
+} from "../page-text/page-text";
+import { canSubsetFont, fontTable, missingFontCharacter } from "../page-text/sfnt";
 import { PdfiumHeap } from "./pdfium-heap";
 import { LineMarks } from "./pdfium-line-marks";
 import { MATRIX_BYTES, TextMeasure } from "./pdfium-text-measure";
@@ -22,13 +35,34 @@ import { WordWriter } from "./pdfium-text-words";
 /** A point this close to a text object's box (in points) still hits it. */
 const HIT_TOLERANCE = 2;
 const OPAQUE = 255;
-/** The font new text is written in; every viewer has it. */
-const NEW_TEXT_FONT = "Helvetica";
+const PATH_OBJECT = 2;
+const WINDING_FILL = 2;
+const RUN_FAMILIES = { Helvetica: "sans", Times: "serif", Courier: "mono" } as const;
 /** How far (in points, both ways) switched-off objects are moved: well off any page. */
 const PARKING_OFFSET = -100_000;
 
+/**
+ * Identifies a static instance of an embedded face.
+ * @param font The embedded run font.
+ * @returns A subset key for this block.
+ */
+export function fontRequestKey(font: Extract<TextRunFont, { kind: "embedded" }>): string {
+  return JSON.stringify([font.fontId, font.weight, font.italic, font.documentFontId]);
+}
+
+/**
+ * Identifies the static subset for an original font file at a given weight.
+ * @param font The embedded reference with a concrete file id.
+ * @returns The subset key shared by runs using the same font instance.
+ */
+export function subsetKey(font: Extract<TextRunFont, { kind: "embedded" }>): string {
+  return JSON.stringify([font.fontId, font.weight]);
+}
+
 /** The page being edited: its document, the loaded page and the document's text ids. */
 export interface PageContext {
+  readonly borrowed?: ReadonlyMap<string, number>;
+  readonly subsets?: ReadonlyMap<string, ArrayBuffer>;
   /** The document handle; new objects belong to it. */
   readonly doc: number;
   /** A loaded (held) page handle. */
@@ -122,6 +156,98 @@ export class PageTextObjects {
   }
 
   /**
+   * Lists fonts used by active text objects on this loaded page.
+   * @param page The page to inspect.
+   * @returns The distinct faces, including their programs when available.
+   */
+  listFonts(page: PageContext): PageFont[] {
+    const seen = new Set<number>();
+    const fonts: PageFont[] = [];
+    const count = this.pdfium.FPDFPage_CountObjects(page.page);
+    for (let index = 0; index < count; index++) {
+      const object = this.pdfium.FPDFPage_GetObject(page.page, index);
+      if (!this.objects.isActiveText(object)) continue;
+      const font = this.pdfium.FPDFTextObj_GetFont(object);
+      if (!font || seen.has(font)) continue;
+      seen.add(font);
+      const name = withoutSubsetTag(this.objects.fontName(font));
+      if (!name) continue;
+      const bytes = this.fontData(font);
+      fonts.push({ id: String(index), name, style: this.pageFontStyle(font, bytes), ...(bytes && { bytes }) });
+    }
+    return fonts;
+  }
+
+  /**
+   * Reads a borrowed font's program without retaining its PDFium handle.
+   * @param font A font owned by a page object.
+   * @returns A copy of the font bytes if available.
+   */
+  private fontData(font: number): ArrayBuffer | undefined {
+    return this.heap.withBuffer(4, (sizePtr) => {
+      if (!sizePtr || !this.pdfium.FPDFFont_GetFontData(font, 0, 0, sizePtr)) return;
+      const length = this.heap.int(sizePtr);
+      if (length <= 0) return;
+      return this.heap.withBuffer(length, (ptr) => {
+        if (!ptr || !this.pdfium.FPDFFont_GetFontData(font, ptr, length, sizePtr)) return;
+        return this.pdfium.pdfium.HEAPU8.slice(ptr, ptr + length).buffer;
+      });
+    });
+  }
+
+  /**
+   * Uses the font program to identify static instances whose base names are unchanged.
+   * @param font The borrowed PDFium font handle.
+   * @param bytes Its font program if readable.
+   * @returns The face's family and variant.
+   */
+  private pageFontStyle(font: number, bytes?: ArrayBuffer): FontStyle {
+    const style = this.objects.styleOf(font);
+    const metrics = bytes && fontTable(bytes, "OS/2");
+    if (!metrics || metrics.byteLength < 64) return style;
+    return {
+      ...style,
+      bold: style.bold || metrics.getUint16(4) >= 600,
+      italic: style.italic || Boolean(metrics.getUint16(62) & 1),
+    };
+  }
+
+  /**
+   * Resolves a page font only when its outline and PDF encoding cover the entire block.
+   * @param page The loaded destination page.
+   * @param reference The requested face and style.
+   * @param text The normalized block text.
+   * @returns A borrowed font handle usable while the page is held, or zero.
+   */
+  borrowFont(page: PageContext, reference: Extract<TextRunFont, { kind: "embedded" }>, text: string): number {
+    if (!reference.documentFontId) return 0;
+    const index = Number(reference.documentFontId);
+    if (!Number.isSafeInteger(index) || index < 0 || index >= this.pdfium.FPDFPage_CountObjects(page.page)) return 0;
+    const object = this.pdfium.FPDFPage_GetObject(page.page, index);
+    if (!this.objects.isActiveText(object)) return 0;
+    const font = this.pdfium.FPDFTextObj_GetFont(object);
+    if (!font || withoutSubsetTag(this.objects.fontName(font)) !== reference.name) return 0;
+    const bytes = this.fontData(font);
+    const style = this.pageFontStyle(font, bytes);
+    if (style.italic !== reference.italic || style.bold !== (reference.weight === 700)) return 0;
+    const sample = [...new Set(text)].join("");
+    if (!bytes || !canSubsetFont(bytes) || missingFontCharacter(bytes, sample + " ")) return 0;
+    const probe = this.pdfium.FPDFPageObj_CreateTextObj(page.doc, font, 12);
+    if (!probe) return 0;
+    let inserted = false;
+    try {
+      if (!this.heap.withWideString(sample, (ptr) => this.pdfium.FPDFText_SetText(probe, ptr))) return 0;
+      this.pdfium.FPDFPage_InsertObject(page.page, probe);
+      inserted = true;
+      const read = this.objects.withTextPage(page.page, (textPage) => this.objects.readText(textPage, probe));
+      return read === sample ? font : 0;
+    } finally {
+      if (inserted) this.objects.discard(page.page, [probe]);
+      else this.pdfium.FPDFPageObj_Destroy(probe);
+    }
+  }
+
+  /**
    * The line under a point; the topmost one when they overlap.
    * @param page The page.
    * @param point A point in PDF space.
@@ -207,32 +333,125 @@ export class PageTextObjects {
   }
 
   /**
-   * Adds lines of text to the page, in Helvetica, after everything else on it.
-   * @param page The page.
-   * @param lines The lines, each with where its baseline starts.
-   * @param style Size, colour and angle.
-   * @param newIds One id per line.
-   * @returns False if PDFium refused a line (none are added then).
+   * Stages the entire block before adding any of its objects to the page.
+   * @param page The destination page.
+   * @param lines Styled lines with optional explicit baselines.
+   * @param placement The first baseline, blank line size and angle.
+   * @param ids One id for each staged object.
+   * @returns Whether the full block was inserted.
    */
-  add(page: PageContext, lines: readonly NewTextLine[], style: NewTextStyle, newIds: readonly string[]): boolean {
-    const radians = (style.angle * Math.PI) / 180;
-    const [cos, sin] = [Math.cos(radians), Math.sin(radians)];
-    const created: number[] = [];
-    for (const line of lines) {
-      const object = this.pdfium.FPDFPageObj_NewTextObj(page.doc, NEW_TEXT_FONT, style.fontSize);
-      const written = object && this.heap.withWideString(line.text, (ptr) => this.pdfium.FPDFText_SetText(object, ptr));
-      if (!written) {
-        if (object) this.pdfium.FPDFPageObj_Destroy(object);
-        this.objects.discard(page.page, created);
-        return false;
+  add(
+    page: PageContext,
+    lines: readonly TextRunLineLayout[],
+    placement: TextRunPlacement,
+    ids: readonly string[],
+  ): boolean {
+    if (ids.some((id) => page.ids.handlesOf(id).length)) return false;
+    const fonts = new Map<string, number>();
+    const texts: number[] = [];
+    const staged: number[] = [];
+    let inserted = false;
+    try {
+      const positioned = layoutTextRuns(lines, placement, (run) => {
+        const object = this.newRunObject(page, run, fonts);
+        if (!object) return null;
+        texts.push(object);
+        const embedded = run.font?.kind === "embedded";
+        const text = embedded ? run.text.normalize("NFC") : run.text;
+        const written = this.heap.withWideString(text, (ptr) => this.pdfium.FPDFText_SetText(object, ptr));
+        if (!written || !this.fillRun(object, run)) return null;
+        const font = this.pdfium.FPDFTextObj_GetFont(object);
+        return this.measure.advanceOf(
+          { doc: page.doc, font, size: run.fontSize },
+          text,
+          embedded ? ([...text].find((char) => char.trim()) ?? " ") : "A",
+        );
+      });
+      if (!positioned) return false;
+      const radians = (placement.angle * Math.PI) / 180;
+      const cos = Math.cos(radians);
+      const sin = Math.sin(radians);
+      for (const [index, run] of positioned.entries()) {
+        const matrix = [cos, sin, -sin, cos, run.origin.x, run.origin.y];
+        const object = texts[index]!;
+        if (!this.setMatrix(object, matrix)) return false;
+        staged.push(object);
+        if (run.run.underline && !this.stageUnderline(run, matrix, staged)) return false;
       }
-      this.pdfium.FPDFPageObj_Transform(object, cos, sin, -sin, cos, line.origin.x, line.origin.y);
-      this.pdfium.FPDFPageObj_SetFillColor(object, style.color.r, style.color.g, style.color.b, OPAQUE);
-      this.pdfium.FPDFPage_InsertObject(page.page, object);
-      created.push(object);
+      if (ids.length !== staged.length) return false;
+      staged.forEach((object, index) => {
+        this.pdfium.FPDFPage_InsertObject(page.page, object);
+        page.ids.register(ids[index]!, [object]);
+      });
+      inserted = true;
+      return true;
+    } finally {
+      if (!inserted) {
+        for (const object of new Set([...staged, ...texts])) this.pdfium.FPDFPageObj_Destroy(object);
+      }
+      for (const font of fonts.values()) this.pdfium.FPDFFont_Close(font);
     }
-    created.forEach((object, i) => page.ids.register(newIds[i]!, [object]));
-    return true;
+  }
+
+  /**
+   * Creates a run object with a standard family or a static embedded font.
+   * @param page The destination and prepared subsets.
+   * @param run The text and style.
+   * @param fonts Font handles owned by this addition.
+   * @returns The new object handle, or zero on failure.
+   */
+  private newRunObject(page: PageContext, run: TextRun, fonts: Map<string, number>): number {
+    if (run.font?.kind !== "embedded") {
+      const family = run.font?.family ?? run.fontFamily ?? "Helvetica";
+      const name = standardFontFor({ ...run, family: RUN_FAMILIES[family] });
+      return this.pdfium.FPDFPageObj_NewTextObj(page.doc, name, run.fontSize);
+    }
+    const borrowed = page.borrowed?.get(fontRequestKey(run.font));
+    if (borrowed) return this.pdfium.FPDFPageObj_CreateTextObj(page.doc, borrowed, run.fontSize);
+    const key = subsetKey(run.font);
+    let handle = fonts.get(key);
+    if (!handle) {
+      const subset = page.subsets?.get(key);
+      if (!subset) return 0;
+      handle = this.heap.withBuffer(subset.byteLength, (ptr) => {
+        if (!ptr) return 0;
+        this.pdfium.pdfium.HEAPU8.set(new Uint8Array(subset), ptr);
+        return this.pdfium.FPDFText_LoadFont(page.doc, ptr, subset.byteLength, 2, true);
+      });
+      if (!handle) return 0;
+      fonts.set(key, handle);
+    }
+    return this.pdfium.FPDFPageObj_CreateTextObj(page.doc, handle, run.fontSize);
+  }
+
+  /**
+   * Applies the run's colour to a text or path object.
+   * @param object The PDFium handle.
+   * @param run The run whose colour to use.
+   * @returns Whether the colour was set.
+   */
+  private fillRun(object: number, run: TextRun): boolean {
+    const { r, g, b } = run.color;
+    return this.pdfium.FPDFPageObj_SetFillColor(object, r, g, b, OPAQUE);
+  }
+
+  /**
+   * Creates a filled rectangle in baseline coordinates.
+   * @param positioned The run and its advance.
+   * @param matrix The baseline transform.
+   * @param staged Objects to insert or destroy together.
+   * @returns Whether the underline is ready.
+   */
+  private stageUnderline(positioned: PositionedTextRun, matrix: number[], staged: number[]): boolean {
+    const { run, advance } = positioned;
+    const path = this.pdfium.FPDFPageObj_CreateNewRect(0, -run.fontSize * 0.13, advance, run.fontSize * 0.05);
+    if (!path) return false;
+    staged.push(path);
+    return (
+      this.pdfium.FPDFPath_SetDrawMode(path, WINDING_FILL, false) &&
+      this.fillRun(path, run) &&
+      this.setMatrix(path, matrix)
+    );
   }
 
   /**
@@ -312,6 +531,10 @@ export class PageTextObjects {
    * @param handle The object.
    */
   private switchOff(ids: TextObjectIds, handle: number): void {
+    if (this.pdfium.FPDFPageObj_GetType(handle) === PATH_OBJECT) {
+      this.pdfium.FPDFPageObj_SetIsActive(handle, false);
+      return;
+    }
     if (!this.objects.isActiveText(handle)) return;
     const matrix = this.measure.matrixOf(handle);
     ids.park(handle, matrix);
@@ -335,11 +558,12 @@ export class PageTextObjects {
    * Sets a page object's matrix.
    * @param handle The object.
    * @param matrix [a, b, c, d, e, f].
+   * @returns Whether PDFium accepted the matrix.
    */
-  private setMatrix(handle: number, matrix: readonly number[]): void {
-    this.heap.withBuffer(MATRIX_BYTES, (ptr) => {
+  private setMatrix(handle: number, matrix: readonly number[]): boolean {
+    return this.heap.withBuffer(MATRIX_BYTES, (ptr) => {
       this.heap.writeFloats(ptr, matrix);
-      this.pdfium.FPDFPageObj_SetMatrix(handle, ptr);
+      return this.pdfium.FPDFPageObj_SetMatrix(handle, ptr);
     });
   }
 

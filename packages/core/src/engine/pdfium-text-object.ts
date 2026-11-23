@@ -269,7 +269,7 @@ export class TextObjectAccess {
    * @param font A font handle.
    * @returns The name (UTF-8), or "" when unknown.
    */
-  private fontName(font: number): string {
+  fontName(font: number): string {
     if (!font) return "";
     const bytes = this.pdfium.FPDFFont_GetBaseFontName(font, 0, 0);
     if (bytes <= 1) return "";

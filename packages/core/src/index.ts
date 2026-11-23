@@ -38,3 +38,5 @@ export * from "./geometry/zoom";
 export * from "./geometry/page-layout";
 export * from "./geometry/coordinates";
 export { inspectPdfBytes } from "./validate";
+
+export { canSubsetFont, missingFontCharacter } from "./page-text/sfnt";
