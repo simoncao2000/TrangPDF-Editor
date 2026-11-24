@@ -7,7 +7,7 @@
  * are stripped when a file is built (`stripRemoved`).
  */
 import type { WrappedPdfiumModule } from "@embedpdf/pdfium";
-import type { PdfPoint, PdfRect } from "@pdf-editor/shared";
+import { err, ok, type PdfPoint, type PdfRect, type Result } from "@pdf-editor/shared";
 import {
   isTextMarkup,
   type Annotation,
@@ -16,7 +16,8 @@ import {
   type Rgb,
   type TextMarkupKind,
 } from "../annotations/annotation";
-import type { CommentNote, CommentReply } from "../annotations/comment";
+import { plainComment, type CommentNote, type CommentReply } from "../annotations/comment";
+import { encodeComment, MAX_COMMENT_XHTML } from "./comment-xhtml";
 import { AnnotationComments, AnnotationStrings } from "./pdfium-comments";
 import { AnnotationImages } from "./pdfium-images";
 import { FLOAT_BYTES, INT_BYTES, POINT_BYTES, PdfiumHeap, QUAD_BYTES, RECT_BYTES } from "./pdfium-heap";
@@ -89,41 +90,39 @@ export class PageAnnotations {
   private readonly comments: AnnotationComments;
   private readonly strings: AnnotationStrings;
   private readonly images: AnnotationImages;
-  private readonly newId: () => string;
 
   /**
    * @param pdfium An initialised PDFium module.
-   * @param newId Makes ids for annotations that arrive without a name.
    */
-  constructor(pdfium: WrappedPdfiumModule, newId: () => string = () => crypto.randomUUID()) {
+  constructor(pdfium: WrappedPdfiumModule) {
     this.pdfium = pdfium;
     this.heap = new PdfiumHeap(pdfium);
     this.comments = new AnnotationComments(pdfium);
     this.strings = new AnnotationStrings(pdfium);
     this.images = new AnnotationImages(pdfium);
-    this.newId = newId;
   }
 
   /**
    * Lists a page's visible annotations, in drawing order, each with its replies (replies are not
-   * listed on their own) and, for highlights, the text they cover. Annotations without a name get
-   * one, so every annotation can be addressed later.
+   * listed on their own) and, for highlights, the text they cover. Unnamed annotations are
+   * addressed without writing to their dictionaries.
    * @param page A loaded page.
+   * @param plainOnly Whether to skip rich comment decoding.
    * @returns The annotations.
    */
-  list(page: number): Annotation[] {
+  list(page: number, plainOnly = false): Annotation[] {
     const result: Annotation[] = [];
     const replies = new Map<string, CommentReply[]>();
     this.forEach(page, (annot) => {
       const subtype = this.pdfium.FPDFAnnot_GetSubtype(annot);
       if (NOT_LISTED.has(subtype) || this.isHidden(annot)) return;
-      const parentId = this.comments.parentOf(annot);
-      if (parentId === null) result.push(this.read(annot, subtype));
-      else replies.set(parentId, [...(replies.get(parentId) ?? []), this.readReply(annot)]);
+      const parentId = this.comments.parentOf(page, annot);
+      if (parentId === null) result.push(this.read(page, annot, subtype, plainOnly));
+      else replies.set(parentId, [...(replies.get(parentId) ?? []), this.readReply(page, annot, plainOnly)]);
     });
     return result.map((annotation) => {
       const thread = replies.get(annotation.id);
-      const quote = isTextMarkup(annotation) ? this.comments.quote(page, annotation.lines) : "";
+      const quote = !plainOnly && isTextMarkup(annotation) ? this.comments.quote(page, annotation.lines) : "";
       return { ...annotation, ...(thread ? { replies: thread } : {}), ...(quote ? { quote } : {}) };
     });
   }
@@ -134,18 +133,24 @@ export class PageAnnotations {
    * @param page A loaded page.
    * @param parentId The annotation it answers.
    * @param reply The reply.
-   * @returns False if the page has no annotation `parentId` or PDFium refused the reply.
+   * @returns Success or the reason the reply could not be written.
    */
-  putReply(page: number, parentId: string, reply: CommentReply): boolean {
+  putReply(
+    page: number,
+    parentId: string,
+    reply: CommentReply,
+  ): Result<null, "unknown-annotation" | "rich-comment-too-large"> {
+    const content = encodeComment(reply.body);
+    if (content.rich.length > MAX_COMMENT_XHTML) return err("rich-comment-too-large");
     const parent = this.find(page, parentId);
-    if (!parent) return false;
+    if (!parent) return err("unknown-annotation");
     try {
       const annot = this.find(page, reply.id) || this.comments.createReply(page, parent, reply.id);
-      if (!annot) return false;
+      if (!annot) return err("unknown-annotation");
       try {
         this.unhide(annot);
-        this.comments.write(annot, reply);
-        return true;
+        this.comments.write(annot, reply, content);
+        return ok(null);
       } finally {
         this.pdfium.FPDFPage_CloseAnnot(annot);
       }
@@ -160,29 +165,50 @@ export class PageAnnotations {
    * @param doc The document handle (new images belong to it).
    * @param page A loaded page.
    * @param annotation The annotation to write.
-   * @returns The annotation as stored, or `null` if PDFium refused it.
+   * @param editComment Whether to replace the stored comment on an existing annotation.
+   * @returns The annotation as stored or the reason it could not be written.
    */
-  put(doc: number, page: number, annotation: EditableAnnotation): Annotation | null {
-    let annot = this.find(page, annotation.id);
-    if (annot && this.needsRecreating(annot, annotation)) {
-      this.removeHandle(page, annot);
-      annot = 0;
-    }
-    if (!annot) {
-      annot = this.pdfium.FPDFPage_CreateAnnot(page, SUBTYPE_OF[annotation.kind]);
-      if (!annot) return null;
-      this.strings.set(annot, NAME_KEY, annotation.id);
-      // Printed like the rest of the page (other readers leave out marks without this flag).
-      this.pdfium.FPDFAnnot_SetFlags(annot, FLAG_PRINT);
-    }
+  put(
+    doc: number,
+    page: number,
+    annotation: EditableAnnotation,
+    editComment = false,
+  ): Result<Annotation, "annotation-failed" | "rich-comment-too-large"> {
+    const existing = this.find(page, annotation.id);
+    let annot = existing;
     try {
+      const replace = existing && !editComment && this.needsRecreating(existing, annotation);
+      if (replace && this.hasCommentData(page, existing, annotation.id)) return err("annotation-failed");
+      const note = annotation.kind !== "textBox" && (!existing || editComment) ? annotation.comment : undefined;
+      const content = note && encodeComment(note.body);
+      if (content && content.rich.length > MAX_COMMENT_XHTML) return err("rich-comment-too-large");
+      if (editComment && existing) {
+        if (note && content) this.comments.write(existing, note, content);
+        return ok(this.read(page, existing, this.pdfium.FPDFAnnot_GetSubtype(existing)));
+      }
+      if (!existing || replace) {
+        annot = this.pdfium.FPDFPage_CreateAnnot(page, SUBTYPE_OF[annotation.kind]);
+        if (!annot) return err("annotation-failed");
+        this.strings.set(annot, NAME_KEY, annotation.id);
+        // Printed like the rest of the page (other readers leave out marks without this flag).
+        this.pdfium.FPDFAnnot_SetFlags(annot, FLAG_PRINT);
+      }
       this.unhide(annot);
       this.write(doc, annot, annotation);
+      if (note && content) this.comments.write(annot, note, content);
       // An image's appearance is its picture, which writing it already built.
       if (annotation.kind !== "image") this.pdfium.EPDFAnnot_GenerateAppearance(annot);
-      return this.read(annot, SUBTYPE_OF[annotation.kind]);
+      if (replace) {
+        const index = this.pdfium.FPDFPage_GetAnnotIndex(page, existing);
+        if (!this.pdfium.FPDFPage_RemoveAnnot(page, index)) {
+          this.pdfium.FPDFPage_RemoveAnnot(page, this.pdfium.FPDFPage_GetAnnotIndex(page, annot));
+          return err("annotation-failed");
+        }
+      }
+      return ok(this.read(page, annot, SUBTYPE_OF[annotation.kind]));
     } finally {
-      this.pdfium.FPDFPage_CloseAnnot(annot);
+      if (annot && annot !== existing) this.pdfium.FPDFPage_CloseAnnot(annot);
+      if (existing) this.pdfium.FPDFPage_CloseAnnot(existing);
     }
   }
 
@@ -266,7 +292,7 @@ export class PageAnnotations {
     const count = this.pdfium.FPDFPage_GetAnnotCount(page);
     for (let index = 0; index < count; index++) {
       const annot = this.pdfium.FPDFPage_GetAnnot(page, index);
-      if (annot && this.strings.get(annot, NAME_KEY) === id) return annot;
+      if (annot && this.strings.annotationId(page, annot) === id) return annot;
       if (annot) this.pdfium.FPDFPage_CloseAnnot(annot);
     }
     return 0;
@@ -291,30 +317,31 @@ export class PageAnnotations {
   }
 
   /**
-   * Deletes an annotation outright and closes its handle.
+   * Checks whether replacing an annotation would lose comment entries or break reply links.
    * @param page A loaded page.
-   * @param annot The annotation's handle.
+   * @param annot The annotation handle.
+   * @param id The annotation id.
+   * @returns Whether the original dictionary must be preserved.
    */
-  private removeHandle(page: number, annot: number): void {
-    const index = this.pdfium.FPDFPage_GetAnnotIndex(page, annot);
-    this.pdfium.FPDFPage_CloseAnnot(annot);
-    if (index >= 0) this.pdfium.FPDFPage_RemoveAnnot(page, index);
+  private hasCommentData(page: number, annot: number, id: string): boolean {
+    if (this.comments.hasEntries(annot, this.pdfium.FPDFAnnot_GetSubtype(annot) === SUBTYPE.freeText)) return true;
+    let hasReplies = false;
+    this.forEach(page, (candidate) => {
+      hasReplies ||= this.comments.parentOf(page, candidate) === id;
+    });
+    return hasReplies;
   }
 
   /**
    * Whether an existing annotation cannot be updated in place: a different kind, or a highlight
-   * whose number of lines changed (PDFium can replace quads but not remove them).
+   * with fewer lines (PDFium can replace and append quads).
    * @param annot Existing annotation handle.
    * @param next What it should become.
    * @returns True when it has to be deleted and created again.
    */
   private needsRecreating(annot: number, next: EditableAnnotation): boolean {
     if (this.pdfium.FPDFAnnot_GetSubtype(annot) !== SUBTYPE_OF[next.kind]) return true;
-    return (
-      isTextMarkup(next) &&
-      this.pdfium.FPDFAnnot_CountAttachmentPoints(annot) !== next.lines.length &&
-      this.pdfium.FPDFAnnot_CountAttachmentPoints(annot) > 0
-    );
+    return isTextMarkup(next) && this.pdfium.FPDFAnnot_CountAttachmentPoints(annot) > next.lines.length;
   }
 
   /**
@@ -383,8 +410,6 @@ export class PageAnnotations {
         pdfium.EPDFAnnot_SetDefaultAppearance(annot, FONT_HELVETICA, annotation.fontSize, r, g, b);
         break;
     }
-    // A text box's /Contents is its text, so it carries no comment of its own.
-    if (annotation.kind !== "textBox" && annotation.comment) this.comments.write(annot, annotation.comment);
   }
 
   /**
@@ -405,19 +430,21 @@ export class PageAnnotations {
 
   /**
    * Reads an annotation into a record.
+   * @param page The annotation page.
    * @param annot The annotation handle.
    * @param subtype Its FPDF_ANNOT_* subtype.
+   * @param plainOnly Whether to skip rich comment decoding.
    * @returns The record.
    */
-  private read(annot: number, subtype: number): Annotation {
+  private read(page: number, annot: number, subtype: number, plainOnly = false): Annotation {
     const base = {
-      id: this.ensureName(annot),
+      id: this.strings.annotationId(page, annot),
       rect: this.heap.withBuffer(RECT_BYTES, (ptr) =>
         this.pdfium.FPDFAnnot_GetRect(annot, ptr) ? this.heap.readRect(ptr) : { x: 0, y: 0, width: 0, height: 0 },
       ),
       color: this.readColor(annot) ?? DEFAULT_COLOR,
       opacity: this.readOpacity(annot),
-      ...this.commentOf(annot, subtype),
+      ...this.commentOf(annot, subtype, plainOnly),
     };
     const markup = MARKUP_OF[subtype];
     if (markup) return { ...base, kind: markup, lines: this.readLines(annot) };
@@ -452,29 +479,24 @@ export class PageAnnotations {
    * The comment on an annotation, as a record field.
    * @param annot The annotation handle.
    * @param subtype Its FPDF_ANNOT_* subtype.
+   * @param plainOnly Whether to skip rich comment decoding.
    * @returns `{ comment }`, or nothing for a text box (its /Contents is its text) or no comment.
    */
-  private commentOf(annot: number, subtype: number): { comment?: CommentNote } {
-    const comment = subtype === SUBTYPE.freeText ? undefined : this.comments.read(annot);
+  private commentOf(annot: number, subtype: number, plainOnly: boolean): { comment?: CommentNote } {
+    const comment = subtype === SUBTYPE.freeText ? undefined : this.comments.read(annot, plainOnly);
     return comment ? { comment } : {};
   }
 
   /**
    * Reads a reply.
+   * @param page The annotation page.
    * @param annot The reply's handle.
+   * @param plainOnly Whether to skip rich comment decoding.
    * @returns The record.
    */
-  private readReply(annot: number): CommentReply {
-    return { id: this.ensureName(annot), ...(this.comments.read(annot) ?? { text: "", author: "", modified: null }) };
-  }
-
-  /**
-   * The annotation's name, giving it a new one if it has none.
-   * @param annot The annotation handle.
-   * @returns Its id.
-   */
-  private ensureName(annot: number): string {
-    return this.strings.ensureName(annot, this.newId).id;
+  private readReply(page: number, annot: number, plainOnly: boolean): CommentReply {
+    const note = this.comments.read(annot, plainOnly) ?? { body: plainComment(""), author: "", modified: null };
+    return { id: this.strings.annotationId(page, annot), ...note };
   }
 
   /**

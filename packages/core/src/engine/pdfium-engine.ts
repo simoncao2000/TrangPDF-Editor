@@ -35,6 +35,7 @@ import type {
   AssemblePart,
   DocId,
   EngineErrorCode,
+  EngineResult,
   PageAddress,
   PageGeometry,
   Rotation,
@@ -262,10 +263,11 @@ export class PdfiumEngine {
   /**
    * Lists a page's visible annotations.
    * @param at An open document's page.
+   * @param plainOnly Whether to skip rich comment decoding.
    * @returns The annotations in drawing order.
    */
-  getAnnotations(at: PageAddress): Result<Annotation[], "unknown-document"> {
-    return this.withPage(at, (page) => ok(this.annotations.list(page)));
+  getAnnotations(at: PageAddress, plainOnly = false): Result<Annotation[], "unknown-document"> {
+    return this.withPage(at, (page) => ok(this.annotations.list(page, plainOnly)));
   }
 
   /**
@@ -296,17 +298,16 @@ export class PdfiumEngine {
    * Creates or updates an annotation the editor draws itself.
    * @param at An open document's page.
    * @param annotation The annotation; its id decides whether it is new.
+   * @param editComment Whether to replace the stored comment on an existing annotation.
    * @returns The annotation as stored (PDFium may grow the box to fit line widths).
    */
   putAnnotation(
     at: PageAddress,
     annotation: EditableAnnotation,
-  ): Result<Annotation, "unknown-document" | "annotation-failed"> {
+    editComment = false,
+  ): Result<Annotation, "unknown-document" | "annotation-failed" | "rich-comment-too-large"> {
     const doc = this.docs.get(at.docId)?.handle ?? 0;
-    return this.withPage(at, (page) => {
-      const stored = this.annotations.put(doc, page, annotation);
-      return stored ? ok(stored) : err("annotation-failed");
-    });
+    return this.withPage(at, (page) => this.annotations.put(doc, page, annotation, editComment));
   }
 
   /**
@@ -331,10 +332,8 @@ export class PdfiumEngine {
     at: PageAddress,
     parentId: string,
     reply: CommentReply,
-  ): Result<null, "unknown-document" | "unknown-annotation"> {
-    return this.withPage(at, (page) =>
-      this.annotations.putReply(page, parentId, reply) ? ok(null) : err("unknown-annotation"),
-    );
+  ): Result<null, "unknown-document" | "unknown-annotation" | "rich-comment-too-large"> {
+    return this.withPage(at, (page) => this.annotations.putReply(page, parentId, reply));
   }
 
   /**
@@ -447,12 +446,19 @@ export class PdfiumEngine {
    * Checks whether a draft run can use the requested document font.
    * @param at The target page.
    * @param run The draft and its style.
+   * @param includeFallback Whether to also probe the standard face for fallback coverage.
    * @returns The first missing character if the font cannot encode the run.
    */
-  checkPageTextFont(at: PageAddress, run: TextRun): Result<TextRunFontCheck, "unknown-document"> {
+  checkPageTextFont(
+    at: PageAddress,
+    run: TextRun,
+    includeFallback = false,
+  ): Result<EngineResult<"checkPageTextFont">, "unknown-document"> {
     return this.withHeldPage(at, (page) => {
-      const { missingCharacter } = this.textObjects.checkDocumentFont(page, run);
-      return ok(missingCharacter ? { missingCharacter } : {});
+      const { font, missingCharacter } = this.textObjects.checkDocumentFont(page, run);
+      const standard = { ...run, font: run.font?.kind === "standard" ? run.font : undefined };
+      const needsFallback = includeFallback && !font && !this.textObjects.standardSupports(page, standard);
+      return ok({ ...(missingCharacter && { missingCharacter }), ...(needsFallback && { needsFallback: true }) });
     });
   }
 

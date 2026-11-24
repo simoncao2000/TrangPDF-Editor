@@ -157,7 +157,7 @@ describe("annotations", () => {
     expect((error as EngineCallError).detail.code).toBe("unknown-annotation");
   });
 
-  it("names annotations from other apps once, and keeps the names they have", async () => {
+  it("addresses annotations without a name and keeps the names already stored", async () => {
     const docId = await open("annotated.pdf");
     const first = await list(docId);
     expect(first.map((annotation) => annotation.kind)).toEqual(["square", "other"]);

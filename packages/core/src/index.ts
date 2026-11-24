@@ -9,6 +9,8 @@ export * from "./document/commands";
 export * from "./document/selection";
 export * from "./annotations/annotation";
 export * from "./annotations/comment";
+export { nearestCommentInk } from "./annotations/comment-inks";
+export { isRichCommentTooLarge } from "./engine/comment-xhtml";
 export * from "./annotations/annotation-commands";
 export * from "./annotations/comment-commands";
 export * from "./forms/form-field";

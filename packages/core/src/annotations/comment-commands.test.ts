@@ -3,7 +3,7 @@ import type { CommandEngine } from "../document/commands";
 import type { DocumentContent } from "../document/document-state";
 import type { SquareAnnotation } from "./annotation";
 import { deleteAnnotations } from "./annotation-commands";
-import type { CommentReply } from "./comment";
+import { commentText, plainComment, type CommentNote, type CommentReply } from "./comment";
 import { deleteReply, editReply, replyTo, setComment } from "./comment-commands";
 
 const LETTER = { cropBox: { x: 0, y: 0, width: 612, height: 792 }, rotation: 0 as const };
@@ -20,7 +20,12 @@ const square: SquareAnnotation = {
   opacity: 1,
   lineWidth: 2,
 };
-const reply: CommentReply = { id: "re", text: "Agreed", author: "Linh", modified: "2026-11-21T09:00:00.000Z" };
+const reply: CommentReply = {
+  id: "re",
+  body: plainComment("Agreed"),
+  author: "Linh",
+  modified: "2026-11-21T09:00:00.000Z",
+};
 
 /**
  * A fake engine that records each call's method and the part of its parameters that matters here.
@@ -30,9 +35,9 @@ function recordingEngine(): { call: CommandEngine; log: string[] } {
   const log: string[] = [];
   const call: CommandEngine = (method, params) => {
     const p = params as Record<string, unknown>;
-    const comment = (p.annotation as { comment?: { text: string } } | undefined)?.comment?.text;
-    const replyText = (p.reply as CommentReply | undefined)?.text;
-    log.push([method, p.id ?? p.parentId ?? "", comment ?? replyText ?? ""].filter(Boolean).join(" "));
+    const comment = (p.annotation as { comment?: CommentNote } | undefined)?.comment;
+    const body = comment?.body ?? (p.reply as CommentReply | undefined)?.body ?? [];
+    log.push([method, p.id ?? p.parentId ?? "", commentText(body)].filter(Boolean).join(" "));
     return Promise.resolve(null as never);
   };
   return { call, log };
@@ -57,14 +62,22 @@ async function applyThenUndo(command: {
 
 describe("comment commands", () => {
   it("writes a comment on a markup, and clears it again on undo when it had none", async () => {
-    const command = setComment(content, "a:0", square, { text: "Too wide", author: "Simon", modified: null });
+    const command = setComment(content, "a:0", square, {
+      body: plainComment("Too wide"),
+      author: "Simon",
+      modified: null,
+    });
     expect(command.label).toBe("Comment");
     expect(await applyThenUndo(command)).toEqual(["putAnnotation Too wide", "putAnnotation"]);
   });
 
   it("puts back the earlier comment on undo of an edit", async () => {
-    const commented = { ...square, comment: { text: "Old", author: "Simon", modified: null } };
-    const command = setComment(content, "a:0", commented, { text: "New", author: "Simon", modified: null });
+    const commented = { ...square, comment: { body: plainComment("Old"), author: "Simon", modified: null } };
+    const command = setComment(content, "a:0", commented, {
+      body: plainComment("New"),
+      author: "Simon",
+      modified: null,
+    });
     expect(command.label).toBe("Edit comment");
     expect(await applyThenUndo(command)).toEqual(["putAnnotation New", "putAnnotation Old"]);
   });
@@ -74,7 +87,7 @@ describe("comment commands", () => {
       "putReply sq Agreed",
       "removeAnnotation re",
     ]);
-    const edited = { ...reply, text: "Agreed!" };
+    const edited = { ...reply, body: plainComment("Agreed!") };
     expect(await applyThenUndo(editReply(content, "a:0", "sq", { before: reply, after: edited }))).toEqual([
       "putReply sq Agreed!",
       "putReply sq Agreed",

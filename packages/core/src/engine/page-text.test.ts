@@ -425,6 +425,19 @@ it("edits Vietnamese and preserves its combining characters after saving", async
   await engine.call("close", { docId }).promise;
 });
 
+it("only requests a fallback when the standard face cannot encode the draft", async () => {
+  const docId = await openText();
+  const at = { docId, pageIndex: 0, includeFallback: true };
+  try {
+    expect(await engine.call("checkPageTextFont", { ...at, run: { ...COURIER_RUN, text: "ABC" } }).promise).toEqual({});
+    expect(
+      await engine.call("checkPageTextFont", { ...at, run: { ...COURIER_RUN, text: "Tiếng Việt" } }).promise,
+    ).toEqual({ needsFallback: true });
+  } finally {
+    await engine.call("close", { docId }).promise;
+  }
+});
+
 it("reports the first missing glyph and falls back from a document subset", async () => {
   const docId = await openText();
   const at = { docId, pageIndex: 0 };

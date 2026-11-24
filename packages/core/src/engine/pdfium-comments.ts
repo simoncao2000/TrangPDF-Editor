@@ -6,7 +6,8 @@
  */
 import type { WrappedPdfiumModule } from "@embedpdf/pdfium";
 import type { PdfRect } from "@pdf-editor/shared";
-import { fromPdfDate, toPdfDate, type CommentNote } from "../annotations/comment";
+import { commentText, fromPdfDate, plainComment, toPdfDate, type CommentNote } from "../annotations/comment";
+import { decodeComment, encodeComment, MAX_COMMENT_XHTML } from "./comment-xhtml";
 import { PdfiumHeap, RECT_BYTES } from "./pdfium-heap";
 
 /** FPDF_ANNOT_TEXT: a note, which is what a reply is. */
@@ -15,6 +16,7 @@ const SUBTYPE_TEXT = 1;
 const FLAG_NO_VIEW = 32;
 const NAME_KEY = "NM";
 const CONTENTS_KEY = "Contents";
+const RICH_KEY = "RC";
 const AUTHOR_KEY = "T";
 const MODIFIED_KEY = "M";
 const IN_REPLY_TO_KEY = "IRT";
@@ -40,7 +42,8 @@ export class AnnotationStrings {
    * @returns Its text, or "" when missing.
    */
   get(annot: number, key: string): string {
-    return this.heap.readWideString((ptr, bytes) => this.pdfium.FPDFAnnot_GetStringValue(annot, key, ptr, bytes));
+    const read = (ptr: number, bytes: number) => this.pdfium.FPDFAnnot_GetStringValue(annot, key, ptr, bytes);
+    return this.heap.readWideString(read);
   }
 
   /**
@@ -52,6 +55,19 @@ export class AnnotationStrings {
    */
   set(annot: number, key: string, value: string): boolean {
     return this.heap.withWideString(value, (ptr) => this.pdfium.FPDFAnnot_SetStringValue(annot, key, ptr));
+  }
+
+  /**
+   * Addresses an annotation without assigning a PDF name on read.
+   * @param page The annotation's page.
+   * @param annot The annotation handle.
+   * @returns The stored name or a page-scoped id based on its object number or index.
+   */
+  annotationId(page: number, annot: number): string {
+    const name = this.get(annot, NAME_KEY);
+    if (name) return name;
+    const objectNumber = this.pdfium.EPDFAnnot_GetObjectNumber(annot);
+    return objectNumber ? `pdf-object:${objectNumber}` : `pdf-annot:${this.pdfium.FPDFPage_GetAnnotIndex(page, annot)}`;
   }
 
   /**
@@ -83,38 +99,66 @@ export class AnnotationComments {
   }
 
   /**
+   * Checks for comment entries that must stay on the original annotation dictionary.
+   * @param annot The annotation handle.
+   * @param hasTextBoxText Whether /Contents is the displayed text of a free text annotation.
+   * @returns Whether replacing the annotation would lose comment data or links.
+   */
+  hasEntries(annot: number, hasTextBoxText: boolean): boolean {
+    return [
+      RICH_KEY,
+      AUTHOR_KEY,
+      MODIFIED_KEY,
+      IN_REPLY_TO_KEY,
+      "Popup",
+      ...(hasTextBoxText ? [] : [CONTENTS_KEY]),
+    ].some((key) => this.pdfium.FPDFAnnot_HasKey(annot, key));
+  }
+
+  /**
    * The comment written on an annotation.
    * @param annot The annotation handle.
-   * @returns Its text, author and time, or `undefined` when it has neither text nor author.
+   * @param plainOnly Whether to skip decoding rich text for a thread count.
+   * @returns Its body, author and time, or `undefined` when there is no comment.
    */
-  read(annot: number): CommentNote | undefined {
+  read(annot: number, plainOnly = false): CommentNote | undefined {
     const text = this.strings.get(annot, CONTENTS_KEY);
     const author = this.strings.get(annot, AUTHOR_KEY);
-    if (!text && !author) return undefined;
-    return { text, author, modified: fromPdfDate(this.strings.get(annot, MODIFIED_KEY)) };
+    const hasRich = this.pdfium.FPDFAnnot_HasKey(annot, RICH_KEY);
+    const readRich = (ptr: number, bytes: number) => this.pdfium.EPDFAnnot_GetRichContent(annot, ptr, bytes);
+    const rich = hasRich && !plainOnly ? this.heap.readWideString(readRich, (MAX_COMMENT_XHTML + 1) * UTF16_BYTES) : "";
+    const body = rich ? decodeComment(rich, text) : plainComment(text);
+    const richOnlyPreview = plainOnly && hasRich && !text && !author && readRich(0, 0) > UTF16_BYTES;
+    if (!commentText(body) && !author && !richOnlyPreview) return undefined;
+    return { body, author, modified: fromPdfDate(this.strings.get(annot, MODIFIED_KEY)) };
   }
 
   /**
    * Writes a comment onto an annotation.
    * @param annot The annotation handle.
-   * @param comment The text, author and time.
+   * @param comment The author and time.
+   * @param content The validated plain and rich fields.
+   * @returns Nothing.
    */
-  write(annot: number, comment: CommentNote): void {
-    this.strings.set(annot, CONTENTS_KEY, comment.text);
+  write(annot: number, comment: CommentNote, { plain, rich }: ReturnType<typeof encodeComment>): void {
+    this.strings.set(annot, CONTENTS_KEY, plain);
+    // PDFium allows replacing an annotation string. Its API has no dictionary-key removal.
+    if (rich || this.pdfium.FPDFAnnot_HasKey(annot, RICH_KEY)) this.strings.set(annot, RICH_KEY, rich);
     this.strings.set(annot, AUTHOR_KEY, comment.author);
-    if (comment.modified) this.strings.set(annot, MODIFIED_KEY, toPdfDate(comment.modified));
+    this.strings.set(annot, MODIFIED_KEY, comment.modified ? toPdfDate(comment.modified) : "");
   }
 
   /**
    * The annotation a reply answers.
+   * @param page The reply and parent page.
    * @param annot An annotation handle.
    * @returns The parent's id, or `null` when the annotation is not a reply.
    */
-  parentOf(annot: number): string | null {
+  parentOf(page: number, annot: number): string | null {
     const parent = this.pdfium.FPDFAnnot_GetLinkedAnnot(annot, IN_REPLY_TO_KEY);
     if (!parent) return null;
     try {
-      return this.strings.get(parent, NAME_KEY);
+      return this.strings.annotationId(page, parent);
     } finally {
       this.pdfium.FPDFPage_CloseAnnot(parent);
     }

@@ -36,6 +36,13 @@
   --color-hover: var(--surface-hover);
   --color-pressed: var(--surface-active);
   --color-ink: var(--text);
+  --color-comment-navy: var(--comment-ink-navy);
+  --color-comment-blue: var(--comment-ink-blue);
+  --color-comment-teal: var(--comment-ink-teal);
+  --color-comment-moss: var(--comment-ink-moss);
+  --color-comment-brown: var(--comment-ink-brown);
+  --color-comment-plum: var(--comment-ink-plum);
+  --color-comment-amber: var(--comment-ink-amber);
   --color-muted: var(--text-muted);
   --color-disabled: var(--text-disabled);
   --color-line: var(--border);

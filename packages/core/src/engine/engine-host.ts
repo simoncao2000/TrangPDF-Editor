@@ -287,8 +287,12 @@ export function createEngineHost(deps: EngineHostDeps): { receive(request: Engin
       const bitmap = await deps.toBitmap(rendered.value);
       return [{ bitmap, width, height }, [bitmap]];
     },
-    async getAnnotations(at) {
-      return [unwrap(requireEngine().getAnnotations(at))];
+    /**
+     * @param params The page address and whether to leave rich comments undecoded.
+     * @returns The page annotations.
+     */
+    async getAnnotations({ plainOnly, ...at }) {
+      return [unwrap(requireEngine().getAnnotations(at, plainOnly))];
     },
     /**
      * @param at The page to inspect.
@@ -304,8 +308,12 @@ export function createEngineHost(deps: EngineHostDeps): { receive(request: Engin
     async setFormField({ id, value, ...at }) {
       return [unwrap(requireEngine().setFormField(at, id, value))];
     },
-    async putAnnotation({ annotation, ...at }) {
-      return [unwrap(requireEngine().putAnnotation(at, annotation))];
+    /**
+     * @param params The annotation, its page and whether this is a comment edit.
+     * @returns The stored annotation.
+     */
+    async putAnnotation({ annotation, editComment, ...at }) {
+      return [unwrap(requireEngine().putAnnotation(at, annotation, editComment))];
     },
     async putReply({ parentId, reply, ...at }) {
       return [unwrap(requireEngine().putReply(at, parentId, reply))];
@@ -344,8 +352,12 @@ export function createEngineHost(deps: EngineHostDeps): { receive(request: Engin
       requireEngine().dropPageTextEdit(at, editId);
       return [null];
     },
-    async checkPageTextFont({ run, ...at }) {
-      return [unwrap(requireEngine().checkPageTextFont(at, checkedEditRuns([run])[0]!))];
+    /**
+     * @param params The page and run to probe, with optional standard face coverage.
+     * @returns The run's glyph coverage.
+     */
+    async checkPageTextFont({ run, includeFallback, ...at }) {
+      return [unwrap(requireEngine().checkPageTextFont(at, checkedEditRuns([run])[0]!, includeFallback))];
     },
     async getPageFonts(at) {
       const fonts = unwrap(requireEngine().getPageFonts(at));

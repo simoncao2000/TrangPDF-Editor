@@ -19,12 +19,12 @@ export function Inspector() {
   const [viewedReview, setViewedReview] = useState<BlockedExport>();
   const request = useExport((state) => state.request);
   const review = request?.stage === "blocked" && request.session === session ? request : undefined;
-  const threads = useDocumentThreads();
   const fields = useDocumentFields();
   const items = fields.length || !review ? fields : [review.first];
   const hasFields = items.length > 0;
   const selected = review && review !== viewedReview ? "fields" : tab;
   const current = selected === "fields" && !hasFields ? "properties" : selected;
+  const { threads, count } = useDocumentThreads(current === "comments");
 
   /** @param next The tab the user explicitly chose. */
   const select = (next: Tab) => {
@@ -37,7 +37,7 @@ export function Inspector() {
       aria-label="Inspector"
       className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] border-l border-divider bg-rail"
     >
-      <InspectorTabs current={current} onSelect={select} threads={threads.length} hasFields={hasFields} />
+      <InspectorTabs current={current} onSelect={select} threads={count} hasFields={hasFields} />
       <div
         role="tabpanel"
         id={`inspector-${current}`}

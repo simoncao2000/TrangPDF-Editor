@@ -7,6 +7,7 @@
 import type { PdfPoint, PdfRect, TextRunFontCheck } from "@pdf-editor/shared";
 import type { Annotation, EditableAnnotation } from "../annotations/annotation";
 import type { CommentReply } from "../annotations/comment";
+export type { CommentInk, CommentReply, CommentSegment } from "../annotations/comment";
 import type { FormField } from "../forms/form-field";
 import type {
   NewTextLine,
@@ -85,12 +86,15 @@ export interface EngineMethods {
     };
     result: RenderedPage;
   };
-  getAnnotations: { params: PageAddress; result: Annotation[] };
+  getAnnotations: { params: PageAddress & { plainOnly?: boolean }; result: Annotation[] };
   getFormFields: { params: PageAddress; result: FormField[] };
   /** Sets a field value through the widget with the given id. */
   setFormField: { params: PageAddress & { id: string; value: string }; result: null };
   /** Creates or updates an annotation; resolves with it as stored. */
-  putAnnotation: { params: PageAddress & { annotation: EditableAnnotation }; result: Annotation };
+  putAnnotation: {
+    params: PageAddress & { annotation: EditableAnnotation; editComment?: boolean };
+    result: Annotation;
+  };
   /** Creates or updates a reply to an annotation. Remove and restore it like an annotation. */
   putReply: { params: PageAddress & { parentId: string; reply: CommentReply }; result: null };
   removeAnnotation: { params: PageAddress & { id: string }; result: null };
@@ -117,7 +121,10 @@ export interface EngineMethods {
   };
   togglePageTextEdit: { params: PageAddress & { editId: string; applied: boolean }; result: null };
   dropPageTextEdit: { params: PageAddress & { editId: string }; result: null };
-  checkPageTextFont: { params: PageAddress & { run: TextRun }; result: TextRunFontCheck };
+  checkPageTextFont: {
+    params: PageAddress & { run: TextRun; includeFallback?: boolean };
+    result: TextRunFontCheck & { needsFallback?: true };
+  };
   getPageFonts: { params: PageAddress; result: PageFont[] };
   prepareFont: { params: { bytes: ArrayBuffer }; result: ArrayBuffer };
   releaseTextFont: { params: { fontId: string }; result: null };
@@ -152,6 +159,7 @@ export type EngineErrorCode =
   | "assemble-failed"
   | "unknown-annotation"
   | "annotation-failed"
+  | "rich-comment-too-large"
   | "form-field-write-failed"
   | "invalid-text-runs"
   | "text-edit-failed"

@@ -273,7 +273,7 @@ bun run test
   - [x] Organize on the phone with a touch-and-hold page menu and Move to…
   - [x] Typed signatures
   - [x] Rich text: fonts, size, colour, bold, italic and underline on selected words, with fonts from the PDF, bundled fonts, the device and font files
-    - added text: done
+  - [x] Rich comments: bold, italic, underline and colour
 - [ ] **Phase 4: Desktop app.** Tauri 2, open PDFs from the system, save in place, auto-updates
 - [ ] **Phase 5: Mobile app.** Capacitor, share sheet, touch gestures, bottom sheets
 - [ ] **Phase 6: Sync and paid tier.** Accounts, document sync, OCR

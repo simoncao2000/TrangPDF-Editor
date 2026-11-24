@@ -6,6 +6,7 @@ import {
   setComment,
   type Annotation,
   type CommentReply,
+  type CommentSegment,
 } from "@pdf-editor/core";
 import { useEditorServices } from "../../editor/hooks";
 import { useAnnotationUi } from "../../state/annotation-store";
@@ -17,14 +18,14 @@ export interface ThreadActions {
   readonly canComment: boolean;
   /**
    * Writes or changes the annotation's own comment, signed with the user's name.
-   * @param text The comment.
+   * @param body The comment.
    */
-  comment(text: string): void;
+  comment(body: readonly CommentSegment[]): void;
   /**
    * Adds a reply, signed with the user's name.
-   * @param text The reply.
+   * @param body The reply.
    */
-  reply(text: string): void;
+  reply(body: readonly CommentSegment[]): void;
   /**
    * Deletes a reply.
    * @param reply The reply.
@@ -47,14 +48,14 @@ export function useThreadActions(pageId: string, annotation: Annotation): Thread
   const now = () => new Date().toISOString();
   return {
     canComment: isEditable(annotation) && annotation.kind !== "textBox",
-    comment: (text) => {
+    comment: (body) => {
       if (!isEditable(annotation)) return;
       session.dispatch((content) =>
-        setComment(content, pageId, annotation, { text, author: author(), modified: now() }),
+        setComment(content, pageId, annotation, { body, author: author(), modified: now() }),
       );
     },
-    reply: (text) => {
-      const reply = { id: crypto.randomUUID(), text, author: author(), modified: now() };
+    reply: (body) => {
+      const reply = { id: crypto.randomUUID(), body, author: author(), modified: now() };
       session.dispatch((content) => replyTo(content, pageId, annotation.id, reply));
     },
     remove: (reply) => session.dispatch((content) => deleteReply(content, pageId, reply)),

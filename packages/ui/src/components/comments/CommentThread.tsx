@@ -1,4 +1,4 @@
-import type { Annotation, AnnotationKind, CommentReply } from "@pdf-editor/core";
+import { commentText, type Annotation, type AnnotationKind, type CommentReply } from "@pdf-editor/core";
 import {
   Circle,
   Highlighter,
@@ -18,6 +18,7 @@ import {
 import { useState } from "react";
 import { useAnnotationUi } from "../../state/annotation-store";
 import { ANNOTATION_NAMES, cssColor } from "../annotations/annotation-display";
+import { CommentBody } from "./CommentBody";
 import { CommentComposer } from "./CommentComposer";
 import { relativeTime } from "./relative-time";
 import { useThreadActions } from "./use-thread-actions";
@@ -58,6 +59,7 @@ export function CommentThread({ pageId, annotation, open, onOpen }: CommentThrea
   const writing = useAnnotationUi((state) => open && state.writing && state.selected?.id === annotation.id);
   const [editing, setEditing] = useState(false);
   const { comment, replies = [] } = annotation;
+  const plain = comment ? commentText(comment.body) : "";
   const name = ANNOTATION_NAMES[annotation.kind];
   const quote = annotation.kind === "highlight" ? annotation.quote : undefined;
 
@@ -71,22 +73,22 @@ export function CommentThread({ pageId, annotation, open, onOpen }: CommentThrea
         onDelete={open ? actions.deleteMark : undefined}
       />
       {quote && <p className="truncate font-doc text-sm text-muted italic">“{quote}”</p>}
-      {open && actions.canComment && (editing || !comment?.text) ? (
+      {open && actions.canComment && (editing || !plain) ? (
         <CommentComposer
           placeholder="Add a comment…"
-          initial={comment?.text}
+          initial={comment?.body}
           autoFocus={editing || writing}
           onSubmit={(text) => {
             actions.comment(text);
             setEditing(false);
           }}
         />
-      ) : comment?.text ? (
-        <p className="text-sm whitespace-pre-wrap text-ink">{comment.text}</p>
+      ) : plain ? (
+        <CommentBody body={comment?.body ?? []} />
       ) : (
         <p className="text-sm text-muted">Add a comment…</p>
       )}
-      {open && actions.canComment && comment?.text && !editing && (
+      {open && actions.canComment && plain && !editing && (
         <button
           type="button"
           className="justify-self-start text-xs text-muted underline"
@@ -99,7 +101,7 @@ export function CommentThread({ pageId, annotation, open, onOpen }: CommentThrea
         <p className="text-xs text-muted">{replies.length === 1 ? "1 reply" : `${replies.length} replies`}</p>
       )}
       {open && replies.map((reply) => <Reply key={reply.id} reply={reply} onDelete={() => actions.remove(reply)} />)}
-      {open && (comment?.text || !actions.canComment) && (
+      {open && (plain || !actions.canComment) && (
         <div className="ml-7.5">
           <CommentComposer placeholder="Reply…" onSubmit={actions.reply} />
         </div>
@@ -120,7 +122,7 @@ export function CommentThread({ pageId, annotation, open, onOpen }: CommentThrea
     <div
       role="button"
       tabIndex={0}
-      aria-label={`${name}: ${comment?.text || "no comment yet"}`}
+      aria-label={`${name}: ${plain || "no comment yet"}`}
       onClick={onOpen}
       onKeyDown={(event) => {
         if (event.key !== "Enter" && event.key !== " ") return;
@@ -199,7 +201,7 @@ function Reply({ reply, onDelete }: { readonly reply: CommentReply; onDelete(): 
           <Trash2 className="size-3.5" aria-hidden="true" />
         </button>
       </div>
-      <p className="text-sm whitespace-pre-wrap text-ink">{reply.text}</p>
+      <CommentBody body={reply.body} />
     </div>
   );
 }

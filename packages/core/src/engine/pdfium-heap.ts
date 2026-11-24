@@ -59,11 +59,12 @@ export class PdfiumHeap {
    * Reads a UTF-16 string from a PDFium "write into my buffer" call, which returns the byte length
    * it needs when given a null buffer.
    * @param read Calls PDFium with (buffer, byteLength) and returns the byte length.
+   * @param limit Maximum buffer size in bytes.
    * @returns The string, without the trailing NUL; empty when PDFium returns nothing.
    */
-  readWideString(read: (ptr: number, bytes: number) => number): string {
+  readWideString(read: (ptr: number, bytes: number) => number, limit = Infinity): string {
     const bytes = read(0, 0);
-    if (bytes <= UTF16_BYTES) return "";
+    if (bytes <= UTF16_BYTES || bytes > limit) return "";
     return this.withBuffer(bytes, (ptr) => {
       read(ptr, bytes);
       let text = "";

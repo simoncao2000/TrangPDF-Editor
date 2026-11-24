@@ -125,9 +125,10 @@ export interface DocumentSession {
   /**
    * A page's annotations as PDFium holds them, read once per annotation revision.
    * @param pageId A page id.
+   * @param plainOnly Whether to skip rich comment decoding.
    * @returns The annotations in drawing order; empty for an unknown page.
    */
-  readAnnotations(pageId: string): Promise<readonly Annotation[]>;
+  readAnnotations(pageId: string, plainOnly?: boolean): Promise<readonly Annotation[]>;
   /**
    * A page's form widgets, read once per page revision.
    * @param pageId A page id.
@@ -144,9 +145,14 @@ export interface DocumentSession {
    * Checks a document face against the exact text in a draft run.
    * @param pageId The page where the font was read.
    * @param run The draft text and requested face.
+   * @param includeFallback Whether to also probe the standard face for fallback coverage.
    * @returns The first missing character, when present.
    */
-  checkPageTextFont(pageId: string, run: TextRun): Promise<EngineResult<"checkPageTextFont">>;
+  checkPageTextFont(
+    pageId: string,
+    run: TextRun,
+    includeFallback?: boolean,
+  ): Promise<EngineResult<"checkPageTextFont">>;
   /**
    * Makes the font available for added text on a page's source document.
    * @param pageId The destination page.
@@ -317,7 +323,7 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
    * @returns The cached or fresh result; an empty list for an unknown page.
    */
   const readPage = <T>(
-    kind: "annotations" | "forms" | "text" | "fonts",
+    kind: "annotations" | "annotation-previews" | "forms" | "text" | "fonts",
     pageId: string,
     read: (at: PageAddress) => Promise<readonly T[]>,
   ): Promise<readonly T[]> => {
@@ -334,8 +340,18 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
     if (pageReads.size > PAGE_READ_CACHE_SIZE) pageReads.delete(pageReads.keys().next().value!);
     return result;
   };
-  const readAnnotations = (pageId: string) =>
-    readPage("annotations", pageId, (at) => engine.call("getAnnotations", at).promise);
+  /**
+   * Reads cached page annotations.
+   * @param pageId A page id.
+   * @param plainOnly Whether to use the separate plain preview cache.
+   * @returns The page annotations.
+   */
+  const readAnnotations = (pageId: string, plainOnly = false) =>
+    readPage(
+      plainOnly ? "annotation-previews" : "annotations",
+      pageId,
+      (at) => engine.call("getAnnotations", plainOnly ? { ...at, plainOnly } : at).promise,
+    );
   const readFormFields = (pageId: string) =>
     readPage("forms", pageId, (at) => engine.call("getFormFields", at).promise);
   const readTextObjects = (pageId: string) =>
@@ -547,10 +563,10 @@ export function createDocumentSession(engine: SessionEngine): DocumentSession {
       return readPage("fonts", pageId, (at) => engine.call("getPageFonts", at).promise);
     },
 
-    checkPageTextFont(pageId, run) {
+    checkPageTextFont(pageId, run, includeFallback) {
       const at = pageAddressOf(store.getState(), pageId);
       if (!at || !run.text) return Promise.resolve({});
-      return engine.call("checkPageTextFont", { ...at, run }).promise;
+      return engine.call("checkPageTextFont", { ...at, run, ...(includeFallback && { includeFallback }) }).promise;
     },
 
     prepareFont(bytes) {

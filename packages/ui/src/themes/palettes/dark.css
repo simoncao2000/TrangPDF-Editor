@@ -1,5 +1,12 @@
 /* Dark. Flat neutral surfaces, with blue reserved for interaction. */
 [data-theme="dark"] {
+  --comment-ink-navy: #a9bff5;
+  --comment-ink-blue: color-mix(in srgb, var(--signal) 85%, var(--text));
+  --comment-ink-teal: #78d5cf;
+  --comment-ink-moss: #add477;
+  --comment-ink-brown: #d8a67d;
+  --comment-ink-plum: #dda9ed;
+  --comment-ink-amber: #e6b36c;
   color-scheme: dark;
   --surface: var(--palette-dark-surface);
   --surface-raised: var(--palette-dark-raised);
@@ -33,6 +40,13 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
+    --comment-ink-navy: #a9bff5;
+    --comment-ink-blue: color-mix(in srgb, var(--signal) 85%, var(--text));
+    --comment-ink-teal: #78d5cf;
+    --comment-ink-moss: #add477;
+    --comment-ink-brown: #d8a67d;
+    --comment-ink-plum: #dda9ed;
+    --comment-ink-amber: #e6b36c;
     color-scheme: dark;
     --surface: var(--palette-dark-surface);
     --surface-raised: var(--palette-dark-raised);

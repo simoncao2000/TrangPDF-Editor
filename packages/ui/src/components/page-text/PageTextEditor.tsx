@@ -67,7 +67,9 @@ interface PageTextEditorProps {
   onDone(runs: readonly TextRun[] | null): void;
 }
 
+/** Extra room around the edited line for the caret and glyph overhang. */
 const PAD = 2;
+/** Distance beyond the editor padding used to sample the page background. */
 const SAMPLE_GAP = 2;
 
 /**
@@ -113,7 +115,8 @@ export function PageTextEditor(props: PageTextEditorProps) {
  */
 async function registerEditFonts(session: DocumentSession, pageId: string, runs: readonly TextRun[]): Promise<void> {
   const results = await Promise.allSettled(
-    runs.map(async ({ font, fontFamily, italic }) => {
+    runs.map(async (run) => {
+      const { font, fontFamily, italic } = run;
       const id = font?.kind === "embedded" ? font.fontId : "";
       const bytes = bundledFontBytes(id);
       if (bytes) {
@@ -121,6 +124,10 @@ async function registerEditFonts(session: DocumentSession, pageId: string, runs:
         return;
       }
       if (id && !id.startsWith("document:") && !id.startsWith("bundled:")) return;
+      if (!id.startsWith("bundled:")) {
+        const { needsFallback } = await session.checkPageTextFont(pageId, run, true);
+        if (!needsFallback) return;
+      }
       const family = font?.kind === "standard" ? font.family : fontFamily;
       const bundled = id.startsWith("bundled:")
         ? id.split(":")[1]!

@@ -13,27 +13,31 @@ export interface ThreadEntry {
 /**
  * Every annotation in the document, as comment threads in page order. Read again when a page's
  * annotations change; pages already read come from the session's cache.
- * @returns The threads (empty until the first read finishes).
+ * @param showRich Whether the comments panel is open.
+ * @returns The displayed threads and the available thread count.
  */
-export function useDocumentThreads(): readonly ThreadEntry[] {
+export function useDocumentThreads(showRich: boolean) {
   const { session } = useEditorServices();
   const pages = useDocument((state) => state.pages);
   const revisions = useDocument((state) => state.annotationRevisions);
-  const [threads, setThreads] = useState<readonly ThreadEntry[]>([]);
+  const [result, setResult] = useState<{ rich: boolean; threads: readonly ThreadEntry[] }>();
 
   useEffect(() => {
     let active = true;
     const reads = pages.map((page, pageIndex) =>
-      session.readAnnotations(page.id).then(
+      session.readAnnotations(page.id, !showRich).then(
         (annotations) => annotations.map((annotation) => ({ pageId: page.id, pageIndex, annotation })),
         () => [],
       ),
     );
-    void Promise.all(reads).then((perPage) => active && setThreads(perPage.flat()));
+    void Promise.all(reads).then((perPage) => active && setResult({ rich: showRich, threads: perPage.flat() }));
     return () => {
       active = false;
     };
-  }, [session, pages, revisions]);
+  }, [session, pages, revisions, showRich]);
 
-  return threads;
+  return {
+    threads: result && showRich && result.rich ? result.threads : [],
+    count: result?.threads.length ?? 0,
+  };
 }

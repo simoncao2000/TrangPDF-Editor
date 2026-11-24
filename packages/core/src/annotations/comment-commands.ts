@@ -7,10 +7,10 @@ import type { Command } from "../document/commands";
 import type { DocumentContent } from "../document/document-state";
 import { pageEditCommand } from "../document/page-edit-command";
 import type { EditableAnnotation } from "./annotation";
-import type { CommentNote, CommentReply } from "./comment";
+import { commentText, plainComment, type CommentNote, type CommentReply } from "./comment";
 
 /** Written on undo of a markup's first comment: no text and no author reads back as no comment. */
-const NO_COMMENT: CommentNote = { text: "", author: "", modified: null };
+const NO_COMMENT: CommentNote = { body: plainComment(""), author: "", modified: null };
 
 /** A reply before and after an edit. */
 export interface ReplyChange {
@@ -33,10 +33,15 @@ export function setComment(
   comment: CommentNote,
 ): Command {
   const before = annotation.comment;
-  return pageEditCommand(content, pageId, before?.text ? "Edit comment" : "Comment", {
-    apply: (engine, at) => engine("putAnnotation", { ...at, annotation: { ...annotation, comment } }),
+  return pageEditCommand(content, pageId, before && commentText(before.body) ? "Edit comment" : "Comment", {
+    apply: (engine, at) =>
+      engine("putAnnotation", { ...at, editComment: true, annotation: { ...annotation, comment } }),
     undo: (engine, at) =>
-      engine("putAnnotation", { ...at, annotation: { ...annotation, comment: before ?? NO_COMMENT } }),
+      engine("putAnnotation", {
+        ...at,
+        editComment: true,
+        annotation: { ...annotation, comment: before ?? NO_COMMENT },
+      }),
   });
 }
 
