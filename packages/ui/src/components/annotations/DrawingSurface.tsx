@@ -56,6 +56,27 @@ interface DrawingSurfaceProps {
 
 const TEXT_MARKUPS: readonly DrawingTool[] = ["highlight", "underline", "strikeout", "squiggly"];
 const isTextTool = (tool: DrawingTool): tool is TextMarkupKind => TEXT_MARKUPS.includes(tool);
+/** @param paths Palette icon strokes. @param tip The nib hotspot. @returns A high contrast page cursor. */
+function inkCursor(paths: readonly string[], tip: string) {
+  const drawing = paths.map((d) => `<path d="${d}"/>`).join("");
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" ' +
+    'stroke-linecap="round" stroke-linejoin="round">' +
+    `<g stroke="white" stroke-width="5">${drawing}</g><g stroke="#2a2a26" stroke-width="2">${drawing}</g></svg>`;
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${tip}, crosshair`;
+}
+const DRAW_CURSOR = inkCursor(
+  [
+    "M13 21h8",
+    "M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352" +
+      "a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z",
+  ],
+  "2 22",
+);
+const HIGHLIGHT_CURSOR = inkCursor(
+  ["m9 11-6 6v3h9l3-3", "m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"],
+  "3 20",
+);
 const CURSORS: Record<DrawingTool, string> = {
   note: "cursor-copy",
   highlight: "cursor-text",
@@ -195,6 +216,7 @@ export function DrawingSurface({ pageId, tool, style, frame, width, height, onCr
         height={height}
         fill="transparent"
         className={`pointer-events-auto touch-none ${CURSORS[tool]}`}
+        style={{ cursor: tool === "ink" ? DRAW_CURSOR : tool === "highlight" ? HIGHLIGHT_CURSOR : undefined }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={(event) => void onPointerUp(event)}

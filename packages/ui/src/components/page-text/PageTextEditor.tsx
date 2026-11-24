@@ -1,3 +1,4 @@
+import { useFrameMove } from "../text-format/FrameEdges";
 import {
   CSS_PIXELS_PER_POINT,
   pdfToScreen,
@@ -50,6 +51,7 @@ import {
   type RunStyle,
 } from "../text-format/text-runs";
 import { TextStyleMenu } from "../text-format/TextStyleMenu";
+import { useMenuPresence } from "../text-format/use-menu-presence";
 import { useTextPageColors } from "../text-format/use-text-page-colors";
 import {
   focusPageTextDraft,
@@ -67,7 +69,7 @@ interface PageTextEditorProps {
   readonly pageId: string;
   readonly revision: number;
   /** @param runs The edited line, or null on cancel. @returns Nothing. */
-  onDone(runs: readonly TextRun[] | null): void;
+  onDone(runs: readonly TextRun[] | null, offset?: { x: number; y: number }): void;
 }
 
 /** Extra room around the edited line for the caret and glyph overhang. */
@@ -208,6 +210,7 @@ function Draft({
   readonly source: readonly TextRun[];
   readonly defaults: RunStyle;
 }) {
+  const movement = useFrameMove();
   const [editor] = useLexicalComposerContext();
   const { session } = useEditorServices();
   const overlay = useRef<HTMLDivElement>(null);
@@ -274,14 +277,15 @@ function Draft({
       finished.current = true;
       const runs = keep ? editedPageTextRuns(editor.getEditorState(), source, defaults) : null;
       if (!runs || samePageTextRuns(source, runs)) {
-        onDone(null);
+        onDone(null, keep ? movement.offsetRef.current : undefined);
         return;
       }
       const changed = runs.filter((run) => !source.some((old) => old.text === run.text && sameRunStyle(old, run)));
-      if (changed.length) void registerEditFonts(session, pageId, changed).then(() => onDone(runs));
-      else onDone(runs);
+      if (changed.length) {
+        void registerEditFonts(session, pageId, changed).then(() => onDone(runs, movement.offsetRef.current));
+      } else onDone(runs, movement.offsetRef.current);
     },
-    [defaults, editor, onDone, pageId, session, source],
+    [defaults, editor, movement.offsetRef, onDone, pageId, session, source],
   );
 
   useEffect(() => {
@@ -321,8 +325,21 @@ function Draft({
       data-page-text-editor=""
       data-annotation=""
       className="absolute z-4"
-      style={{ left: box.left - PAD, top: box.top - PAD }}
+      style={{ left: box.left - PAD + movement.offset.x, top: box.top - PAD + movement.offset.y }}
     >
+      {(movement.offset.x !== 0 || movement.offset.y !== 0) && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute"
+          style={{
+            left: -movement.offset.x,
+            top: -movement.offset.y,
+            width: box.width + 2 * PAD,
+            height: box.height + 2 * PAD,
+            backgroundColor: background,
+          }}
+        />
+      )}
       <PageTextCover
         background={background}
         width={width}
@@ -346,6 +363,7 @@ function Draft({
           finish(event.key === "Enter");
         }}
       >
+        {movement.edges}
         <div className="relative flex items-baseline self-start [&>div:first-child]:self-start">
           <span ref={marker} aria-hidden="true" className="w-0 shrink-0" />
           <RichTextPlugin
@@ -364,7 +382,7 @@ function Draft({
         <SelectionAlwaysOnDisplay />
         <AutoFocusPlugin />
       </PageTextCover>
-      <PageTextControls editor={editor} pageId={pageId} revision={revision} finish={finish} />
+      <PageTextControls editor={editor} pageId={pageId} revision={revision} offset={movement.offset} finish={finish} />
     </div>
   );
 }
@@ -379,7 +397,9 @@ function PageTextControls({
   pageId,
   revision,
   finish,
+  offset,
 }: {
+  readonly offset: { x: number; y: number };
   readonly editor: LexicalEditor;
   readonly pageId: string;
   readonly revision: number;
@@ -390,6 +410,7 @@ function PageTextControls({
   const pageColors = useTextPageColors(pageId, revision);
   const [anchor, setAnchor] = useState<Anchor | null>(null);
   const [panel, setPanel] = useState<FormatPanel | null>(null);
+  const mountedPanel = useMenuPresence(panel, wide);
   const controls = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const editorFocused = useRef(false);
@@ -418,7 +439,7 @@ function PageTextControls({
       window.visualViewport?.removeEventListener("resize", position);
       window.visualViewport?.removeEventListener("scroll", position);
     };
-  }, [editor]);
+  }, [editor, offset]);
 
   useEffect(() => {
     /** @param event The outside interaction. @returns Nothing. */
@@ -452,10 +473,6 @@ function PageTextControls({
   const above = anchor.top >= 54;
   const left = Math.max(8, anchor.left);
   const top = above ? anchor.top - 10 : anchor.bottom + 10;
-  const barTop = above ? top - 40 : top;
-  const spaceAbove = barTop - 16;
-  const spaceBelow = window.innerHeight - barTop - 56;
-  const popupAbove = spaceAbove > spaceBelow;
   return createPortal(
     <div
       ref={controls}
@@ -494,9 +511,11 @@ function PageTextControls({
           setPanel(next);
         }}
       />
-      {panel && (
+      {mountedPanel && (
         <TextStyleMenu
-          panel={panel}
+          panel={mountedPanel}
+          trigger={trigger}
+          closing={!panel}
           pageId={pageId}
           hasDraft
           pageText
@@ -505,10 +524,6 @@ function PageTextControls({
           style={style}
           pageColors={pageColors}
           wide={wide}
-          position={{
-            maxHeight: Math.max(80, popupAbove ? spaceAbove : spaceBelow),
-            ...(popupAbove ? { bottom: "calc(100% + 8px)" } : { top: "calc(100% + 8px)" }),
-          }}
           onChange={setStyle}
           onDismiss={close}
         />

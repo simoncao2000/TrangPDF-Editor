@@ -1,4 +1,4 @@
-import { useEffect, useRef, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
 import { Sheet } from "../primitives/Sheet";
 import { ColourPicker } from "./ColourPicker";
 import { FontPicker } from "./FontPicker";
@@ -16,7 +16,8 @@ interface TextStyleMenuProps {
   readonly style: TextStyle;
   readonly pageColors: readonly string[];
   readonly wide: boolean;
-  readonly position?: CSSProperties;
+  readonly trigger: RefObject<HTMLElement | null>;
+  readonly closing: boolean;
   onChange(patch: Partial<RunStyle>): void;
   onDismiss(): void;
 }
@@ -31,7 +32,8 @@ export function TextStyleMenu({
   style,
   pageColors,
   wide,
-  position,
+  trigger,
+  closing,
   onChange,
   onDismiss,
   pageId,
@@ -41,6 +43,39 @@ export function TextStyleMenu({
   pageText,
 }: TextStyleMenuProps) {
   const popup = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const menu = popup.current;
+    const button = trigger.current;
+    if (!wide || !button || !menu) return;
+    menu.showPopover();
+    /** @returns Nothing. */
+    function place() {
+      if (!menu || !button) return;
+      const anchor = button.getBoundingClientRect();
+      const below = innerHeight - anchor.bottom - 12;
+      const above = anchor.top - 12;
+      menu.style.minWidth = `${anchor.width}px`;
+      const up = menu.scrollHeight > below && above > below;
+      menu.style.maxHeight = `${Math.max(0, up ? above : below)}px`;
+      const left = Math.max(8, Math.min(anchor.left, innerWidth - menu.offsetWidth - 8));
+      menu.style.left = `${left}px`;
+      menu.style.top = up ? "auto" : `${anchor.bottom + 4}px`;
+      menu.style.bottom = up ? `${innerHeight - anchor.top + 4}px` : "auto";
+      menu.style.transformOrigin = `${anchor.left + anchor.width / 2 - left}px ${up ? "bottom" : "top"}`;
+    }
+    place();
+    const observer = new ResizeObserver(place);
+    observer.observe(button);
+    observer.observe(menu);
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+      menu.hidePopover();
+    };
+  }, [panel, trigger, wide]);
   useEffect(() => {
     if (wide && panel === "colour") popup.current?.querySelector<HTMLElement>("button")?.focus({ preventScroll: true });
   }, [panel, wide]);
@@ -83,12 +118,17 @@ export function TextStyleMenu({
       ref={popup}
       role="dialog"
       aria-label={title}
-      style={position}
+      popover="manual"
+      inert={closing}
+      data-text-menu=""
       className={[
         "z-10 max-h-[70vh] overflow-y-auto rounded-lg bg-raised text-sm text-ink ring-1 ring-line",
         panel === "colour" && "p-3",
-        position ? "absolute shadow-3" : "w-full",
-        position && (panel === "font" ? "left-0 w-80" : "right-0 w-[268px]"),
+        "fixed inset-auto m-0 shadow-3 transition-[opacity,scale] ease-(--curve-out) motion-reduce:transition-opacity",
+        closing
+          ? "opacity-0 duration-(--duration-exit)"
+          : "duration-(--duration-pop) starting:opacity-0 motion-safe:starting:scale-97",
+        panel === "font" ? "w-80" : "w-[268px]",
       ]
         .filter(Boolean)
         .join(" ")}

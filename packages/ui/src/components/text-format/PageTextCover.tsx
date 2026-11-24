@@ -15,7 +15,7 @@ export function PageTextCover({ background, width, height, style, ...content }: 
   return (
     <div
       {...content}
-      className="absolute grid w-max items-center rounded-xs outline-2 outline-offset-1 outline-paper-focus/70 outline-dashed"
+      className="absolute grid w-max items-center rounded-none outline-2 outline-offset-1 outline-paper-focus/70 outline-dashed"
       style={{ ...style, backgroundColor: background, minWidth: width, minHeight: height }}
     />
   );

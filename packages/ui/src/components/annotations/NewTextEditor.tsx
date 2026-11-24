@@ -1,5 +1,6 @@
+import { commitAddedText } from "../page-text/draft-commands";
+import { useFrameMove } from "../text-format/FrameEdges";
 import {
-  addPageText,
   CSS_PIXELS_PER_POINT,
   missingFontCharacter,
   TEXT_RUN_LINE_HEIGHT,
@@ -34,6 +35,7 @@ import { FormatBar, type FormatPanel } from "../text-format/FormatBar";
 import { useToast } from "../../state/toast-store";
 import { bundledFontBytes, releaseDocumentFonts } from "../text-format/font-model";
 import { TextStyleMenu } from "../text-format/TextStyleMenu";
+import { useMenuPresence } from "../text-format/use-menu-presence";
 import { colorHex, displayFont, editorTextRuns, type RunStyle } from "../text-format/text-runs";
 import {
   $applyTextStyle,
@@ -92,6 +94,7 @@ function Draft({
   revision,
   onDone,
 }: NewTextEditorProps & { readonly defaults: RunStyle }) {
+  const movement = useFrameMove();
   const [editor] = useLexicalComposerContext();
   const { session } = useEditorServices();
   const wide = useMediaQuery(WIDE_LAYOUT_QUERY);
@@ -102,6 +105,7 @@ function Draft({
   const { style, selectionText, blockText, setStyle } = useTextStyle();
   const [anchor, setAnchor] = useState<Anchor | null>(null);
   const [panel, setPanel] = useState<FormatPanel | null>(null);
+  const mountedPanel = useMenuPresence(panel, wide);
   const [missingGlyph, setMissingGlyph] = useState<string>();
   const range = useRef<RangeSelection | null>(null);
   const controls = useRef<HTMLDivElement>(null);
@@ -128,15 +132,19 @@ function Draft({
       fonts.set(run.font.fontId, bytes);
     }
     finished.current = true;
-    if (lines.some((line) => line.length)) {
-      for (const [fontId, bytes] of fonts) {
-        void session.registerTextFont(pageId, fontId, bytes).catch(() => {
-          useToast.getState().show("The font could not be registered.", { tone: "error" });
-        });
-      }
-      const origin = screenToPdf({ x: at.x, y: at.y + firstBaseline.current }, frame);
-      session.dispatch((content) => addPageText(content, pageId, lines, { origin, angle: frame.rotation, fontSize }));
+    for (const [fontId, bytes] of fonts) {
+      void session.registerTextFont(pageId, fontId, bytes).catch(() => {
+        useToast.getState().show("The font could not be registered.", { tone: "error" });
+      });
     }
+    const origin = screenToPdf(
+      {
+        x: at.x + movement.offsetRef.current.x,
+        y: at.y + movement.offsetRef.current.y + firstBaseline.current,
+      },
+      frame,
+    );
+    commitAddedText(session, pageId, lines, { origin, angle: frame.rotation, fontSize });
     onDone();
   };
 
@@ -199,6 +207,14 @@ function Draft({
     };
   }, [editor, defaults, scale, fontSize]);
 
+  useLayoutEffect(() => {
+    const paint = requestAnimationFrame(() => {
+      const root = editor.getRootElement();
+      if (root) setAnchor(anchorOf(root));
+    });
+    return () => cancelAnimationFrame(paint);
+  }, [editor, movement.offset]);
+
   useEffect(() => {
     /** @param event The outside interaction. @returns Nothing. */
     const outside = (event: Event) => {
@@ -208,7 +224,7 @@ function Draft({
         setPanel(null);
         return;
       }
-      if (editor.getRootElement()?.contains(event.target)) {
+      if (event.target instanceof Element && event.target.closest("[data-added-text-editor]")) {
         if (event.type === "pointerdown") setPanel(null);
         return;
       }
@@ -258,14 +274,6 @@ function Draft({
   const toggleFormat = (toggle: FormatToggle) => setStyle({ [toggle]: style[toggle] !== true });
 
   const above = !!anchor && anchor.top >= 54;
-  const barTop = anchor ? (above ? anchor.top - 50 : anchor.bottom + 10) : 0;
-  const spaceAbove = barTop - 16;
-  const spaceBelow = window.innerHeight - barTop - 56;
-  const popupAbove = spaceAbove > spaceBelow;
-  const popupStyle = {
-    maxHeight: Math.max(80, popupAbove ? spaceAbove : spaceBelow),
-    ...(popupAbove ? { bottom: "calc(100% + 8px)" } : { top: "calc(100% + 8px)" }),
-  };
   const left = Math.max(8, anchor?.left ?? 8);
   const barStyle: CSSProperties =
     anchor && wide
@@ -282,12 +290,12 @@ function Draft({
       <div
         data-added-text-editor=""
         data-annotation=""
-        className="absolute z-4 rounded-xs outline-2 outline-offset-2 outline-paper-focus/70 outline-dashed"
+        className="absolute z-4 rounded-none outline-2 outline-offset-2 outline-paper-focus/70 outline-dashed"
         style={
           {
             "--pdf-text-scale": `${scale}px`,
-            left: at.x,
-            top: at.y,
+            left: at.x + movement.offset.x,
+            top: at.y + movement.offset.y,
             minWidth: fontSize * scale * 2,
             fontSize: fontSize * scale,
             lineHeight: TEXT_RUN_LINE_HEIGHT,
@@ -318,6 +326,7 @@ function Draft({
           }
         }}
       >
+        {movement.edges}
         <RichTextPlugin
           contentEditable={
             <ContentEditable
@@ -369,9 +378,11 @@ function Draft({
                 setPanel(next);
               }}
             />
-            {panel && (
+            {mountedPanel && (
               <TextStyleMenu
-                panel={panel}
+                panel={mountedPanel}
+                trigger={trigger}
+                closing={!panel}
                 pageId={pageId}
                 hasDraft
                 selectionText={selectionText}
@@ -379,7 +390,6 @@ function Draft({
                 style={style}
                 pageColors={pageColors}
                 wide={wide}
-                position={popupStyle}
                 onChange={(patch) => {
                   setMissingGlyph(undefined);
                   setStyle(patch);

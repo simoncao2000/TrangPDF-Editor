@@ -7,6 +7,7 @@ import { useViewer } from "../../state/viewer-store";
 import { InkSwatches, Swatches } from "./ColourPicker";
 import type { FormatPanel } from "./FormatBar";
 import { TextStyleMenu } from "./TextStyleMenu";
+import { useMenuPresence } from "./use-menu-presence";
 import { colorHex, displayFont, parseHex } from "./text-runs";
 import { useTextPageColors } from "./use-text-page-colors";
 import { displayTextSize, focusPageTextDraft, stepTextSize, TEXT_STYLE_TOGGLES, useTextStyle } from "./use-text-style";
@@ -29,7 +30,7 @@ export function TextProperties({ hideHeading = false }: { readonly hideHeading?:
   const colors = useTextPageColors(page?.id ?? "", revision);
   const wide = useMediaQuery(WIDE_LAYOUT_QUERY);
   const [panel, setPanel] = useState<FormatPanel | null>(null);
-  const root = useRef<HTMLElement>(null);
+  const mountedPanel = useMenuPresence(panel, wide);
   const trigger = useRef<HTMLButtonElement>(null);
   const editorFocused = useRef(false);
   const font = displayFont(style);
@@ -41,7 +42,14 @@ export function TextProperties({ hideHeading = false }: { readonly hideHeading?:
     if (!panel || !wide) return;
     /** @param event The interaction. @returns Nothing. */
     const outside = (event: Event) => {
-      if (event.target instanceof Node && !root.current?.contains(event.target)) setPanel(null);
+      if (
+        !(event.target instanceof Element) ||
+        event.target.closest("[data-text-menu]") ||
+        trigger.current?.contains(event.target)
+      )
+        return;
+      setPanel(null);
+      if (event.type === "pointerdown") trigger.current?.focus({ preventScroll: true });
     };
     document.addEventListener("pointerdown", outside, true);
     document.addEventListener("focusin", outside, true);
@@ -61,7 +69,7 @@ export function TextProperties({ hideHeading = false }: { readonly hideHeading?:
   /** @returns Nothing. */
   const close = () => {
     setPanel(null);
-    if (editorFocused.current) requestAnimationFrame(focusPageTextDraft);
+    if (!wide && editorFocused.current) requestAnimationFrame(focusPageTextDraft);
     else trigger.current?.focus({ preventScroll: true });
   };
 
@@ -73,7 +81,6 @@ export function TextProperties({ hideHeading = false }: { readonly hideHeading?:
 
   return (
     <section
-      ref={root}
       aria-label="Text"
       data-text-style-controls=""
       className="grid gap-4"
@@ -107,9 +114,11 @@ export function TextProperties({ hideHeading = false }: { readonly hideHeading?:
           {font?.name ?? "Mixed"}
           <ChevronDown className="size-4 text-muted" aria-hidden="true" />
         </button>
-        {panel === "font" && (
+        {mountedPanel === "font" && (
           <TextStyleMenu
-            panel={panel}
+            panel={mountedPanel}
+            trigger={trigger}
+            closing={!panel}
             pageId={page?.id ?? ""}
             hasDraft={!!pageId}
             pageText={pageText}
@@ -189,9 +198,11 @@ export function TextProperties({ hideHeading = false }: { readonly hideHeading?:
           <Plus className="size-4" aria-hidden="true" />
           More colours
         </button>
-        {panel === "colour" && (
+        {mountedPanel === "colour" && (
           <TextStyleMenu
-            panel={panel}
+            panel={mountedPanel}
+            trigger={trigger}
+            closing={!panel}
             pageId={page?.id ?? ""}
             hasDraft={!!pageId}
             selectionText={selectionText}

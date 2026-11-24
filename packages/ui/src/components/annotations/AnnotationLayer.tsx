@@ -241,7 +241,7 @@ function SelectionFrame({ annotation, frame, onHandleDown }: SelectionFrameProps
         width={outline.width}
         height={outline.height}
         fill="none"
-        className="stroke-paper-focus"
+        className="rounded-none stroke-paper-focus"
         strokeWidth={1.5}
         strokeDasharray="5 3"
       />

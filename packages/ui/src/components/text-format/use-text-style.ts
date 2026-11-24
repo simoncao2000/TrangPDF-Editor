@@ -216,6 +216,11 @@ export function useTextStyle() {
   };
 }
 
+/** @returns Whether either editor has an active draft for the Properties controls. */
+export function useHasTextDraft(): boolean {
+  return useStyleStore((state) => !!state.draft);
+}
+
 /** @returns Whether an existing PDF line is being edited. */
 export function useEditingPageText(): boolean {
   return useStyleStore((state) => state.draft?.pageText ?? false);

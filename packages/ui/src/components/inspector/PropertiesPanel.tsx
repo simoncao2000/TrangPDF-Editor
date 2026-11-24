@@ -16,7 +16,7 @@ import { ColorSwatches } from "../primitives/ColorSwatches";
 import { PaperBoat } from "../primitives/PaperBoat";
 import { RangeField } from "../primitives/RangeField";
 import { TextProperties } from "../text-format/TextProperties";
-import { useEditingPageText } from "../text-format/use-text-style";
+import { useHasTextDraft } from "../text-format/use-text-style";
 
 const TOOL_NAMES: Record<DrawingTool, string> = {
   note: "Note",
@@ -86,8 +86,8 @@ const points = (value: number) => `${value} pt`;
 export function PropertiesPanel({ hideHeading = false }: { readonly hideHeading?: boolean } = {}) {
   const selected = useAnnotationUi((state) => state.selected);
   const tool = useAnnotationUi((state) => state.tool);
-  const pageText = useEditingPageText();
-  if (pageText) return <TextProperties hideHeading={hideHeading} />;
+  const hasDraft = useHasTextDraft();
+  if (hasDraft) return <TextProperties hideHeading={hideHeading} />;
   if (selected) return <SelectedProperties selected={selected} hideHeading={hideHeading} />;
   if (tool === "textBox") return <TextProperties hideHeading={hideHeading} />;
   if (isDrawingTool(tool)) return <ToolProperties tool={tool} hideHeading={hideHeading} />;

@@ -1,8 +1,8 @@
 import { annotationRevisionOf } from "@pdf-editor/core";
 import { Plus } from "lucide-react";
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { useDocument } from "../../editor/hooks";
-import { nextPhoneRecent, PHONE_FIXED, PHONE_MORE, phoneSlotId } from "../../editor/phone-slots";
+import { fitPhoneSlots, phoneSlotId } from "../../editor/phone-slots";
 import { ALL_TOOLS, TOOL_INFO, type PaletteSlot } from "../../editor/tool-catalog";
 import { useShortcuts } from "../../hooks/use-shortcut";
 import { useAnnotationUi, type SelectedAnnotation, type Tool } from "../../state/annotation-store";
@@ -10,7 +10,7 @@ import { useOpenPanel, useViewMode } from "../../routing/hooks";
 import { ANNOTATION_NAMES } from "../annotations/annotation-display";
 import { usePageAnnotations } from "../annotations/use-page-annotations";
 import { PropertiesPanel } from "../inspector/PropertiesPanel";
-import { useEditingPageText } from "../text-format/use-text-style";
+import { useHasTextDraft } from "../text-format/use-text-style";
 import { PhoneToolMenu } from "./PhoneToolMenu";
 
 const KEY_STYLE = [
@@ -58,7 +58,7 @@ export function PhoneTools({ keysEnabled, showTray }: PhoneToolsProps) {
   const tool = useAnnotationUi((state) => state.tool);
   const setTool = useAnnotationUi((state) => state.setTool);
   const selected = useAnnotationUi((state) => state.selected);
-  const pageText = useEditingPageText();
+  const hasDraft = useHasTextDraft();
   const trayTitleId = useId();
   const [recent, setRecent] = useState<PaletteSlot | null>(null);
   const editable = status === "clean" || status === "dirty";
@@ -84,11 +84,11 @@ export function PhoneTools({ keysEnabled, showTray }: PhoneToolsProps) {
   if (mode === "organize") return null;
   return (
     <>
-      {showTray && (pageText || selected || tool !== "select") && (
+      {showTray && (hasDraft || selected || tool !== "select") && (
         <section aria-labelledby={trayTitleId} className={TRAY_STYLE}>
           <div className="flex items-center justify-between gap-2">
             <h2 id={trayTitleId} className="font-hand text-md/[1.1]">
-              {pageText ? "Text" : selected ? <SelectedMarkName selected={selected} /> : TOOL_INFO[tool].label}
+              {hasDraft ? "Text" : selected ? <SelectedMarkName selected={selected} /> : TOOL_INFO[tool].label}
             </h2>
             <button type="button" className={DONE_STYLE} onClick={() => setTool("select")}>
               Done
@@ -132,6 +132,22 @@ function PhoneToolBar({ editable, recent, onPick, onRecent }: PhoneToolBarProps)
   const [groupMenu, setGroupMenu] = useState<string | null>(null);
   const { panel, openPanel, closePanel } = useOpenPanel();
   const open = panel === "tools" ? "more" : panel ? null : groupMenu;
+  const bar = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(390);
+  const { visible, hidden } = fitPhoneSlots(width);
+  useLayoutEffect(() => {
+    const parent = bar.current?.offsetParent;
+    if (!(parent instanceof HTMLElement)) return;
+    /** @returns Nothing. */
+    const measure = () => setWidth(parent.clientWidth);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(parent);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => {
+    if (panel === "tools" && hidden.length === 0) closePanel();
+  }, [panel, hidden.length, closePanel]);
   const toolbarId = useId();
 
   /**
@@ -204,9 +220,9 @@ function PhoneToolBar({ editable, recent, onPick, onRecent }: PhoneToolBarProps)
    * @returns Nothing.
    */
   function pickMore(index: number) {
-    const slot = PHONE_MORE[index];
+    const slot = hidden[index];
     if (!slot) return;
-    onRecent(nextPhoneRecent(recent, slot));
+    onRecent(slot);
     onPick(representedTool(slot));
     closeMenu();
   }
@@ -276,35 +292,39 @@ function PhoneToolBar({ editable, recent, onPick, onRecent }: PhoneToolBarProps)
         onClick={closeMenu}
         className={`absolute inset-0 z-5 bg-canvas/55 transition-opacity ease-out ${scrimState}`}
       />
-      <div role="toolbar" aria-label="Tools" className={BAR_STYLE}>
-        {PHONE_FIXED.map((slot) => renderSlot(slot))}
-        <span aria-hidden="true" className="mx-[3px] h-[26px] w-px shrink-0 bg-divider" />
-        {recent && renderSlot(recent, true)}
-        <button
-          type="button"
-          id={`${toolbarId}-more`}
-          aria-label={moreOpen ? "Close tools" : "More tools"}
-          aria-haspopup="menu"
-          aria-expanded={moreOpen}
-          disabled={!editable}
-          onClick={() => toggleMenu("more")}
-          className={`${KEY_STYLE} ms-0.5 rounded-full ${moreOpen ? "bg-action text-on-action" : "bg-pressed"}`}
-        >
-          <Plus
-            aria-hidden="true"
-            className={`size-[22px] transition-transform duration-(--duration-enter) ease-out motion-reduce:transition-none ${moreOpen ? "rotate-135" : ""}`}
-          />
-        </button>
-        <PhoneToolMenu
-          label="More tools"
-          open={moreOpen}
-          rows={PHONE_MORE.map((slot) => {
-            const info = TOOL_INFO[representedTool(slot)];
-            return slot.kind === "group" ? { ...info, label: slot.name } : info;
-          })}
-          checked={tool}
-          onPick={pickMore}
-        />
+      <div ref={bar} role="toolbar" aria-label="Tools" className={`${BAR_STYLE} ${hidden.length ? "" : "px-px"}`}>
+        {visible.map((slot) => renderSlot(slot))}
+        {hidden.length > 0 && (
+          <>
+            <span aria-hidden="true" className="mx-[3px] h-[26px] w-px shrink-0 bg-divider" />
+            {recent && hidden.includes(recent) && renderSlot(recent, true)}
+            <button
+              type="button"
+              id={`${toolbarId}-more`}
+              aria-label={moreOpen ? "Close tools" : "More tools"}
+              aria-haspopup="menu"
+              aria-expanded={moreOpen}
+              disabled={!editable}
+              onClick={() => toggleMenu("more")}
+              className={`${KEY_STYLE} ms-0.5 rounded-full ${moreOpen ? "bg-action text-on-action" : "bg-pressed"}`}
+            >
+              <Plus
+                aria-hidden="true"
+                className={`size-[22px] transition-transform duration-(--duration-enter) ease-out motion-reduce:transition-none ${moreOpen ? "rotate-135" : ""}`}
+              />
+            </button>
+            <PhoneToolMenu
+              label="More tools"
+              open={moreOpen}
+              rows={hidden.map((slot) => {
+                const info = TOOL_INFO[representedTool(slot)];
+                return slot.kind === "group" ? { ...info, label: slot.name } : info;
+              })}
+              checked={tool}
+              onPick={pickMore}
+            />
+          </>
+        )}
       </div>
     </>
   );
