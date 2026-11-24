@@ -37,7 +37,14 @@ it("round-trips source PDF runs without merging, trimming or rebuilding their fa
     weight: 700,
     italic: true,
   } as const;
-  const face = { ...defaults, fontFamily: "Times", font, bold: true, italic: true, fontSize: 18.375 } as const;
+  const face = {
+    ...defaults,
+    fontFamily: "Times",
+    font,
+    bold: true,
+    italic: true,
+    fontSize: 9.962599754333496,
+  } as const;
   const source: TextRun[] = [
     { ...defaults, text: "Same " },
     { ...defaults, text: "style " },

@@ -9,7 +9,7 @@ import type { FormatPanel } from "./FormatBar";
 import { TextStyleMenu } from "./TextStyleMenu";
 import { colorHex, displayFont, parseHex } from "./text-runs";
 import { useTextPageColors } from "./use-text-page-colors";
-import { focusPageTextDraft, stepTextSize, TEXT_STYLE_TOGGLES, useTextStyle } from "./use-text-style";
+import { displayTextSize, focusPageTextDraft, stepTextSize, TEXT_STYLE_TOGGLES, useTextStyle } from "./use-text-style";
 
 const BUTTON = "grid min-h-9 min-w-9 place-items-center rounded-sm hover:bg-hover max-lg:min-h-11";
 const FONT_BUTTON =
@@ -33,6 +33,7 @@ export function TextProperties({ hideHeading = false }: { readonly hideHeading?:
   const trigger = useRef<HTMLButtonElement>(null);
   const editorFocused = useRef(false);
   const font = displayFont(style);
+  const size = style.fontSize === null ? null : displayTextSize(style.fontSize);
   const color = style.color ? colorHex(style.color) : null;
   const mixedFormats = TEXT_STYLE_TOGGLES.some(([format]) => style[format] === null);
 
@@ -133,19 +134,17 @@ export function TextProperties({ hideHeading = false }: { readonly hideHeading?:
             type="button"
             className={BUTTON}
             aria-label="Decrease font size"
-            disabled={style.fontSize === 6}
+            disabled={size === 6}
             onClick={() => setStyle({ fontSize: stepTextSize(style.fontSize, -1) })}
           >
             <Minus className="size-4" aria-hidden="true" />
           </button>
-          <span className="text-center text-sm tabular-nums">
-            {style.fontSize === null ? "Mixed" : `${style.fontSize} pt`}
-          </span>
+          <span className="text-center text-sm tabular-nums">{size === null ? "Mixed" : `${size} pt`}</span>
           <button
             type="button"
             className={BUTTON}
             aria-label="Increase font size"
-            disabled={style.fontSize === 96}
+            disabled={size === 96}
             onClick={() => setStyle({ fontSize: stepTextSize(style.fontSize, 1) })}
           >
             <Plus className="size-4" aria-hidden="true" />

@@ -83,6 +83,8 @@ describe("page text", () => {
     expect(line.runs).toEqual([
       {
         text: line.text,
+        originalWidth: 295.7999572753906,
+        baseline: { x: 72, y: 700 },
         font: {
           kind: "embedded",
           fontId: `document:${font!.id}`,

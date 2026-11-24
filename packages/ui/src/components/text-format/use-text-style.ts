@@ -246,11 +246,20 @@ export function getNextTextStyle(pageId?: string, session?: DocumentSession): Ru
 }
 
 /**
+ * Rounds a PDF size for display in point-size controls.
+ * @param size The exact size in points.
+ * @returns The nearest tenth of a point.
+ */
+export function displayTextSize(size: number): number {
+  return Math.round(size * 10) / 10;
+}
+
+/**
  * Steps a point size within the supported range, starting at the tool size for mixed text.
  * @param size The current point size, if uniform.
  * @param delta The step direction.
  * @returns A size between 6 and 96 points.
  */
 export function stepTextSize(size: number | null, delta: -1 | 1): number {
-  return Math.max(6, Math.min(96, (size ?? getNextTextStyle().fontSize) + delta));
+  return Math.max(6, Math.min(96, displayTextSize(size ?? getNextTextStyle().fontSize) + delta));
 }

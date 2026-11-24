@@ -1,5 +1,6 @@
 import {
   CSS_PIXELS_PER_POINT,
+  pdfToScreen,
   pdfRectToScreen,
   sameRunStyle,
   type DocumentSession,
@@ -38,6 +39,8 @@ import {
   pageFontChoice,
   releaseDocumentFonts,
 } from "../text-format/font-model";
+import { fitEditorRuns, measureSource } from "../text-format/run-fit";
+import { PageTextCover } from "../text-format/PageTextCover";
 import { FormatBar, type FormatPanel } from "../text-format/FormatBar";
 import {
   $loadPageTextRuns,
@@ -94,7 +97,7 @@ export function PageTextEditor(props: PageTextEditorProps) {
     <LexicalComposer
       initialConfig={{
         namespace: "ExistingPageText",
-        theme: { text: { underline: "underline" } },
+        theme: { text: { bold: "font-bold", italic: "italic", underline: "underline" } },
         editorState: () => $loadPageTextRuns(source, (id) => documentChoiceId(session, pageId, id)),
         onError: (error) => {
           throw error;
@@ -150,9 +153,10 @@ async function registerEditFonts(session: DocumentSession, pageId: string, runs:
  * @param session The editing session.
  * @param pageId The edited page.
  * @param source The original runs.
- * @returns Nothing.
+ * @returns Whether the page faces have finished loading.
  */
-function useSourceFaces(session: DocumentSession, pageId: string, source: readonly TextRun[]): void {
+function useSourceFaces(session: DocumentSession, pageId: string, source: readonly TextRun[]): boolean {
+  const [ready, setReady] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
     const activation = { session, pageId, signal: controller.signal };
@@ -172,7 +176,10 @@ function useSourceFaces(session: DocumentSession, pageId: string, source: readon
                 );
               }),
           );
-          if (!controller.signal.aborted) refreshTextStyle();
+          if (!controller.signal.aborted) {
+            refreshTextStyle();
+            setReady(true);
+          }
         })
         .catch(() => undefined);
     }
@@ -181,6 +188,7 @@ function useSourceFaces(session: DocumentSession, pageId: string, source: readon
       releaseDocumentFonts(pageId, session, getNextTextStyle().fontChoice);
     };
   }, [pageId, session, source]);
+  return ready;
 }
 
 /**
@@ -204,14 +212,45 @@ function Draft({
   const { session } = useEditorServices();
   const overlay = useRef<HTMLDivElement>(null);
   const finished = useRef(false);
-  const [pristine, setPristine] = useState(true);
   const [background, setBackground] = useState(() => cssColor(editorBackground([], object.color)));
   const scale = frame.zoom * CSS_PIXELS_PER_POINT;
   const box = pdfRectToScreen(object.bounds, frame);
   const width = object.bounds.width * scale + 2 * PAD;
   const height = object.bounds.height * scale + 2 * PAD;
   useTextStyleDraft(editor, pageId, defaults, true);
-  useSourceFaces(session, pageId, source);
+  const facesReady = useSourceFaces(session, pageId, source);
+  const marker = useRef<HTMLSpanElement>(null);
+
+  useLayoutEffect(() => {
+    const ctx = document.createElement("canvas").getContext("2d");
+    if (!ctx) return;
+    const metrics = measureSource(
+      ctx,
+      source.map((run) => {
+        const id = run.font?.kind === "embedded" && run.font.documentFontId;
+        const face = id ? `pdf-face-${documentChoiceId(session, pageId, id)}, ` : "";
+        const family = FAMILIES[run.fontFamily ?? defaults.fontFamily].css;
+        const style = run.italic ? "italic" : "normal";
+        const font = `${style} ${run.bold ? 700 : 400} ${run.fontSize * scale}px ${face}${family}`;
+        return { text: run.text, font, originalWidth: run.originalWidth };
+      }),
+      scale,
+    );
+    const baselinePoint = source[0]?.baseline;
+    const baseline = baselinePoint ? pdfToScreen(baselinePoint, frame).y - box.top + PAD : height / 2;
+
+    /** @returns Nothing. */
+    const fit = () => {
+      const root = editor.getRootElement();
+      if (!root || !marker.current) return;
+      fitEditorRuns(root, ctx, metrics, width - 2 * PAD);
+      root.style.top = `${baseline - marker.current.offsetTop}px`;
+    };
+    fit();
+    return editor.registerUpdateListener(({ dirtyElements, dirtyLeaves }) => {
+      if (dirtyElements.size || dirtyLeaves.size) fit();
+    });
+  }, [box.top, defaults.fontFamily, editor, facesReady, frame, height, pageId, scale, session, source, width]);
 
   useLayoutEffect(() => {
     const canvas = overlay.current
@@ -227,16 +266,6 @@ function Draft({
     });
     setBackground(cssColor(editorBackground(pixels ? ringOf(pixels) : [], object.color)));
   }, [box.left, box.top, box.width, box.height, object.color]);
-
-  useLayoutEffect(
-    () =>
-      editor.registerUpdateListener(({ editorState, dirtyElements, dirtyLeaves }) => {
-        if (dirtyElements.size || dirtyLeaves.size) {
-          setPristine(samePageTextRuns(source, editedPageTextRuns(editorState, source, defaults)));
-        }
-      }),
-    [defaults, editor, source],
-  );
 
   /** @param keep Whether to commit the draft. @returns Nothing. */
   const finish = useCallback(
@@ -294,17 +323,16 @@ function Draft({
       className="absolute z-4"
       style={{ left: box.left - PAD, top: box.top - PAD }}
     >
-      <div
-        className="absolute grid w-max items-center rounded-xs outline-2 outline-offset-1 outline-paper-focus/70 outline-dashed"
+      <PageTextCover
+        background={background}
+        width={width}
+        height={height}
         style={
           {
             "--pdf-text-scale": `${scale}px`,
             left: (box.width + 2 * PAD - width) / 2,
             top: (box.height + 2 * PAD - height) / 2,
-            minWidth: width,
-            minHeight: height,
             paddingInline: PAD,
-            backgroundColor: pristine ? undefined : background,
             transform: frame.rotation ? `rotate(${frame.rotation}deg)` : undefined,
             fontSize: defaults.fontSize * scale,
             lineHeight: 1,
@@ -318,26 +346,24 @@ function Draft({
           finish(event.key === "Enter");
         }}
       >
-        <RichTextPlugin
-          contentEditable={
-            <ContentEditable
-              aria-label="Page text"
-              aria-multiline={false}
-              enterKeyHint="done"
-              spellCheck
-              data-pristine={pristine}
-              className={
-                "min-w-full whitespace-pre caret-paper-focus outline-none " +
-                "data-[pristine=true]:[-webkit-text-fill-color:transparent] " +
-                "data-[pristine=true]:[&_*]:[text-decoration-color:transparent]"
-              }
-            />
-          }
-          ErrorBoundary={LexicalErrorBoundary}
-        />
+        <div className="relative flex items-baseline self-start [&>div:first-child]:self-start">
+          <span ref={marker} aria-hidden="true" className="w-0 shrink-0" />
+          <RichTextPlugin
+            contentEditable={
+              <ContentEditable
+                aria-label="Page text"
+                aria-multiline={false}
+                enterKeyHint="done"
+                spellCheck
+                className="relative min-w-full whitespace-pre caret-paper-focus outline-none"
+              />
+            }
+            ErrorBoundary={LexicalErrorBoundary}
+          />
+        </div>
         <SelectionAlwaysOnDisplay />
         <AutoFocusPlugin />
-      </div>
+      </PageTextCover>
       <PageTextControls editor={editor} pageId={pageId} revision={revision} finish={finish} />
     </div>
   );

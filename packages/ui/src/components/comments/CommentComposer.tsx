@@ -296,7 +296,7 @@ function CommentDraft({ placeholder, hasText, onSubmit }: DraftProps) {
             <button
               key={style}
               type="button"
-              aria-label={style}
+              aria-label={style[0]!.toUpperCase() + style.slice(1)}
               aria-pressed={format[style]}
               className={`${FORMAT_BUTTON} ${className}`}
               onMouseDown={(event) => event.preventDefault()}

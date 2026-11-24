@@ -1234,6 +1234,11 @@ export class PageTextObjects {
       bold,
       italic,
       underline: Boolean(this.underlineAt(context.page, member.index + 1)),
+      originalWidth: this.measure.lengthAlongBaseline(member.handle),
+      baseline: (() => {
+        const matrix = this.measure.matrixOf(member.handle);
+        return { x: matrix[4] ?? 0, y: matrix[5] ?? 0 };
+      })(),
     };
   }
 }

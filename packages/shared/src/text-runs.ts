@@ -1,4 +1,4 @@
-import type { Rgb } from "./pdf";
+import type { PdfPoint, Rgb } from "./pdf";
 
 /** Standard PDF families used for added text. */
 export type TextRunFamily = "Helvetica" | "Times" | "Courier";
@@ -18,6 +18,10 @@ export type TextRunFont =
 /** One span with a uniform style, in PDF points and RGB channels. */
 export interface TextRun {
   readonly text: string;
+  /** Original run width along its baseline, in PDF points. */
+  readonly originalWidth?: number;
+  /** Original run baseline origin, in PDF points. */
+  readonly baseline?: PdfPoint;
   readonly fontFamily?: TextRunFamily;
   readonly font?: TextRunFont;
   readonly fontSize: number;

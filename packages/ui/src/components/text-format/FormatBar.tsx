@@ -1,7 +1,7 @@
 import { ChevronDown, Minus, Plus } from "lucide-react";
 import { useState, type KeyboardEvent } from "react";
 import { colorHex, displayFont } from "./text-runs";
-import { stepTextSize, TEXT_STYLE_TOGGLES, type FormatToggle, type TextStyle } from "./use-text-style";
+import { displayTextSize, stepTextSize, TEXT_STYLE_TOGGLES, type FormatToggle, type TextStyle } from "./use-text-style";
 
 export type FormatPanel = "font" | "colour";
 
@@ -26,6 +26,7 @@ export function FormatBar({ style, panel, onPanel, onSize, onToggle }: FormatBar
   const [active, setActive] = useState(0);
   const family = displayFont(style);
 
+  const size = style.fontSize === null ? null : displayTextSize(style.fontSize);
   /** @param event The toolbar keyboard event. @returns Nothing. */
   const navigate = (event: KeyboardEvent<HTMLDivElement>) => {
     const buttons = Array.from(event.currentTarget.querySelectorAll("button"));
@@ -75,23 +76,23 @@ export function FormatBar({ style, panel, onPanel, onSize, onToggle }: FormatBar
           {...focus(1)}
           className={`grid ${BUTTON}`}
           aria-label="Decrease font size"
-          aria-disabled={style.fontSize === 6}
+          aria-disabled={size === 6}
           onClick={() => onSize(stepTextSize(style.fontSize, -1))}
         >
           <Minus className="size-4" aria-hidden="true" />
         </button>
         <span
           className="min-w-7 text-center font-semibold tabular-nums"
-          aria-label={style.fontSize === null ? "Mixed sizes" : `${style.fontSize} points`}
+          aria-label={size === null ? "Mixed sizes" : `${size} points`}
         >
-          {style.fontSize ?? "Mixed"}
+          {size ?? "Mixed"}
         </span>
         <button
           type="button"
           {...focus(2)}
           className={`grid ${BUTTON}`}
           aria-label="Increase font size"
-          aria-disabled={style.fontSize === 96}
+          aria-disabled={size === 96}
           onClick={() => onSize(stepTextSize(style.fontSize, 1))}
         >
           <Plus className="size-4" aria-hidden="true" />

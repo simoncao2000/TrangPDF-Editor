@@ -9,7 +9,14 @@ import {
   createEditor,
 } from "lexical";
 import { editorTextRuns, type RunStyle } from "./text-runs";
-import { $readTextStyle, connectTextStyleDraft, getNextTextStyle, setTextStyle } from "./use-text-style";
+import {
+  $readTextStyle,
+  connectTextStyleDraft,
+  displayTextSize,
+  getNextTextStyle,
+  setTextStyle,
+  stepTextSize,
+} from "./use-text-style";
 
 it("resolves selection attributes and reports mixed values across runs", () => {
   const editor = createEditor();
@@ -83,4 +90,11 @@ it("routes shared changes to a saved selection or to the next text typed", () =>
     disconnect();
     setTextStyle(base);
   }
+});
+
+it("displays and steps from the nearest tenth of a point", () => {
+  expect([9.962599754333496, 10.95, 8.5].map(displayTextSize)).toEqual([10, 11, 8.5]);
+  expect(stepTextSize(9.962599754333496, -1)).toBe(9);
+  expect(stepTextSize(10.95, 1)).toBe(12);
+  expect(stepTextSize(8.5, 1)).toBe(9.5);
 });

@@ -25,6 +25,8 @@ import {
 
 import { bundledFontBytes, chosenFont, embeddedRunFont } from "./font-model";
 
+/** Visual grouping survives a font replacement that clears the original PDF font identity. */
+export const FIT_RUN = "--pdf-fit-run";
 export const SOURCE_RUN = "--pdf-source-run";
 
 export const FAMILIES: Record<TextRunFamily, { name: string; css: string }> = {
@@ -114,6 +116,7 @@ export function $loadPageTextRuns(runs: readonly TextRun[], faceId: (id: string)
       `font-size: calc(var(--pdf-text-scale) * ${run.fontSize});`,
       `color: ${colorHex(run.color)};`,
       `${SOURCE_RUN}: ${index};`,
+      `${FIT_RUN}: ${index};`,
     ].join(" ");
     const node = $createTextNode(run.text).setStyle(css);
     if (run.bold) node.toggleFormat("bold");
