@@ -25,7 +25,7 @@ export function CommentCard({ pageId, annotation, frame, pageWidth }: CommentCar
     <div
       // Presses inside the card are not presses on the page (they must not deselect the mark).
       data-annotation=""
-      className="absolute z-20 rounded-md shadow-2"
+      className="absolute z-20 rounded-xs shadow-2"
       style={{ left, top: box.top + box.height + GAP, width: CARD_WIDTH }}
     >
       <CommentThread pageId={pageId} annotation={annotation} open />

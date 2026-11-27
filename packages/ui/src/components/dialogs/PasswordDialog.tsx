@@ -54,7 +54,7 @@ export function PasswordDialog() {
           onChange={(event) => setPassword(event.target.value)}
           aria-invalid={wrong || undefined}
           aria-describedby="password-help"
-          className="min-h-(--control-target) rounded-sm border border-line bg-raised px-3 text-sm text-ink focus-visible:border-focus focus-visible:outline-2 focus-visible:outline-focus aria-invalid:border-danger"
+          className="min-h-(--control-target) rounded-xs border border-line bg-raised px-3 text-sm text-ink focus-visible:border-focus focus-visible:outline-2 focus-visible:outline-focus aria-invalid:border-danger"
         />
         <p id="password-help" className={`text-xs ${wrong ? "font-medium text-danger" : "text-muted"}`}>
           {wrong ? "That password didn’t work. Check caps lock and try again." : "Ask the person who sent the file."}

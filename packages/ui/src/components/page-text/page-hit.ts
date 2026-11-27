@@ -1,4 +1,4 @@
-import type { DocumentSession } from "@pdf-editor/core";
+import type { DocumentSession, PageTextObject } from "@pdf-editor/core";
 import type { PdfPoint, PdfRect } from "@pdf-editor/shared";
 
 /**
@@ -22,4 +22,19 @@ export async function pageHit(session: DocumentSession, pageId: string, point: P
   }
   if (marks.some(hit) || fields.some(hit)) return "occupied";
   return text ?? (selection.rects.length ? "occupied" : null);
+}
+
+/**
+ * @param hit The resolved double-click hit.
+ * @param edit Opens the existing line editor.
+ * @param insert Opens the new text box at the clicked position.
+ * @returns Nothing.
+ */
+export function openTextHit(
+  hit: Awaited<ReturnType<typeof pageHit>> | undefined,
+  edit: (object: PageTextObject) => void,
+  insert: () => void,
+) {
+  if (hit === null) insert();
+  else if (hit && hit !== "occupied") edit(hit);
 }

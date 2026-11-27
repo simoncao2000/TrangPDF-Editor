@@ -8,6 +8,7 @@ import {
   type PageFrame,
   type PageTextObject,
   type TextRun,
+  type ScreenPoint,
 } from "@pdf-editor/core";
 import { AutoFocusPlugin } from "@lexical/react/LexicalAutoFocusPlugin";
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
@@ -18,7 +19,10 @@ import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
 import { SelectionAlwaysOnDisplay } from "@lexical/react/LexicalSelectionAlwaysOnDisplay";
 import {
   $getSelection,
+  $getRoot,
+  $getNearestNodeFromDOMNode,
   $isRangeSelection,
+  $isTextNode,
   COMMAND_PRIORITY_HIGH,
   INSERT_LINE_BREAK_COMMAND,
   INSERT_PARAGRAPH_COMMAND,
@@ -62,12 +66,14 @@ import {
   type FormatToggle,
 } from "../text-format/use-text-style";
 import { editorBackground, pixelsIn, ringOf } from "./editor-background";
+import { caretAtPoint, collapsedTextSelection } from "./caret-at-point";
 
 interface PageTextEditorProps {
   readonly object: PageTextObject;
   readonly frame: PageFrame;
   readonly pageId: string;
   readonly revision: number;
+  readonly clickPoint?: ScreenPoint;
   /** @param runs The edited line, or null on cancel. @returns Nothing. */
   onDone(runs: readonly TextRun[] | null, offset?: { x: number; y: number }): void;
 }
@@ -203,6 +209,7 @@ function Draft({
   frame,
   pageId,
   revision,
+  clickPoint,
   onDone,
   source,
   defaults,
@@ -223,6 +230,25 @@ function Draft({
   useTextStyleDraft(editor, pageId, defaults, true);
   const facesReady = useSourceFaces(session, pageId, source);
   const marker = useRef<HTMLSpanElement>(null);
+
+  useLayoutEffect(() => {
+    if (!clickPoint) return;
+    const root = editor.getRootElement();
+    if (!root) return;
+    const caret = caretAtPoint(document, root, clickPoint);
+    editor.update(() => {
+      if (!caret || caret.kind === "start" || caret.kind === "end") {
+        if (caret?.kind === "start") $getRoot().selectStart();
+        else if (caret?.kind === "end") $getRoot().selectEnd();
+        return;
+      }
+      const lexicalNode = $getNearestNodeFromDOMNode(caret.node);
+      if (!$isTextNode(lexicalNode)) return;
+      const domLength = caret.node.textContent?.length ?? 0;
+      const selection = collapsedTextSelection(caret.offset, domLength);
+      lexicalNode.select(selection.anchorOffset, selection.focusOffset);
+    });
+  }, [clickPoint, editor, facesReady]);
 
   useLayoutEffect(() => {
     const ctx = document.createElement("canvas").getContext("2d");

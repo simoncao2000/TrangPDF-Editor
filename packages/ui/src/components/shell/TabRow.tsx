@@ -37,7 +37,7 @@ export function TabRow() {
         role="tablist"
         aria-label="Open files"
         onKeyDown={onKeyDown}
-        className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [mask-image:linear-gradient(to_right,#000_calc(100%-2rem),transparent)] [scrollbar-width:none]"
+        className="flex min-w-0 flex-1 [scrollbar-width:none] items-center gap-0.5 overflow-x-auto [mask-image:linear-gradient(to_right,#000_calc(100%-2rem),transparent)]"
       >
         {tabs.map((tab) => (
           <TabItem key={tab.id} tab={tab} active={tab.id === activeId} />

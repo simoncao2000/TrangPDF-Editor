@@ -87,25 +87,18 @@ export function PropertiesPanel({ hideHeading = false }: { readonly hideHeading?
   const selected = useAnnotationUi((state) => state.selected);
   const tool = useAnnotationUi((state) => state.tool);
   const hasDraft = useHasTextDraft();
+  if (tool === "editText") {
+    return (
+      <div className="min-w-0">
+        <TextProperties hideHeading={hideHeading} />
+        {!hasDraft && <p className="mt-2 text-sm text-muted">Select a line to change its formatting.</p>}
+      </div>
+    );
+  }
   if (hasDraft) return <TextProperties hideHeading={hideHeading} />;
   if (selected) return <SelectedProperties selected={selected} hideHeading={hideHeading} />;
   if (tool === "textBox") return <TextProperties hideHeading={hideHeading} />;
   if (isDrawingTool(tool)) return <ToolProperties tool={tool} hideHeading={hideHeading} />;
-  if (tool === "editText") {
-    return (
-      <section className="grid gap-1" aria-labelledby={hideHeading ? undefined : "edit-text-title"}>
-        {!hideHeading && (
-          <h3 id="edit-text-title" className="font-hand text-xl">
-            Edit text
-          </h3>
-        )}
-        <p className="text-sm text-muted">
-          Click any outlined text on the page to change it. Enter keeps the change; Esc cancels. If the original font
-          lacks a letter you type, the line uses the closest standard font.
-        </p>
-      </section>
-    );
-  }
   return (
     <div className="grid justify-items-center gap-2 rounded-sm border border-divider p-5 text-center">
       <PaperBoat className="w-16" />

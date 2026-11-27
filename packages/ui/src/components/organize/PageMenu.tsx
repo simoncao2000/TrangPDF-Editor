@@ -89,7 +89,7 @@ export function PageMenu(props: PageMenuProps) {
           onDismiss();
         }}
         style={{ left: position.left, top: position.top, transformOrigin: position.origin }}
-        className={`fixed z-41 max-h-[calc(100dvh-16px)] w-[264px] max-w-[calc(100vw-16px)] overflow-auto rounded-lg bg-raised p-1 text-ink shadow-3 ring-1 ring-line transition-[opacity,scale] duration-(--duration-enter) ease-out outline-none motion-reduce:transition-opacity starting:opacity-0 motion-safe:starting:scale-95 ${position.ready ? "" : "opacity-0"}`}
+        className={`fixed z-41 max-h-[calc(100dvh-16px)] w-[264px] max-w-[calc(100vw-16px)] overflow-auto rounded-xs bg-raised p-1 text-ink shadow-3 ring-1 ring-line transition-[opacity,scale] duration-(--duration-enter) ease-out outline-none motion-reduce:transition-opacity starting:opacity-0 motion-safe:starting:scale-95 ${position.ready ? "" : "opacity-0"}`}
       >
         <div className="grid gap-0.5 px-3 py-2">
           <span className="truncate font-hand text-lg/none">
@@ -104,7 +104,7 @@ export function PageMenu(props: PageMenuProps) {
               type="button"
               onClick={act}
               disabled={disabled}
-              className={`active:bg-active grid min-h-11 justify-items-center gap-1 rounded-md bg-hover px-1 pt-2.5 pb-2 text-xs/none font-medium disabled:text-disabled ${color ?? ""}`}
+              className={`active:bg-active grid min-h-11 justify-items-center gap-1 rounded-[2px] bg-hover px-1 pt-2.5 pb-2 text-xs/none font-medium disabled:text-disabled ${color ?? ""}`}
             >
               <Icon className="size-5" aria-hidden="true" />
               {label}
@@ -117,7 +117,7 @@ export function PageMenu(props: PageMenuProps) {
             type="button"
             onClick={act}
             disabled={disabled}
-            className="active:bg-active flex min-h-[46px] w-full items-center gap-2 rounded-md px-3 text-base hover:bg-hover disabled:text-disabled"
+            className="active:bg-active flex min-h-[46px] w-full items-center gap-2 rounded-[2px] px-3 text-base hover:bg-hover disabled:text-disabled"
           >
             <Icon className="size-5" aria-hidden="true" />
             {label}

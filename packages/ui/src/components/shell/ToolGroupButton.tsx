@@ -80,7 +80,7 @@ export function ToolGroupButton({ name, tools, current, upright, disabled, onPic
             ref={menuRef}
             role="menu"
             aria-label={name}
-            className="fixed z-50 grid min-w-52 gap-px rounded-md bg-raised p-1 shadow-2 ring-1 ring-line/50"
+            className="fixed z-50 grid min-w-52 gap-px rounded-xs bg-raised p-1 shadow-2 ring-1 ring-line/50"
             style={menuAt}
           >
             {tools.map((tool) => {
@@ -95,7 +95,7 @@ export function ToolGroupButton({ name, tools, current, upright, disabled, onPic
                     onPick(tool);
                     setMenuAt(null);
                   }}
-                  className="flex min-h-8 items-center gap-2.5 rounded-sm px-2 text-left text-sm text-ink outline-none hover:bg-hover focus-visible:bg-hover aria-checked:bg-hover aria-checked:font-semibold"
+                  className="flex min-h-8 items-center gap-2.5 rounded-[2px] px-2 text-left text-sm text-ink outline-none hover:bg-hover focus-visible:bg-hover aria-checked:bg-hover aria-checked:font-semibold"
                 >
                   <Icon className="size-4 text-muted" aria-hidden="true" />
                   {label}

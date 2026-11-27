@@ -109,7 +109,7 @@ export function CommentThread({ pageId, annotation, open, onOpen }: CommentThrea
     </>
   );
 
-  const frame = "grid gap-2 rounded-md p-3 text-left";
+  const frame = "grid gap-2 rounded-xs p-3 text-left";
   if (open) {
     return (
       <article aria-label={`${name} comment`} className={`${frame} bg-raised shadow-1 ring-1 ring-line/60`}>

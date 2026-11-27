@@ -266,7 +266,7 @@ function CommentDraft({ placeholder, hasText, onSubmit }: DraftProps) {
         setPickingInk(false);
       }}
       className={
-        "grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2 rounded-sm bg-hover py-1 pr-1 pl-2.5 " +
+        "grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2 rounded-xs bg-hover py-1 pr-1 pl-2.5 " +
         "data-focused:gap-1.5 data-focused:pt-2 data-focused:pr-2 data-focused:pb-1.5 " +
         "data-focused:inset-ring-2 data-focused:inset-ring-focus"
       }
@@ -323,7 +323,7 @@ function CommentDraft({ placeholder, hasText, onSubmit }: DraftProps) {
               role="group"
               aria-label="Comment inks"
               className={
-                "absolute bottom-full left-0 z-10 mb-1 grid grid-cols-2 gap-0.5 rounded-sm " +
+                "absolute bottom-full left-0 z-10 mb-1 grid grid-cols-2 gap-0.5 rounded-xs " +
                 "bg-raised p-1 shadow-1 ring-1 ring-line"
               }
             >

@@ -55,6 +55,7 @@ Most PDF tools ask you to upload a file before you can rotate a page. TrangPDF d
 - Open by picker, drag and drop anywhere on the window, or from the recent files list.
 - Smooth, virtualised scrolling that stays fast on documents with hundreds of pages.
 - Crisp rendering at any zoom: fit width, fit page, or 50% to 400% presets, sharp on high-density screens.
+- Pinch to zoom the page on touch screens, trackpad pinch or `Ctrl/⌘` + scroll on desktop, and double-tap to switch between fit width and 200% on phones. The interface never scales with it.
 - Page thumbnails, a page jump control, and the current page kept in view as you zoom.
 - Password-protected files open after you enter the password, and stay encrypted when saved.
 - Clear messages for damaged files, files that are not PDFs, and files over 500 MB.
@@ -242,8 +243,18 @@ Then open the address Vite prints, usually <http://localhost:5173>.
 | Delete selected pages              | `Delete` or `⌫`                       | `Delete` or `Backspace`    |
 | Pick up and drop a page            | `M`, then arrows, then `M` or `Enter` | same                       |
 | Clear selection, or leave organise | `Esc`                                 | `Esc`                      |
+| Zoom the page                      | `⌘` + scroll, or pinch                | `Ctrl` + scroll, or pinch  |
 
 ## Testing
+
+Run `bun story` and open [Storybook](http://127.0.0.1:6006) to try UI components in isolation.
+If port 6006 is in use, run `bun story --port 6007`.
+Use the toolbar to switch themes and preview the desktop or mobile viewport.
+Place `*.stories.tsx` beside their components under `packages/ui/src/`. Shared fixtures live in `packages/ui/stories/`.
+
+Run `bun run build-storybook` to create a static preview in `storybook-static/`.
+Install Chromium once with `bunx playwright install chromium`, then run
+`bun run test-storybook` to check the catalog in a browser.
 
 ```bash
 bun run test
@@ -258,7 +269,7 @@ bun run test
 - [x] **Phase 0: Setup.** Workspaces, engine running in a worker
 - [x] **Phase 1: Viewer.** Open, render, zoom, navigate, passwords, recent files
 - [x] **Phase 2: Page tools.** Reorder, rotate, delete, insert, extract, undo, save
-- [ ] **Phase 3: Annotations, comments and forms**
+- [x] **Phase 3: Annotations, comments and forms**
   - [x] Select text and choose Copy, Highlight or Comment
   - [x] Edit the page's own text in place (click, retype, drag to move), add new page text
   - [x] Several files open in tabs, command palette (search text, run commands, switch files), collapsible sidebars
@@ -274,6 +285,12 @@ bun run test
   - [x] Typed signatures
   - [x] Rich text: fonts, size, colour, bold, italic and underline on selected words, with fonts from the PDF, bundled fonts, the device and font files
   - [x] Rich comments: bold, italic, underline and colour
+  - [x] Double-click to type: on a line to edit it with the caret where you clicked, on empty paper for a new text box
+  - [x] Move a line or text box by dragging its dashed frame, in Select and Edit text
+  - [x] Signature preview that follows the pointer before you place it
+  - [x] Phone tool cards that rise like the tool menus, shrink to a chip while you work and never hide the end of the page
+  - [x] Pinch, double-tap and trackpad zoom on the page only
+  - [x] Component catalogue in Storybook
 - [ ] **Phase 4: Desktop app.** Tauri 2, open PDFs from the system, save in place, auto-updates
 - [ ] **Phase 5: Mobile app.** Capacitor, share sheet, touch gestures, bottom sheets
 - [ ] **Phase 6: Sync and paid tier.** Accounts, document sync, OCR

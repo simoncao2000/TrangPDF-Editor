@@ -1,4 +1,4 @@
-import type { Annotation } from "@pdf-editor/core";
+import { commentText, type Annotation } from "@pdf-editor/core";
 import { useEffect, useState } from "react";
 import { useDocument, useEditorServices } from "../../editor/hooks";
 
@@ -8,6 +8,16 @@ export interface ThreadEntry {
   /** The page's position in the document, from 0. */
   readonly pageIndex: number;
   readonly annotation: Annotation;
+}
+
+/** Counts annotations that have a nonempty comment body.
+ * @param threads The document annotations shown as comment threads.
+ * @returns The number of threads with at least one comment.
+ */
+export function countCommentThreads(threads: readonly ThreadEntry[]): number {
+  return threads.filter(({ annotation }) => {
+    return Boolean(annotation.comment && commentText(annotation.comment.body).trim());
+  }).length;
 }
 
 /**
@@ -38,6 +48,6 @@ export function useDocumentThreads(showRich: boolean) {
 
   return {
     threads: result && showRich && result.rich ? result.threads : [],
-    count: result?.threads.length ?? 0,
+    count: result ? countCommentThreads(result.threads) : 0,
   };
 }

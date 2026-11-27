@@ -49,7 +49,7 @@ export function Dialog({
       onClick={(event) => {
         if (event.target === event.currentTarget) onDismiss();
       }}
-      className="m-auto w-[min(100%-2rem,440px)] rounded-sm border border-line bg-raised p-0 text-ink transition-[opacity,scale] duration-(--duration-enter) ease-out backdrop:bg-scrim open:scale-100 open:opacity-100 starting:scale-96 starting:opacity-0"
+      className="m-auto w-[min(100%-2rem,440px)] rounded-xs border border-line bg-raised p-0 text-ink transition-[opacity,scale] duration-(--duration-enter) ease-out backdrop:bg-scrim open:scale-100 open:opacity-100 starting:scale-96 starting:opacity-0"
     >
       <div className="grid gap-4 p-5">
         <div className="flex items-start gap-3">

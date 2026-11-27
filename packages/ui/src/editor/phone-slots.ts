@@ -9,12 +9,16 @@ export function phoneSlotId(slot: PaletteSlot) {
   return slot.kind === "tool" ? slot.tool : slot.name;
 }
 
-const ORDER = ["select", "Markup", "ink", "note", "textBox", "sign", "Shapes", "image", "editText"];
-const ORDERED = ORDER.flatMap((id) => PALETTE.filter((slot) => phoneSlotId(slot) === id));
+const FIXED_IDS = ["select", "Markup", "ink", "note"];
+export const PHONE_FIXED = FIXED_IDS.flatMap((id) => PALETTE.filter((slot) => phoneSlotId(slot) === id));
+export const PHONE_MORE = PALETTE.filter((slot) => !FIXED_IDS.includes(phoneSlotId(slot))).reverse();
 
-/** @param width The page area's CSS width. @returns The primary slots and the slots available under More. */
-export function fitPhoneSlots(width: number) {
-  const capacity = Math.max(0, Math.floor((width - 24) / 48));
-  const count = Math.min(capacity, ORDERED.length);
-  return { visible: ORDERED.slice(0, count), hidden: ORDERED.slice(count) };
+/**
+ * Updates the recent slot only for picks from the More column.
+ * @param current The slot currently shown.
+ * @param fromMore The slot picked from More, if any.
+ * @returns The slot to show next.
+ */
+export function nextPhoneRecent(current: PaletteSlot | null, fromMore?: PaletteSlot): PaletteSlot | null {
+  return fromMore && PHONE_MORE.includes(fromMore) ? fromMore : current;
 }

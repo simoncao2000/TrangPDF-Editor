@@ -402,14 +402,14 @@ export function FontPicker({ pageId, hasDraft, pageText, wide, text, blockText, 
                   )}
                 </p>
                 {deviceSection && !canShowDevice && (
-                  <p className="mx-1 mb-2 rounded-md bg-hover p-3 text-sm text-muted">
+                  <p className="mx-1 mb-2 rounded-xs bg-hover p-3 text-sm text-muted">
                     {wide
                       ? "This browser doesn’t share its font list with apps. Add a font file to use any font you have."
                       : "A phone doesn’t share its font list with apps. Add a font file to use any font you have."}
                   </p>
                 )}
                 {deviceSection && canShowDevice && !device && (
-                  <div className="mx-1 mb-2 grid gap-2 rounded-md bg-hover p-3 text-sm text-muted">
+                  <div className="mx-1 mb-2 grid gap-2 rounded-xs bg-hover p-3 text-sm text-muted">
                     {deviceError ? (
                       <p role="status">{deviceError}</p>
                     ) : (
@@ -448,7 +448,7 @@ export function FontPicker({ pageId, hasDraft, pageText, wide, text, blockText, 
                         aria-disabled={blocked}
                         aria-selected={checked}
                         className={[
-                          "flex min-h-10 items-center gap-2 rounded-md px-2 max-lg:min-h-12",
+                          "flex min-h-10 items-center gap-2 rounded-[2px] px-2 max-lg:min-h-12",
                           blocked ? "text-muted" : "cursor-pointer hover:bg-hover",
                           font.local?.kind === "file" ? "pr-18" : "",
                           checked || (index >= 0 && active === index) ? "bg-selection" : "",

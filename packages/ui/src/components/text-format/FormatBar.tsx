@@ -52,7 +52,7 @@ export function FormatBar({ style, panel, onPanel, onSize, onToggle }: FormatBar
     <div
       role="toolbar"
       aria-label="Text formatting"
-      className="flex w-max items-center gap-0.5 rounded-lg bg-raised p-1 text-sm leading-none text-ink shadow-3 ring-1 ring-line select-none max-lg:w-full max-lg:justify-between max-lg:overflow-x-auto max-lg:rounded-none max-lg:bg-toolbar max-lg:px-1.5 max-lg:shadow-none"
+      className="flex w-max items-center gap-0.5 rounded-xs bg-raised p-1 text-sm leading-none text-ink shadow-3 ring-1 ring-line select-none max-lg:w-full max-lg:justify-between max-lg:overflow-x-auto max-lg:rounded-none max-lg:bg-toolbar max-lg:px-1.5 max-lg:shadow-none"
       onKeyDown={navigate}
       onMouseDown={(event) => event.preventDefault()}
     >

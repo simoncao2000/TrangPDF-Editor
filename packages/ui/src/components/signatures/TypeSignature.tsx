@@ -50,7 +50,7 @@ export function TypeSignature({ onCancel, onUse }: TypeSignatureProps) {
         value={name}
         onFocus={revealName}
         onChange={(event) => setName(event.target.value)}
-        className="h-11 min-w-0 rounded-md border border-line bg-surface px-3 text-base text-ink placeholder:text-muted focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+        className="h-11 min-w-0 rounded-xs border border-line bg-surface px-3 text-base text-ink placeholder:text-muted focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
       />
       <div className="relative grid h-42 min-w-0 place-items-center rounded-lg bg-paper-field ring-1 ring-paper-rule">
         <span

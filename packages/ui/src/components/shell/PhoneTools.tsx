@@ -1,16 +1,19 @@
 import { annotationRevisionOf } from "@pdf-editor/core";
-import { Plus } from "lucide-react";
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { ChevronDown, ChevronUp, Plus } from "lucide-react";
+import { useCallback, useEffect, useId, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { useDocument } from "../../editor/hooks";
-import { fitPhoneSlots, phoneSlotId } from "../../editor/phone-slots";
+import { nextPhoneRecent, PHONE_FIXED, PHONE_MORE, phoneSlotId } from "../../editor/phone-slots";
 import { ALL_TOOLS, TOOL_INFO, type PaletteSlot } from "../../editor/tool-catalog";
 import { useShortcuts } from "../../hooks/use-shortcut";
-import { useAnnotationUi, type SelectedAnnotation, type Tool } from "../../state/annotation-store";
+import { isDrawingTool, useAnnotationUi, type SelectedAnnotation, type Tool } from "../../state/annotation-store";
 import { useOpenPanel, useViewMode } from "../../routing/hooks";
 import { ANNOTATION_NAMES } from "../annotations/annotation-display";
 import { usePageAnnotations } from "../annotations/use-page-annotations";
 import { PropertiesPanel } from "../inspector/PropertiesPanel";
-import { useHasTextDraft } from "../text-format/use-text-style";
+import { useHasTextDraft, useTextStyle } from "../text-format/use-text-style";
+import { colorHex } from "../text-format/text-runs";
+import { PHONE_SURFACE_MOTION } from "./phone-surface-motion";
+import { isPhoneTrayVisible, phoneChromeHeight, PHONE_SURFACE_INITIAL, phoneSurfaceReducer } from "./phone-surface";
 import { PhoneToolMenu } from "./PhoneToolMenu";
 
 const KEY_STYLE = [
@@ -21,12 +24,7 @@ const TRAY_STYLE = [
   "absolute inset-x-3 bottom-[calc(var(--space-3)+56px+var(--space-2))] z-4 grid",
   "max-h-[46%] origin-bottom gap-3 overflow-y-auto overscroll-contain rounded-[18px] bg-raised px-4 pt-3 pb-4",
   "shadow-[0_12px_30px_-12px_rgb(var(--shadow-rgb)/40%)] ring-1 ring-ink/9",
-  "transition-[opacity,transform] duration-(--duration-enter) ease-out starting:opacity-0",
-  "motion-safe:starting:transform-[translateY(10px)_scale(.98)] motion-reduce:transition-opacity",
-].join(" ");
-const DONE_STYLE = [
-  "min-h-11 min-w-11 touch-manipulation rounded-pill px-3 text-sm/none font-semibold text-signal",
-  "active:bg-hover motion-safe:active:scale-97",
+  PHONE_SURFACE_MOTION,
 ].join(" ");
 const BAR_STYLE = [
   "absolute bottom-3 left-1/2 z-6 flex -translate-x-1/2 items-center gap-0.5",
@@ -41,6 +39,8 @@ const GROUP_TICK = [
   "after:absolute after:right-[7px] after:bottom-2 after:border-[3px] after:border-transparent",
   "after:border-r-current after:border-b-current after:opacity-55 after:content-['']",
 ].join(" ");
+/** Delay before an outgoing phone surface is replaced. */
+const SURFACE_HANDOFF_MS = 150;
 
 interface PhoneToolsProps {
   readonly keysEnabled: boolean;
@@ -55,11 +55,7 @@ interface PhoneToolsProps {
 export function PhoneTools({ keysEnabled, showTray }: PhoneToolsProps) {
   const status = useDocument((state) => state.status);
   const { mode, setMode } = useViewMode();
-  const tool = useAnnotationUi((state) => state.tool);
   const setTool = useAnnotationUi((state) => state.setTool);
-  const selected = useAnnotationUi((state) => state.selected);
-  const hasDraft = useHasTextDraft();
-  const trayTitleId = useId();
   const [recent, setRecent] = useState<PaletteSlot | null>(null);
   const editable = status === "clean" || status === "dirty";
 
@@ -82,24 +78,7 @@ export function PhoneTools({ keysEnabled, showTray }: PhoneToolsProps) {
   );
 
   if (mode === "organize") return null;
-  return (
-    <>
-      {showTray && (hasDraft || selected || tool !== "select") && (
-        <section aria-labelledby={trayTitleId} className={TRAY_STYLE}>
-          <div className="flex items-center justify-between gap-2">
-            <h2 id={trayTitleId} className="font-hand text-md/[1.1]">
-              {hasDraft ? "Text" : selected ? <SelectedMarkName selected={selected} /> : TOOL_INFO[tool].label}
-            </h2>
-            <button type="button" className={DONE_STYLE} onClick={() => setTool("select")}>
-              Done
-            </button>
-          </div>
-          <PropertiesPanel hideHeading />
-        </section>
-      )}
-      <PhoneToolBar editable={editable} recent={recent} onPick={pick} onRecent={setRecent} />
-    </>
-  );
+  return <PhoneToolBar editable={editable} recent={recent} showTray={showTray} onPick={pick} onRecent={setRecent} />;
 }
 
 /**
@@ -107,13 +86,33 @@ export function PhoneTools({ keysEnabled, showTray }: PhoneToolsProps) {
  * @param props The selected mark's page and identifier.
  * @returns The mark's kind label once its page annotations are available.
  */
-function SelectedMarkName({ selected }: { readonly selected: SelectedAnnotation }) {
+function SelectedMarkName({
+  selected,
+  chip = false,
+}: {
+  readonly selected: SelectedAnnotation;
+  readonly chip?: boolean;
+}) {
   const revision = useDocument((state) => annotationRevisionOf(state, selected.pageId));
   const annotation = usePageAnnotations(selected.pageId, revision).find((candidate) => candidate.id === selected.id);
-  return annotation ? ANNOTATION_NAMES[annotation.kind] : null;
+  if (!annotation) return null;
+  const name = ANNOTATION_NAMES[annotation.kind];
+  if (!chip) return name;
+  const value =
+    "lineWidth" in annotation ? annotation.lineWidth : "fontSize" in annotation ? annotation.fontSize : null;
+  return (
+    <>
+      <span className="sr-only">{name}</span>
+      {"color" in annotation && (
+        <span className="size-3 rounded-full" style={{ backgroundColor: colorHex(annotation.color) }} />
+      )}
+      {value != null && <span>{value} pt</span>}
+    </>
+  );
 }
 
 interface PhoneToolBarProps {
+  readonly showTray: boolean;
   readonly editable: boolean;
   readonly recent: PaletteSlot | null;
   onPick(tool: Tool): void;
@@ -125,29 +124,35 @@ interface PhoneToolBarProps {
  * @param props Editing state and tool selection handlers.
  * @returns The toolbar and its dismissible page scrim.
  */
-function PhoneToolBar({ editable, recent, onPick, onRecent }: PhoneToolBarProps) {
+function PhoneToolBar({ editable, recent, showTray, onPick, onRecent }: PhoneToolBarProps) {
   const tool = useAnnotationUi((state) => state.tool);
   const lastMarkup = useAnnotationUi((state) => state.lastMarkup);
   const lastShape = useAnnotationUi((state) => state.lastShape);
-  const [groupMenu, setGroupMenu] = useState<string | null>(null);
+  const [phoneSurface, dispatchSurface] = useReducer(phoneSurfaceReducer, PHONE_SURFACE_INITIAL);
   const { panel, openPanel, closePanel } = useOpenPanel();
-  const open = panel === "tools" ? "more" : panel ? null : groupMenu;
-  const bar = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(390);
-  const { visible, hidden } = fitPhoneSlots(width);
+  const open = panel === "tools" ? "more" : panel ? null : phoneSurface.menuId;
+  const selected = useAnnotationUi((state) => state.selected);
+  const hasDraft = useHasTextDraft();
+  const trayTitleId = useId();
+  const card = hasDraft ? "draft" : selected ? `mark-${selected.pageId}-${selected.id}` : tool;
+  const trayWanted = isPhoneTrayVisible(phoneSurface, showTray, card);
+  const wanted = open ?? (trayWanted ? "tray" : null);
+  const [surface, setSurface] = useState(wanted);
+
+  /** Releases the outgoing surface after its exit transition. @returns Timer cleanup during handoff. */
   useLayoutEffect(() => {
-    const parent = bar.current?.offsetParent;
-    if (!(parent instanceof HTMLElement)) return;
-    /** @returns Nothing. */
-    const measure = () => setWidth(parent.clientWidth);
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(parent);
-    return () => observer.disconnect();
-  }, []);
-  useEffect(() => {
-    if (panel === "tools" && hidden.length === 0) closePanel();
-  }, [panel, hidden.length, closePanel]);
+    if (surface === wanted) return;
+    // Matches --duration-exit so only one surface can paint during a handoff.
+    const timer = window.setTimeout(() => setSurface(wanted), surface ? SURFACE_HANDOFF_MS : 0);
+    return () => window.clearTimeout(timer);
+  }, [surface, wanted]);
+
+  const [previousCard, setPreviousCard] = useState(card);
+  if (card !== previousCard) {
+    setPreviousCard(card);
+    dispatchSurface({ type: "tool-changed" });
+  }
+
   const toolbarId = useId();
 
   /**
@@ -155,7 +160,7 @@ function PhoneToolBar({ editable, recent, onPick, onRecent }: PhoneToolBarProps)
    * @returns Nothing.
    */
   const closeMenu = useCallback(() => {
-    setGroupMenu(null);
+    dispatchSurface({ type: "close-menu" });
     if (panel === "tools") closePanel();
     document.getElementById(`${toolbarId}-${open}`)?.focus();
   }, [closePanel, open, panel, toolbarId]);
@@ -185,6 +190,76 @@ function PhoneToolBar({ editable, recent, onPick, onRecent }: PhoneToolBarProps)
 
   useEffect(bindEscape, [open, closeMenu]);
 
+  const barRef = useRef<HTMLDivElement>(null);
+  const trayRef = useRef<HTMLElement>(null);
+  const chipRef = useRef<HTMLButtonElement>(null);
+  const pointer = useRef<number | null>(null);
+  const annotationStyle = useAnnotationUi((state) => (isDrawingTool(tool) ? state.styles[tool] : null));
+  const { style: textStyle } = useTextStyle();
+  const text = hasDraft || tool === "textBox" || tool === "editText";
+  const color = text ? textStyle.color : tool === "image" ? null : annotationStyle?.color;
+  const value = text
+    ? textStyle.fontSize
+    : ["ink", "sign", "square", "circle", "line", "arrow"].includes(tool)
+      ? annotationStyle?.lineWidth
+      : null;
+
+  useLayoutEffect(() => {
+    const bar = barRef.current;
+    const host = bar?.parentElement;
+    if (!bar || !host) return;
+    const tray = chipRef.current ?? trayRef.current;
+    /** Publishes layout bounds independently of entry transforms. @returns Nothing. */
+    function measure() {
+      if (!bar || !host) return;
+      const height = phoneChromeHeight(host.clientHeight, bar.offsetTop, tray?.offsetTop);
+      host.style.setProperty("--phone-chrome-bottom", `${height}px`);
+    }
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(host);
+    observer.observe(bar);
+    if (tray) observer.observe(tray);
+    return () => {
+      observer.disconnect();
+      host.style.removeProperty("--phone-chrome-bottom");
+    };
+  }, [surface, card, phoneSurface.trayCollapsed]);
+
+  useEffect(() => {
+    /** @param y Pointer position in viewport pixels. @returns Whether it overlaps the dock vertically. */
+    function inBand(y: number) {
+      const bar = barRef.current?.getBoundingClientRect();
+      return !!bar && y >= (chipRef.current?.getBoundingClientRect().top ?? bar.top) && y <= bar.bottom;
+    }
+    /** @param event Page pointer details. @returns Nothing. */
+    function start(event: Event) {
+      const point = (event as CustomEvent<PointerEvent>).detail;
+      pointer.current = point?.pointerId ?? null;
+      dispatchSurface({ type: "page-gesture", collapse: trayWanted, inBand: !!point && inBand(point.clientY) });
+    }
+    /** @param event Moving pointer. @returns Nothing. */
+    function move(event: PointerEvent) {
+      if (event.pointerId === pointer.current) dispatchSurface({ type: "gesture-band", inBand: inBand(event.clientY) });
+    }
+    /** @param event Released pointer. @returns Nothing. */
+    function end(event: PointerEvent) {
+      if (event.pointerId !== pointer.current) return;
+      pointer.current = null;
+      dispatchSurface({ type: "gesture-end" });
+    }
+    window.addEventListener("phone-page-gesture", start);
+    window.addEventListener("pointermove", move, true);
+    window.addEventListener("pointerup", end, true);
+    window.addEventListener("pointercancel", end, true);
+    return () => {
+      window.removeEventListener("phone-page-gesture", start);
+      window.removeEventListener("pointermove", move, true);
+      window.removeEventListener("pointerup", end, true);
+      window.removeEventListener("pointercancel", end, true);
+    };
+  }, [trayWanted]);
+
   /**
    * Opens or toggles the menu attached to a tool key.
    * @param id The menu's identity.
@@ -196,10 +271,10 @@ function PhoneToolBar({ editable, recent, onPick, onRecent }: PhoneToolBarProps)
       return;
     }
     if (id === "more") {
-      setGroupMenu(null);
+      dispatchSurface({ type: "open-menu", id });
       openPanel("tools");
     } else {
-      setGroupMenu(id);
+      dispatchSurface({ type: "open-menu", id });
       if (panel === "tools") closePanel();
     }
   }
@@ -220,11 +295,12 @@ function PhoneToolBar({ editable, recent, onPick, onRecent }: PhoneToolBarProps)
    * @returns Nothing.
    */
   function pickMore(index: number) {
-    const slot = hidden[index];
+    const slot = PHONE_MORE[index];
     if (!slot) return;
-    onRecent(slot);
+    onRecent(nextPhoneRecent(recent, slot));
+    dispatchSurface({ type: "pick-tool" });
     onPick(representedTool(slot));
-    closeMenu();
+    if (panel === "tools") closePanel();
   }
 
   /**
@@ -253,7 +329,10 @@ function PhoneToolBar({ editable, recent, onPick, onRecent }: PhoneToolBarProps)
           onClick={() => {
             if (group) {
               toggleMenu(id);
+            } else if (pressed && !open) {
+              dispatchSurface({ type: "tap-active-tool" });
             } else {
+              dispatchSurface({ type: "pick-tool" });
               onPick(represented);
               if (open) closeMenu();
             }
@@ -262,7 +341,7 @@ function PhoneToolBar({ editable, recent, onPick, onRecent }: PhoneToolBarProps)
         >
           <Icon className="size-[22px]" aria-hidden="true" />
         </button>
-        {group && (
+        {group && surface === id && (
           <PhoneToolMenu
             label={group.name}
             open={open === id}
@@ -272,8 +351,9 @@ function PhoneToolBar({ editable, recent, onPick, onRecent }: PhoneToolBarProps)
             onPick={(index) => {
               const member = group.tools[index];
               if (!member) return;
+              dispatchSurface({ type: "pick-tool" });
               onPick(member);
-              closeMenu();
+              if (panel === "tools") closePanel();
             }}
           />
         )}
@@ -281,49 +361,105 @@ function PhoneToolBar({ editable, recent, onPick, onRecent }: PhoneToolBarProps)
     );
   }
 
+  const fade = "motion-safe:transition-opacity duration-(--duration-exit)";
+  const visibility = phoneSurface.seeThrough ? "pointer-events-none opacity-20" : "";
   const moreOpen = open === "more";
   const scrimState = open
     ? "opacity-100 duration-(--duration-enter)"
     : "pointer-events-none opacity-0 duration-(--duration-exit)";
   return (
     <>
+      {surface === "tray" && phoneSurface.trayCollapsed && (
+        <button
+          ref={chipRef}
+          type="button"
+          inert={wanted !== "tray"}
+          aria-expanded={false}
+          onClick={() => dispatchSurface({ type: "expand" })}
+          className={`absolute bottom-[calc(var(--space-3)+56px)] left-1/2 z-4 flex h-11 -translate-x-1/2 items-center ${fade} ${visibility}`}
+        >
+          <span
+            className={`flex h-9 items-center gap-2 rounded-xs bg-raised px-3 shadow-[0_10px_28px_-10px_rgb(var(--shadow-rgb)/38%),0_2px_6px_-2px_rgb(var(--shadow-rgb)/18%)] ring-1 ring-ink/9 ${PHONE_SURFACE_MOTION}`}
+          >
+            <span className="sr-only">Expand </span>
+            {selected && !hasDraft ? (
+              <SelectedMarkName selected={selected} chip />
+            ) : (
+              <>
+                <span className="sr-only">{hasDraft ? "Text" : TOOL_INFO[tool].label} tool card</span>
+                {color && <span className="size-3 rounded-full" style={{ backgroundColor: colorHex(color) }} />}
+                {value != null && <span>{value} pt</span>}
+              </>
+            )}
+            <ChevronUp
+              aria-hidden="true"
+              className="size-4 transition-transform duration-(--duration-enter) ease-out motion-reduce:transition-none"
+            />
+          </span>
+        </button>
+      )}
+      {surface === "tray" && !phoneSurface.trayCollapsed && (
+        <section
+          ref={trayRef}
+          key={card}
+          aria-labelledby={trayTitleId}
+          aria-hidden={wanted !== "tray"}
+          inert={wanted !== "tray"}
+          data-closed={wanted === "tray" ? undefined : true}
+          className={TRAY_STYLE}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <h2 id={trayTitleId} className="flex-1 font-hand text-md/[1.1]">
+              {hasDraft ? "Text" : selected ? <SelectedMarkName selected={selected} /> : TOOL_INFO[tool].label}
+            </h2>
+            <button
+              type="button"
+              aria-label="Collapse options"
+              aria-expanded={true}
+              className="grid size-11 shrink-0 touch-manipulation place-items-center rounded-full text-muted hover:bg-hover"
+              onClick={() => dispatchSurface({ type: "collapse" })}
+            >
+              <ChevronDown aria-hidden="true" className="size-5" />
+            </button>
+          </div>
+          <PropertiesPanel hideHeading />
+        </section>
+      )}
       <div
         aria-hidden="true"
         onClick={closeMenu}
         className={`absolute inset-0 z-5 bg-canvas/55 transition-opacity ease-out ${scrimState}`}
       />
-      <div ref={bar} role="toolbar" aria-label="Tools" className={`${BAR_STYLE} ${hidden.length ? "" : "px-px"}`}>
-        {visible.map((slot) => renderSlot(slot))}
-        {hidden.length > 0 && (
-          <>
-            <span aria-hidden="true" className="mx-[3px] h-[26px] w-px shrink-0 bg-divider" />
-            {recent && hidden.includes(recent) && renderSlot(recent, true)}
-            <button
-              type="button"
-              id={`${toolbarId}-more`}
-              aria-label={moreOpen ? "Close tools" : "More tools"}
-              aria-haspopup="menu"
-              aria-expanded={moreOpen}
-              disabled={!editable}
-              onClick={() => toggleMenu("more")}
-              className={`${KEY_STYLE} ms-0.5 rounded-full ${moreOpen ? "bg-action text-on-action" : "bg-pressed"}`}
-            >
-              <Plus
-                aria-hidden="true"
-                className={`size-[22px] transition-transform duration-(--duration-enter) ease-out motion-reduce:transition-none ${moreOpen ? "rotate-135" : ""}`}
-              />
-            </button>
-            <PhoneToolMenu
-              label="More tools"
-              open={moreOpen}
-              rows={hidden.map((slot) => {
-                const info = TOOL_INFO[representedTool(slot)];
-                return slot.kind === "group" ? { ...info, label: slot.name } : info;
-              })}
-              checked={tool}
-              onPick={pickMore}
-            />
-          </>
+      <div ref={barRef} role="toolbar" aria-label="Tools" className={`${BAR_STYLE} ${fade} ${visibility}`}>
+        {PHONE_FIXED.map((slot) => renderSlot(slot))}
+        <span aria-hidden="true" className="mx-[3px] h-[26px] w-px shrink-0 bg-divider" />
+        {recent && renderSlot(recent, true)}
+        <button
+          type="button"
+          id={`${toolbarId}-more`}
+          aria-label={moreOpen ? "Close tools" : "More tools"}
+          aria-haspopup="menu"
+          aria-expanded={moreOpen}
+          disabled={!editable}
+          onClick={() => toggleMenu("more")}
+          className={`${KEY_STYLE} ms-0.5 rounded-full ${moreOpen ? "bg-action text-on-action" : "bg-pressed"}`}
+        >
+          <Plus
+            aria-hidden="true"
+            className={`size-[22px] transition-transform duration-(--duration-enter) ease-out motion-reduce:transition-none ${moreOpen ? "rotate-135" : ""}`}
+          />
+        </button>
+        {surface === "more" && (
+          <PhoneToolMenu
+            label="More tools"
+            open={moreOpen}
+            rows={PHONE_MORE.map((slot) => {
+              const info = TOOL_INFO[representedTool(slot)];
+              return slot.kind === "group" ? { ...info, label: slot.name } : info;
+            })}
+            checked={tool}
+            onPick={pickMore}
+          />
         )}
       </div>
     </>

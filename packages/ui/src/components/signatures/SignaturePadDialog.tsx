@@ -54,7 +54,7 @@ function SignaturePad() {
         <div
           role="radiogroup"
           aria-label="How to sign"
-          className="inline-grid min-w-55 grid-cols-2 justify-self-start rounded-sm border border-line bg-surface p-0.5"
+          className="inline-grid min-w-55 grid-cols-2 justify-self-start rounded-xs border border-line bg-surface p-0.5"
         >
           {MODES.map(({ kind, label, icon: Icon }) => (
             <label key={kind} className="relative cursor-pointer">

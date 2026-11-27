@@ -1,3 +1,4 @@
+import { ChevronRight, Palette } from "lucide-react";
 import { useDocument } from "../../../editor/hooks";
 import { useCommands, type Command } from "../../../editor/use-commands";
 import { useOpenPanel } from "../../../routing/hooks";
@@ -26,8 +27,15 @@ export function MoreSheet() {
         {fileActions.map(
           (command) => command && <MoreAction key={command.id} command={command} onClose={closePanel} />,
         )}
-        <details className="border-t border-divider">
-          <summary className="min-h-11 cursor-pointer rounded-sm px-3 py-3 text-sm active:bg-hover">Theme</summary>
+        <details className="group border-t border-divider">
+          <summary className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xs px-3 text-sm active:bg-hover [&::-webkit-details-marker]:hidden">
+            <Palette className="size-4.5 shrink-0" aria-hidden="true" />
+            Theme
+            <ChevronRight
+              aria-hidden="true"
+              className="ml-auto size-4 transition-transform duration-[180ms] ease-(--curve-out) group-open:rotate-90"
+            />
+          </summary>
           {commands
             .filter(({ id }) => id.startsWith("theme-"))
             .map((command) => (

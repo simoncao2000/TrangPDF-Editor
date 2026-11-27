@@ -89,7 +89,7 @@ function ExportReview({ request }: { readonly request: BlockedExport }) {
       </div>
       {narrow && <PhoneReviewFields />}
       {!narrow && !hasRail && (
-        <div className="pointer-events-auto w-full max-w-120 overflow-hidden rounded-md border border-line shadow-3 [&>aside]:max-h-[26dvh]">
+        <div className="pointer-events-auto w-full max-w-120 overflow-hidden rounded-xs border border-line shadow-3 [&>aside]:max-h-[26dvh]">
           <Inspector />
         </div>
       )}
@@ -104,7 +104,7 @@ function ExportReview({ request }: { readonly request: BlockedExport }) {
 function PhoneReviewFields() {
   const fields = useDocumentFields();
   return (
-    <div className="pointer-events-auto max-h-[30dvh] w-full overflow-y-auto rounded-lg border border-line bg-raised px-4 py-3 shadow-3">
+    <div className="pointer-events-auto max-h-[30dvh] w-full overflow-y-auto rounded-xs border border-line bg-raised px-4 py-3 shadow-3">
       <FieldsPanel fields={fields} validate />
     </div>
   );

@@ -157,7 +157,7 @@ export function DropdownMenu<T extends string>({
           aria-label={label}
           onKeyDown={onMenuKeyDown}
           data-phase={phase}
-          className={`absolute z-30 grid gap-px rounded-sm border border-line bg-raised p-1 shadow-2 transition-[opacity,scale,translate] ease-out motion-reduce:transition-opacity starting:scale-96 starting:opacity-0 ${widthClassName} ${PLACEMENT[placement]} ${
+          className={`absolute z-30 grid gap-px rounded-xs border border-line bg-raised p-1 shadow-2 transition-[opacity,scale,translate] ease-out motion-reduce:transition-opacity starting:scale-96 starting:opacity-0 ${widthClassName} ${PLACEMENT[placement]} ${
             phase === "closing"
               ? "pointer-events-none scale-96 opacity-0 duration-(--duration-exit)"
               : "scale-100 opacity-100 duration-(--duration-pop)"

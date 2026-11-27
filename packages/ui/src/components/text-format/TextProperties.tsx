@@ -14,7 +14,7 @@ import { displayTextSize, focusPageTextDraft, stepTextSize, TEXT_STYLE_TOGGLES, 
 
 const BUTTON = "grid min-h-9 min-w-9 place-items-center rounded-sm hover:bg-hover max-lg:min-h-11";
 const FONT_BUTTON =
-  "flex min-h-11 items-center justify-between rounded-md border border-line " +
+  "flex min-h-11 items-center justify-between rounded-xs border border-line " +
   "bg-surface px-3 text-base hover:border-muted";
 
 /**
@@ -137,7 +137,7 @@ export function TextProperties({ hideHeading = false }: { readonly hideHeading?:
         <div
           role="group"
           aria-label="Size"
-          className="grid grid-cols-[auto_1fr_auto] items-center rounded-md border border-line"
+          className="grid grid-cols-[auto_1fr_auto] items-center rounded-xs border border-line"
         >
           <button
             type="button"
@@ -162,7 +162,7 @@ export function TextProperties({ hideHeading = false }: { readonly hideHeading?:
       </div>
       <div className="grid gap-1">
         <span className="text-sm text-muted">{mixedFormats ? "Style · Mixed" : "Style"}</span>
-        <div role="group" aria-label="Style" className="grid grid-cols-3 gap-1 rounded-md bg-surface p-1">
+        <div role="group" aria-label="Style" className="grid grid-cols-3 gap-1 rounded-xs bg-surface p-1">
           {TEXT_STYLE_TOGGLES.map(([format, label, classes]) => (
             <button
               key={format}

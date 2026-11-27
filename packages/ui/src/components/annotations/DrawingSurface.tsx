@@ -12,7 +12,7 @@ import {
   type TextMarkupKind,
 } from "@pdf-editor/core";
 import type { PdfPoint, PdfRect } from "@pdf-editor/shared";
-import { useRef, useState, type PointerEvent } from "react";
+import { useLayoutEffect, useRef, useState, type PointerEvent, type RefObject } from "react";
 import { useEditorServices } from "../../editor/hooks";
 import { useAnnotationUi, type DrawingTool, type ToolStyle } from "../../state/annotation-store";
 import { cssColor } from "./annotation-display";
@@ -20,9 +20,11 @@ import { AnnotationShape } from "./AnnotationShape";
 import { CLICK_SLOP, extendStroke, rectBetween } from "./drawing-geometry";
 import { useImageTool } from "../../state/image-store";
 import { useToast } from "../../state/toast-store";
-import { useSignatures } from "../../state/signature-store";
+import { useSignatures, type SignatureState, type TypedSignature } from "../../state/signature-store";
+import { pagePointer, trackSignature } from "./signature-hover";
 import { placeSignature } from "../signatures/signature-geometry";
 import { renderTypedSignature } from "../signatures/typed-signature";
+import { hasGestureTravel } from "./drawing-geometry";
 
 /** A sticky note's size on the page, in points. */
 const NOTE_SIZE = 24;
@@ -60,22 +62,16 @@ const isTextTool = (tool: DrawingTool): tool is TextMarkupKind => TEXT_MARKUPS.i
 function inkCursor(paths: readonly string[], tip: string) {
   const drawing = paths.map((d) => `<path d="${d}"/>`).join("");
   const svg =
-    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" ' +
+    '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" ' +
     'stroke-linecap="round" stroke-linejoin="round">' +
-    `<g stroke="white" stroke-width="5">${drawing}</g><g stroke="#2a2a26" stroke-width="2">${drawing}</g></svg>`;
+    `<g fill="#2a2a26" stroke="white" stroke-width="2">${drawing}</g>` +
+    `<g fill="#2a2a26" stroke="#2a2a26" stroke-width="1">${drawing}</g></svg>`;
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${tip}, crosshair`;
 }
-const DRAW_CURSOR = inkCursor(
-  [
-    "M13 21h8",
-    "M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352" +
-      "a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z",
-  ],
-  "2 22",
-);
+const DRAW_CURSOR = inkCursor(["M18.414 2.586a2 2 0 0 1 2.828 2.828L7 19.657 3 21l1.343-4z"], "2 12");
 const HIGHLIGHT_CURSOR = inkCursor(
   ["m9 11-6 6v3h9l3-3", "m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"],
-  "3 20",
+  "2 12",
 );
 const CURSORS: Record<DrawingTool, string> = {
   note: "cursor-copy",
@@ -112,9 +108,9 @@ export function DrawingSurface({ pageId, tool, style, frame, width, height, onCr
   const latestPoint = useRef<PdfPoint | null>(null);
   const scale = frame.zoom * CSS_PIXELS_PER_POINT;
 
+  const surface = useRef<SVGRectElement>(null);
   const pointOf = (event: PointerEvent<SVGRectElement>): ScreenPoint => {
-    const box = event.currentTarget.getBoundingClientRect();
-    return { x: event.clientX - box.left, y: event.clientY - box.top };
+    return pagePointer(event, event.currentTarget);
   };
 
   const previewText = (from: PdfPoint): void => {
@@ -144,7 +140,7 @@ export function DrawingSurface({ pageId, tool, style, frame, width, height, onCr
   };
 
   const onPointerMove = (event: PointerEvent<SVGRectElement>) => {
-    if (!draft) return;
+    if (!draft || tool === "sign") return;
     const point = pointOf(event);
     if (draft.kind === "stroke") setDraft({ ...draft, points: extendStroke(draft.points, point) });
     else if (draft.kind === "drag") setDraft({ ...draft, end: point });
@@ -158,6 +154,8 @@ export function DrawingSurface({ pageId, tool, style, frame, width, height, onCr
     const finished = draft;
     setDraft(null);
     if (!finished) return;
+    if (finished.kind === "stroke" && !hasGestureTravel(finished.points)) return;
+    if (finished.kind === "drag" && !hasGestureTravel([finished.start, finished.end])) return;
     const id = crypto.randomUUID();
     if (finished.kind === "text" && isTextTool(tool)) {
       latestPoint.current = null;
@@ -210,6 +208,7 @@ export function DrawingSurface({ pageId, tool, style, frame, width, height, onCr
         <DragBox start={draft.start} end={draft.end} color={cssColor(style.color)} width={style.lineWidth * scale} />
       )}
       <rect
+        ref={surface}
         x={0}
         y={0}
         width={width}
@@ -222,6 +221,7 @@ export function DrawingSurface({ pageId, tool, style, frame, width, height, onCr
         onPointerUp={(event) => void onPointerUp(event)}
         onPointerCancel={() => setDraft(null)}
       />
+      {tool === "sign" && <SignatureCursor surface={surface} frame={frame} style={style} />}
     </>
   );
 }
@@ -259,6 +259,91 @@ function placedImage(rect: PdfRect, image: ImageFile): ImageAnnotation {
   return { kind: "image", id: "", rect, color: { r: 0, g: 0, b: 0 }, opacity: 1, image };
 }
 
+/** @param state Signature library and temporary selection. @returns The signature ready to place. */
+function chosenSignature(state: SignatureState) {
+  return state.temporary ?? state.signatures.find((candidate) => candidate.id === state.currentId);
+}
+
+const renderedSignatures = new WeakMap<
+  TypedSignature,
+  {
+    color: string;
+    rendering: ReturnType<typeof renderTypedSignature>;
+  }
+>();
+
+/**
+ * Shares the rasterized ink across visible pages and placement.
+ * @param signature The typed signature to render.
+ * @param color The current Sign tool colour.
+ * @returns The rendered PNG and its aspect ratio.
+ */
+function signatureImage(signature: TypedSignature, color: string) {
+  const cached = renderedSignatures.get(signature);
+  if (cached?.color === color) return cached.rendering;
+  const rendering = renderTypedSignature(signature, color).catch((error: unknown) => {
+    if (renderedSignatures.get(signature)?.rendering === rendering) renderedSignatures.delete(signature);
+    throw error;
+  });
+  renderedSignatures.set(signature, { color, rendering });
+  return rendering;
+}
+
+interface SignatureCursorProps {
+  surface: RefObject<SVGRectElement | null>;
+  frame: PageFrame;
+  style: ToolStyle;
+}
+
+/** @param props Page geometry and ink style. @returns The chosen signature's pointer preview. */
+function SignatureCursor({ surface, frame, style }: SignatureCursorProps) {
+  const signature = useSignatures(chosenSignature);
+  const hover = useRef<ScreenPoint | null>(null);
+  const group = useRef<SVGGElement>(null);
+  const color = cssColor(style.color);
+  const [image, setImage] = useState<{ signature: TypedSignature; color: string; url: string; aspect: number }>();
+  useLayoutEffect(() => {
+    if (signature?.kind !== "typed") return;
+    let active = true;
+    let url: string | undefined;
+    void signatureImage(signature, color)
+      .then(({ bytes, aspect }) => {
+        if (!active) return;
+        url = URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
+        setImage({ signature, color, url, aspect });
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [signature, color]);
+  const ready = signature?.kind === "drawn" || (image && image.signature === signature && image.color === color);
+  useLayoutEffect(() => {
+    if (surface.current) return trackSignature(surface.current, ready ? group.current : null, hover);
+  }, [surface, ready]);
+  if (!signature || !ready) return null;
+  const width = SIGNATURE_WIDTH * frame.zoom * CSS_PIXELS_PER_POINT;
+  return (
+    <g ref={group} visibility="hidden" opacity={0.6} pointerEvents="none" aria-hidden="true">
+      {signature.kind === "drawn" ? (
+        <AnnotationShape
+          annotation={placeSignature(signature, screenToPdf({ x: 0, y: 0 }, frame), {
+            color: style.color,
+            lineWidth: style.lineWidth,
+            width: SIGNATURE_WIDTH,
+          })}
+          frame={frame}
+        />
+      ) : (
+        image && (
+          <image href={image.url} width={width} height={width * image.aspect} transform={`rotate(${frame.rotation})`} />
+        )
+      )}
+    </g>
+  );
+}
+
 /**
  * The chosen signature placed at a point, or the drawing pad opened when there is none yet.
  * @param at Where its top-left corner goes, in PDF space.
@@ -266,14 +351,13 @@ function placedImage(rect: PdfRect, image: ImageFile): ImageAnnotation {
  * @returns The drawn ink or pending typed image, or null when the pad is opened.
  */
 function signAt(at: PdfPoint, style: ToolStyle): EditableAnnotation | Promise<EditableAnnotation | null> | null {
-  const { signatures, currentId, temporary, setDrawing } = useSignatures.getState();
-  const signature = temporary ?? signatures.find((candidate) => candidate.id === currentId);
+  const signature = chosenSignature(useSignatures.getState());
   if (!signature) {
-    setDrawing(true);
+    useSignatures.getState().setDrawing(true);
     return null;
   }
   if (signature.kind === "typed") {
-    return renderTypedSignature(signature)
+    return signatureImage(signature, cssColor(style.color))
       .then(({ bytes, aspect }) => {
         const height = SIGNATURE_WIDTH * aspect;
         const rect = { x: at.x, y: at.y - height, width: SIGNATURE_WIDTH, height };

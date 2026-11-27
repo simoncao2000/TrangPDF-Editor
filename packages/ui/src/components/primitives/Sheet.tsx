@@ -80,7 +80,7 @@ export function Sheet({ title, meta, onDismiss, children }: SheetProps) {
       onClick={(event) => {
         if (event.target === event.currentTarget) onDismiss();
       }}
-      className="mx-0 mt-auto mb-0 max-h-[85dvh] w-full max-w-none rounded-t-lg border-t border-line bg-raised p-0 pb-[env(safe-area-inset-bottom)] text-ink shadow-3 transition-[translate,opacity] duration-(--duration-enter) ease-(--ease-drawer) backdrop:bg-scrim motion-reduce:transition-opacity starting:translate-y-8 starting:opacity-0"
+      className="mx-0 mt-auto mb-0 max-h-[85dvh] w-full max-w-none rounded-t-xs border-t border-line bg-raised p-0 pb-[env(safe-area-inset-bottom)] text-ink shadow-3 transition-[translate,opacity] duration-(--duration-enter) ease-(--ease-drawer) backdrop:bg-scrim motion-reduce:transition-opacity starting:translate-y-8 starting:opacity-0"
     >
       <button
         type="button"

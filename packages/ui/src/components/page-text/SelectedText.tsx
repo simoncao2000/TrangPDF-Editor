@@ -88,7 +88,7 @@ function SelectionMenu({ selection, left, top }: SelectionMenuProps) {
       aria-label="Selected text"
       // A press here is not a press on the page: it must not clear the selection first.
       data-annotation=""
-      className="absolute z-20 flex -translate-y-full gap-0.5 rounded-md bg-raised p-0.5 shadow-2 ring-1 ring-line/50"
+      className="absolute z-20 flex -translate-y-full gap-0.5 rounded-xs bg-raised p-0.5 shadow-2 ring-1 ring-line/50"
       style={{ left, top }}
     >
       <MenuButton icon={Copy} label="Copy" onClick={copy} />
@@ -113,7 +113,7 @@ function MenuButton({ icon: Icon, label, onClick }: { icon: LucideIcon; label: s
       onClick={onClick}
       // Keep the press from starting a new selection on the page under the menu.
       onPointerDown={(event) => event.stopPropagation()}
-      className="flex h-7.5 items-center gap-1.5 rounded-sm px-2.5 text-sm text-ink transition-[background-color,transform] duration-(--duration-press) hover:bg-hover active:scale-[0.97]"
+      className="flex h-7.5 items-center gap-1.5 rounded-[2px] px-2.5 text-sm text-ink transition-[background-color,transform] duration-(--duration-press) hover:bg-hover active:scale-[0.97]"
     >
       <Icon className="size-3.5" aria-hidden="true" />
       {label}

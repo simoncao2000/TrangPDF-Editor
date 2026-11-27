@@ -122,7 +122,7 @@ export function TextStyleMenu({
       inert={closing}
       data-text-menu=""
       className={[
-        "z-10 max-h-[70vh] overflow-y-auto rounded-lg bg-raised text-sm text-ink ring-1 ring-line",
+        "z-10 max-h-[70vh] overflow-y-auto rounded-xs bg-raised text-sm text-ink ring-1 ring-line",
         panel === "colour" && "p-3",
         "fixed inset-auto m-0 shadow-3 transition-[opacity,scale] ease-(--curve-out) motion-reduce:transition-opacity",
         closing

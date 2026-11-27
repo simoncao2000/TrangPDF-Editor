@@ -43,7 +43,7 @@ export function MoveToSheet({ pages, id, onDismiss, onMove }: MoveToSheetProps) 
           <div
             role="group"
             aria-label="After page"
-            className="flex w-[136px] items-center rounded-md border border-line"
+            className="flex w-[136px] items-center rounded-xs border border-line"
           >
             <button
               type="button"

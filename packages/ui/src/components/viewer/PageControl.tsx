@@ -26,7 +26,7 @@ export function PageControl() {
     <div
       role="group"
       aria-label="Page and zoom"
-      className="flex h-10 items-center gap-0.5 rounded-sm border border-line bg-raised p-0.5 text-sm tabular-nums"
+      className="flex h-10 items-center gap-0.5 rounded-xs border border-line bg-raised p-0.5 text-sm tabular-nums"
     >
       <IconButton
         icon={ChevronUp}

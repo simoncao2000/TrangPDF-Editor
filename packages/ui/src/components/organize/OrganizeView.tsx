@@ -233,20 +233,14 @@ export function OrganizeView({ narrow = false }: OrganizeViewProps) {
             </p>
           </div>
         ) : (
-          <>
-            <h2 className="mr-auto font-hand text-[1.44rem] leading-tight font-normal">
-              Organize <span className="font-mono text-sm text-muted">{pagesLabel(order.length)}</span>
-            </h2>
-            <Button icon={FilePlus2} onClick={() => void startInsert()} disabled={busy}>
-              Insert pages…
-            </Button>
-            <Button variant="ghost" onClick={() => session.select(selection.length === order.length ? [] : order)}>
-              {selection.length === order.length ? "Clear selection" : "Select all"}
-            </Button>
-            <Button variant="primary" onClick={() => open(firstSelected >= 0 ? firstSelected : currentPage)}>
-              Done
-            </Button>
-          </>
+          <WideOrganizeHeader
+            count={order.length}
+            busy={busy}
+            allSelected={selection.length === order.length}
+            insert={() => void startInsert()}
+            toggle={() => session.select(selection.length === order.length ? [] : order)}
+            done={() => open(firstSelected >= 0 ? firstSelected : currentPage)}
+          />
         )}
       </header>
 
@@ -399,5 +393,34 @@ export function OrganizeView({ narrow = false }: OrganizeViewProps) {
         />
       )}
     </section>
+  );
+}
+
+interface WideHeaderProps {
+  count: number;
+  busy: boolean;
+  allSelected: boolean;
+  insert: () => void;
+  toggle: () => void;
+  done: () => void;
+}
+
+/** @param props Page count, selection state and header actions. @returns The wide organize header contents. */
+export function WideOrganizeHeader({ count, busy, allSelected, insert, toggle, done }: WideHeaderProps) {
+  return (
+    <>
+      <h2 className="mr-2 font-hand text-[1.44rem] leading-tight font-normal">
+        Organize <span className="font-mono text-sm text-muted">{pagesLabel(count)}</span>
+      </h2>
+      <Button icon={FilePlus2} onClick={insert} disabled={busy}>
+        Insert pages…
+      </Button>
+      <Button variant="ghost" onClick={toggle}>
+        {allSelected ? "Clear selection" : "Select all"}
+      </Button>
+      <Button variant="primary" onClick={done}>
+        Done
+      </Button>
+    </>
   );
 }

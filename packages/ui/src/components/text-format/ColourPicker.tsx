@@ -119,7 +119,7 @@ export function ColourPicker({ color, pageColors, onChange }: ColourPickerProps)
           type="button"
           aria-label="Saturation and brightness"
           aria-description="Use Left and Right for saturation, Up and Down for brightness."
-          className="relative h-[118px] w-full touch-none rounded-md"
+          className="relative h-[118px] w-full touch-none rounded-xs"
           style={{
             background: `linear-gradient(to top, black, transparent),
               linear-gradient(to right, white, hsl(${hsv.hue} 100% 50%))`,
@@ -166,7 +166,7 @@ export function ColourPicker({ color, pageColors, onChange }: ColourPickerProps)
           <input
             aria-label="Hex colour"
             aria-invalid={!valid}
-            className="h-8 min-w-0 flex-1 rounded-sm border border-line bg-surface px-2 tabular-nums max-lg:h-11"
+            className="h-8 min-w-0 flex-1 rounded-xs border border-line bg-surface px-2 tabular-nums max-lg:h-11"
             placeholder={color === null ? "Mixed" : undefined}
             value={hex}
             onChange={(event) => selectHex(event.currentTarget.value)}

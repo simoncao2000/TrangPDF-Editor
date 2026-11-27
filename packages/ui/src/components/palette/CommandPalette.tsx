@@ -9,6 +9,7 @@ import { usePaletteQuery } from "../../state/palette-store";
 import { useViewer } from "../../state/viewer-store";
 import { matchScore, parseQuery, tidySnippet } from "./query";
 import { useCommands } from "../../editor/use-commands";
+import { palettePresentation } from "./palette-presentation";
 
 /** Text matches shown at most. */
 const MATCH_LIMIT = 50;
@@ -49,11 +50,12 @@ interface PaletteDialogProps {
  */
 function PaletteDialog({ initialQuery, onClose }: PaletteDialogProps) {
   const narrow = !useMediaQuery(WIDE_LAYOUT_QUERY);
+  const presentation = palettePresentation(narrow);
   const listId = useId();
   const [raw, setRaw] = useState(initialQuery);
   const [active, setActive] = useState(0);
   const query = parseQuery(raw);
-  const items = usePaletteItems(query, onClose);
+  const items = usePaletteItems(query, onClose, narrow, presentation.showHint);
   const listRef = useRef<HTMLUListElement>(null);
 
   // Keep the highlighted row in range and in view.
@@ -92,7 +94,7 @@ function PaletteDialog({ initialQuery, onClose }: PaletteDialogProps) {
         role="dialog"
         aria-label="Command palette"
         className={`flex w-full flex-col overflow-hidden border border-line bg-raised shadow-3 ${
-          narrow ? "max-h-[calc(100dvh-8px)] rounded-lg" : "max-h-[min(70vh,32rem)] max-w-160 rounded-md"
+          narrow ? "max-h-[calc(100dvh-8px)] rounded-xs" : "max-h-[min(70vh,32rem)] max-w-160 rounded-xs"
         }`}
       >
         <div className={`flex items-center gap-2 border-b border-divider px-3 ${narrow ? "h-13 shrink-0" : ""}`}>
@@ -105,14 +107,14 @@ function PaletteDialog({ initialQuery, onClose }: PaletteDialogProps) {
             aria-controls={listId}
             aria-activedescendant={items[current] ? `${listId}-${current}` : undefined}
             aria-label="Search text, open files and commands"
-            placeholder="Search text and files · > for commands · :page"
+            placeholder={presentation.placeholder}
             value={raw}
             onChange={(event) => {
               setRaw(event.target.value);
               setActive(0);
             }}
             onKeyDown={onKeyDown}
-            className="h-11 min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-muted"
+            className="h-11 min-w-0 flex-1 rounded-xs bg-transparent text-base outline-none placeholder:text-muted"
           />
           {narrow && (
             <button type="button" onClick={() => onClose()} className="min-h-11 px-2 text-sm font-semibold text-signal">
@@ -135,7 +137,7 @@ function PaletteDialog({ initialQuery, onClose }: PaletteDialogProps) {
                   aria-selected={index === current}
                   onPointerMove={() => setActive(index)}
                   onClick={item.run}
-                  className={`flex cursor-pointer items-center gap-2.5 rounded-sm px-2.5 py-1.5 text-sm ${index === current ? "bg-selection text-on-selection" : "text-ink"}`}
+                  className={`flex cursor-pointer items-center gap-2.5 rounded-[2px] px-2.5 py-1.5 text-sm ${index === current ? "bg-selection text-on-selection" : "text-ink"}`}
                 >
                   <div className="min-w-0 flex-1">{item.content}</div>
                   {item.hint && <kbd className="shrink-0 font-mono text-2xs opacity-70">{item.hint}</kbd>}
@@ -167,10 +169,16 @@ function emptyMessage(mode: ReturnType<typeof parseQuery>["mode"]): string {
 /**
  * The rows for what is typed: commands, a page to go to, or open files and text matches.
  * @param query The parsed text.
+ * @param narrow Whether the palette uses the phone layout.
  * @param close Closes the palette before running a row action.
  * @returns The rows, in display order.
  */
-function usePaletteItems(query: ReturnType<typeof parseQuery>, close: PaletteDialogProps["onClose"]): readonly Item[] {
+function usePaletteItems(
+  query: ReturnType<typeof parseQuery>,
+  close: PaletteDialogProps["onClose"],
+  narrow: boolean,
+  showHint: boolean,
+): readonly Item[] {
   const { workspace, session } = useEditorServices();
   const commands = useCommands();
   const tabs = useStore(workspace.store, (state) => state.tabs);
@@ -231,23 +239,38 @@ function usePaletteItems(query: ReturnType<typeof parseQuery>, close: PaletteDia
         showSearchHit({ pageId: match.pageId, rects: match.rects });
       }),
     }));
-    const commandHint = query.text
-      ? []
-      : [
-          {
-            id: "hint-commands",
-            section: "Commands",
-            content: (
-              <IconRow icon={<TextSearch className="size-4" />}>
-                Type &gt; to run a command, or :12 to go to page 12
-              </IconRow>
-            ),
-            run: () => {},
-          },
-        ];
+    const commandHint =
+      !showHint || query.text
+        ? []
+        : [
+            {
+              id: "hint-commands",
+              section: "Commands",
+              content: (
+                <IconRow icon={<TextSearch className="size-4" />}>
+                  Type &gt; to run a command, or :12 to go to page 12
+                </IconRow>
+              ),
+              run: () => {},
+            },
+          ];
     return [...files, ...found, ...commandHint];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, commands, tabs, pageCount, fileName, matches, workspace, session, goToPage, showSearchHit, close]);
+  }, [
+    narrow,
+    showHint,
+    query,
+    commands,
+    tabs,
+    pageCount,
+    fileName,
+    matches,
+    workspace,
+    session,
+    goToPage,
+    showSearchHit,
+    close,
+  ]);
 }
 
 /**

@@ -1,6 +1,8 @@
 import { useLayoutEffect, useRef, type CSSProperties, type KeyboardEvent } from "react";
 import type { ToolInfo } from "../../editor/tool-catalog";
 
+import { PHONE_SURFACE_MOTION } from "./phone-surface-motion";
+
 const MENU_STYLE = [
   "absolute -m-1 flex max-h-[min(62vh,420px)] flex-col-reverse gap-2 overflow-y-auto",
   "overscroll-contain p-1 [scrollbar-width:none]",
@@ -8,14 +10,8 @@ const MENU_STYLE = [
 const ROW_STYLE = [
   "flex min-h-12 shrink-0 touch-manipulation items-center gap-3 rounded-pill bg-raised",
   "py-0 pr-4 pl-[5px] text-base/none font-medium whitespace-nowrap shadow-[0_8px_20px_-10px_rgb(var(--shadow-rgb)/40%)]",
-  "ring-1 ring-ink/8 transition-[opacity,transform] ease-out active:bg-hover",
-  "motion-reduce:delay-0 motion-reduce:transition-opacity",
+  "ring-1 ring-ink/8 active:bg-hover active:delay-0 motion-safe:active:scale-97",
 ].join(" ");
-const OPEN_ROW = [
-  "opacity-100 delay-(--tool-delay) duration-[240ms] active:delay-0",
-  "motion-safe:active:transform-[scale(.97)]",
-].join(" ");
-const CLOSED_ROW = "opacity-0 duration-(--duration-exit) motion-safe:transform-[translateY(14px)_scale(.94)]";
 
 interface PhoneToolMenuProps {
   readonly label: string;
@@ -82,6 +78,7 @@ export function PhoneToolMenu({ label, open, alignStart, rows, checked, onPick }
       ref={menu}
       role="menu"
       aria-label={label}
+      aria-hidden={!open}
       inert={!open}
       onKeyDown={navigate}
       className={`${MENU_STYLE} ${anchor}`}
@@ -95,7 +92,8 @@ export function PhoneToolMenu({ label, open, alignStart, rows, checked, onPick }
           tabIndex={-1}
           onClick={() => onPick(index)}
           style={{ "--tool-delay": `${index * 32}ms` } as CSSProperties}
-          className={`${ROW_STYLE} ${origin} ${open ? OPEN_ROW : CLOSED_ROW}`}
+          data-closed={open ? undefined : true}
+          className={`${ROW_STYLE} ${origin} ${PHONE_SURFACE_MOTION} ${open ? "motion-safe:delay-(--tool-delay)" : ""}`}
         >
           <span
             className={`grid size-[38px] shrink-0 place-items-center rounded-pill ${checked === tool ? "bg-action text-on-action" : "bg-pressed"}`}

@@ -21,6 +21,18 @@ export const LINE_HEIGHT = 1.15;
 const FIRST_BASELINE = (LINE_HEIGHT - 1.117) / 2 + 0.905;
 /** A drag shorter than this is treated as a click, in CSS pixels. */
 export const CLICK_SLOP = 4;
+/** Minimum total travel, in screen pixels, for a stroke or shape gesture to count. */
+export const MIN_GESTURE_TRAVEL = 3;
+
+/** Whether a gesture reaches the minimum screen-space travel.
+ * @param points Pointer positions from the gesture.
+ * @returns True when at least two points reach the threshold from the first point.
+ */
+export function hasGestureTravel(points: readonly ScreenPoint[]): boolean {
+  if (points.length < 2) return false;
+  const first = points[0]!;
+  return points.some((point) => Math.hypot(point.x - first.x, point.y - first.y) >= MIN_GESTURE_TRAVEL);
+}
 
 /**
  * The rectangle between two corners, whichever way it was dragged.

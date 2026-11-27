@@ -72,9 +72,10 @@ export function signatureInkBounds({ data, width, height }: ImageData): InkBound
 /**
  * Renders a typed signature using the bundled font, at four times the preview's resolution for ordinary names.
  * @param signature The typed name, style and ink.
+ * @param color Ink colour used for placement.
  * @returns The transparent PNG bytes and its trimmed height-to-width ratio.
  */
-export async function renderTypedSignature(signature: TypedSignature) {
+export async function renderTypedSignature(signature: TypedSignature, color = SIGNATURE_INKS[signature.ink]) {
   const font = `${FONT_SIZE}px ${SIGNATURE_STYLES[signature.style].family}`;
   await document.fonts.load(font, signature.text);
   const canvas = document.createElement("canvas");
@@ -86,7 +87,7 @@ export async function renderTypedSignature(signature: TypedSignature) {
   canvas.height = layout.height;
   context.setTransform(layout.scale, 0, 0, layout.scale, layout.x, layout.y);
   context.font = font;
-  context.fillStyle = SIGNATURE_INKS[signature.ink];
+  context.fillStyle = color;
   context.fillText(signature.text, 0, 0);
 
   const bounds = signatureInkBounds(context.getImageData(0, 0, canvas.width, canvas.height));
