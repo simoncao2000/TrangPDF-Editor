@@ -1,0 +1,20 @@
+import type { Meta, StoryObj } from "@storybook/react-vite";
+import { EditorFixture, PageFixture } from "../../../stories/fixtures";
+import { AnnotationLayer } from "./AnnotationLayer";
+
+const meta = { title: "Annotations/AnnotationLayer" } satisfies Meta;
+
+export default meta;
+type Story = StoryObj<typeof meta>;
+
+export const Default: Story = {
+  /** @returns The component on a sample PDF page. */
+  render: () => (
+    <EditorFixture sample="text">
+      <PageFixture>
+        {/** @param page The sample page geometry. @returns The component on the page. */}
+        {({ page, zoom, width, height }) => <AnnotationLayer page={page} zoom={zoom} width={width} height={height} />}
+      </PageFixture>
+    </EditorFixture>
+  ),
+};
