@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 import wasmUrl from "@embedpdf/pdfium/pdfium.wasm?url";
 import {
+  addAnnotation,
   createDocumentSession,
   createWorkspace,
   EngineClient,
@@ -17,12 +18,12 @@ import encryptedPdf from "../../../test-corpus/encrypted-harbour.pdf?url";
 import { useAnnotationUi } from "../src/state/annotation-store";
 import { useTextSelection } from "../src/state/text-selection-store";
 import { useViewer } from "../src/state/viewer-store";
-import { rect, textObject } from "./sample-data";
+import { mark, rect, textObject } from "./sample-data";
 import { useEditorServices } from "../src/editor/hooks";
 import { usePageDrawInfo } from "../src/components/viewer/use-page-geometry";
 
-export type Sample = "text" | "form" | "encrypted" | "empty";
-const samples = { text: textPdf, form: formPdf, encrypted: encryptedPdf };
+export type Sample = "text" | "form" | "encrypted" | "highlighted" | "empty";
+const samples = { text: textPdf, highlighted: textPdf, form: formPdf, encrypted: encryptedPdf };
 
 /**
  * Creates a routed preview with its own worker and workspace.
@@ -57,6 +58,12 @@ export function EditorFixture({
         return { name: "Sample.pdf", bytes: await response.arrayBuffer() };
       };
       if (sample !== "empty") await workspace.open(await open());
+      if (sample === "highlighted") {
+        const session = workspace.activeSession();
+        const page = session.store.getState().pages[0]!;
+        session.dispatch((content) => addAnnotation(content, page.id, mark));
+        await session.settled();
+      }
       if (!active) return;
       setServices({
         workspace,

@@ -2,7 +2,8 @@ import { expect, test } from "bun:test";
 import { createDocumentSession } from "@pdf-editor/core";
 import { corpusFile, createTestEngine } from "../../../../core/src/testing/fixtures";
 import { commitAddedText, commitPageDraft } from "./draft-commands";
-import { pageHit } from "./page-hit";
+import { mark, textObject } from "../../../stories/sample-data";
+import { annotationTakesHit, pageHit } from "./page-hit";
 import { selectWord } from "./select-word";
 
 /** @param name The corpus document. @returns An open session and its first page. */
@@ -50,4 +51,11 @@ test("undo restores the text at its moved position before restoring the original
   expect((await session.textObjectAt(page, to))?.text).toBe(object.text);
   session.undo();
   expect((await session.textObjectAt(page, from))?.bounds).toEqual(object.bounds);
+});
+
+test("Edit text reaches a line through highlight markup while Select targets the annotation", () => {
+  expect(annotationTakesHit("editText", mark, textObject)).toBe(false);
+  expect(annotationTakesHit("select", mark, textObject)).toBe(true);
+  expect(annotationTakesHit("highlight", mark, textObject)).toBe(true);
+  expect(annotationTakesHit("editText", mark, null)).toBe(true);
 });

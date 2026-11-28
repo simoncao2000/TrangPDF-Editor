@@ -118,14 +118,15 @@ export function PageTextLayer({ page, zoom, width, height, onEmptyDoubleTap }: P
    * Touch edits a text line and zooms empty paper. Desktop double-click inserts on empty paper.
    * @param touch Whether the Select gesture was a touch double-tap.
    * @param clickPoint Client coordinates for the caret or zoom anchor.
+   * @param outline The outlined line that received the double-click.
    * @returns Completion of the hit test.
    */
-  const editAt = async (at: ScreenPoint, touch = false, clickPoint?: ScreenPoint) => {
+  const editAt = async (at: ScreenPoint, touch = false, clickPoint?: ScreenPoint, outline?: PageTextObject) => {
     const point = screenToPdf(at, frame);
     const ticket = ++request.current;
-    const found = await pageHit(session, page.id, point).catch(() => undefined);
+    const found = await pageHit(session, page.id, point, { tool, outline }).catch(() => undefined);
     const activeTool = useAnnotationUi.getState().tool;
-    if (ticket !== request.current || (activeTool !== "select" && activeTool !== "editText")) return;
+    if (ticket !== request.current || activeTool !== tool) return;
     if (shouldZoomTap(touch, found) && clickPoint) {
       onEmptyDoubleTap?.(clickPoint);
       return;
@@ -284,10 +285,15 @@ export function PageTextLayer({ page, zoom, width, height, onEmptyDoubleTap }: P
                   event.stopPropagation();
                   const rect = event.currentTarget.ownerSVGElement?.getBoundingClientRect();
                   if (rect) {
-                    void editAt({ x: event.clientX - rect.left, y: event.clientY - rect.top }, false, {
-                      x: event.clientX,
-                      y: event.clientY,
-                    });
+                    void editAt(
+                      { x: event.clientX - rect.left, y: event.clientY - rect.top },
+                      false,
+                      {
+                        x: event.clientX,
+                        y: event.clientY,
+                      },
+                      object,
+                    );
                   }
                 }}
                 onKeyDown={(event) => onKeyDown(event, object)}

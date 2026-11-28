@@ -1,3 +1,5 @@
+import { PageCanvas } from "../viewer/PageCanvas";
+import { AnnotationLayer } from "../annotations/AnnotationLayer";
 import { PageViewport } from "../viewer/PageViewport";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { EditorFixture, PageFixture } from "../../../stories/fixtures";
@@ -25,6 +27,33 @@ export const TouchSelect: Story = {
   render: () => (
     <EditorFixture sample="text">
       <PageViewport narrow />
+    </EditorFixture>
+  ),
+};
+
+export const HighlightedLine: Story = {
+  /** @returns An editable first line with a selectable highlight on top. */
+  render: () => (
+    <EditorFixture sample="highlighted">
+      <PageFixture scenario="editText">
+        {/** @param sample The sample page and dimensions. @returns Its interactive page layers. */}
+        {({ page, zoom, width, height }) => (
+          <>
+            <PageCanvas
+              docId={page.docId}
+              pageIndex={page.sourceIndex}
+              rotation={page.rotation}
+              revision={page.revision}
+              hideEditable
+              width={width}
+              height={height}
+              priority={0}
+            />
+            <PageTextLayer page={page} zoom={zoom} width={width} height={height} />
+            <AnnotationLayer page={page} zoom={zoom} width={width} height={height} />
+          </>
+        )}
+      </PageFixture>
     </EditorFixture>
   ),
 };
