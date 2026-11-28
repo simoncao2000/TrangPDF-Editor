@@ -1,6 +1,8 @@
 /** Editing and adding a page's own text through the engine, on a page with two lines of Helvetica. */
 import { beforeAll, describe, expect, it } from "bun:test";
-import { corpusFile, createTestEngine, type FakeBitmap } from "../testing/fixtures";
+import { init } from "@embedpdf/pdfium";
+import { PdfiumHeap } from "./pdfium-heap";
+import { corpusFile, pdfiumWasm, createTestEngine, type FakeBitmap } from "../testing/fixtures";
 import type { TextRun } from "../page-text/page-text";
 import type { EngineClient } from "./engine-client";
 
@@ -527,4 +529,98 @@ it("reopens a line with both its original run and the newly inserted run", async
   expect(reopened.runs?.map(({ underline }) => underline)).toEqual([false, true]);
   await engine.call("close", { docId: saved }).promise;
   await engine.call("close", { docId }).promise;
+});
+
+it("fits missing subset glyphs at the saved baseline scale", async () => {
+  const { docId } = await engine.call("open", { source: { bytes: corpusFile("fonts-subset-edit.pdf") } }).promise;
+  const at = { docId, pageIndex: 0 };
+  const [source, next, reference] = await engine.call("getTextObjects", at).promise;
+  const run = source!.runs![0]!;
+  expect(await engine.call("checkPageTextFont", { ...at, run: { ...run, text: "Ti" } }).promise).toEqual({});
+  const text = reference!.text;
+  const result = await engine.call("editPageText", {
+    ...at,
+    id: source!.id,
+    editId: "scaled",
+    runs: [{ ...run, text }],
+  }).promise;
+  expect(result.missingCharacter).toBe("M");
+  const { bytes } = await engine.call("assemble", { parts: [{ ...at, rotation: 0 }] }).promise;
+  const [widths, referenceWidths] = await glyphWidths(bytes, [0, 2]);
+  expect(widths).toHaveLength(text.length);
+  expect(referenceWidths).toHaveLength(text.length);
+  for (const [index, width] of widths!.entries()) {
+    expect(width / referenceWidths![index]!).toBeCloseTo(0.72, 3);
+  }
+  const saved = (await engine.call("open", { source: { bytes } }).promise).docId;
+  const [edited, following, natural] = await engine.call("getTextObjects", { ...at, docId: saved }).promise;
+  expect(run.originalWidth).toBeCloseTo(source!.bounds.width, 4);
+  expect(edited!.runs![0]!.originalWidth).toBeCloseTo(edited!.bounds.width, 4);
+  expect(edited!.text).toBe(text);
+  expect(edited!.bounds.width / natural!.bounds.width).toBeCloseTo(0.8 * 0.9, 3);
+  // The next object starts at the pen position. Times-Roman advances total 10.775 em for this text.
+  const advance = following!.runs![0]!.baseline!.x - edited!.runs![0]!.baseline!.x;
+  expect(Math.abs(advance / (10.775 * 10.1 * 0.72) - 1)).toBeLessThan(0.005);
+  expect(following!.runs![0]!.baseline!.x).toBeGreaterThan(next!.runs![0]!.baseline!.x);
+  expect(natural!.bounds).toEqual(reference!.bounds);
+  expect(edited!.runs![0]!.font).toMatchObject({ name: "Times-Roman" });
+  await engine.call("togglePageTextEdit", { ...at, editId: "scaled", applied: false }).promise;
+  expect(await engine.call("getTextObjects", at).promise).toEqual([source!, next!, reference!]);
+  await engine.call("editPageText", { ...at, id: source!.id, editId: "short", runs: [{ ...run, text: "M" }] }).promise;
+  const short = await engine.call("assemble", { parts: [{ ...at, rotation: 0 }] }).promise;
+  const [shortWidths] = await glyphWidths(short.bytes, [0]);
+  expect(shortWidths![0]! / referenceWidths![0]!).toBeCloseTo(0.8, 3);
+  await engine.call("close", { docId: saved }).promise;
+  await engine.call("close", { docId }).promise;
+});
+
+/**
+ * Reads glyph boxes from the two comparison objects in the saved fixture.
+ * @param bytes The saved document.
+ * @param indexes The page object indexes to compare.
+ * @returns Ink widths in character order for each object.
+ */
+async function glyphWidths(bytes: ArrayBuffer, indexes: number[]) {
+  const pdfium = await init({ wasmBinary: pdfiumWasm() });
+  pdfium.PDFiumExt_Init();
+  const heap = new PdfiumHeap(pdfium);
+  return heap.withBuffer(bytes.byteLength, (ptr) => {
+    pdfium.pdfium.HEAPU8.set(new Uint8Array(bytes), ptr);
+    const doc = pdfium.FPDF_LoadMemDocument(ptr, bytes.byteLength, "");
+    const page = pdfium.FPDF_LoadPage(doc, 0);
+    const text = pdfium.FPDFText_LoadPage(page);
+    try {
+      return indexes.map((index) =>
+        heap.withBuffer(32, (box) => {
+          const object = pdfium.FPDFPage_GetObject(page, index);
+          const widths: number[] = [];
+          for (let i = 0; i < pdfium.FPDFText_CountChars(text); i++) {
+            if (pdfium.FPDFText_GetTextObject(text, i) !== object || pdfium.FPDFText_IsGenerated(text, i)) continue;
+            pdfium.FPDFText_GetCharBox(text, i, box, box + 8, box + 16, box + 24);
+            widths.push(pdfium.pdfium.getValue(box + 8, "double") - pdfium.pdfium.getValue(box, "double"));
+          }
+          return widths;
+        }),
+      );
+    } finally {
+      pdfium.FPDFText_ClosePage(text);
+      pdfium.FPDF_ClosePage(page);
+      pdfium.FPDF_CloseDocument(doc);
+    }
+  });
+}
+
+it("preserves the exact glyph widths of latex-spaces through an engine save", async () => {
+  const original = corpusFile("latex-spaces.pdf");
+  const expected = await glyphWidths(original, [0]);
+  const { docId } = await engine.call("open", { source: { bytes: original } }).promise;
+  try {
+    const [line] = await engine.call("getTextObjects", { docId, pageIndex: 0 }).promise;
+    expect(line!.text).toBe("Dean List 7 times recipient");
+    const { bytes } = await engine.call("assemble", { parts: [{ docId, pageIndex: 0, rotation: 0 }] }).promise;
+    expect(expected[0]!.length).toBeGreaterThan(20);
+    expect(await glyphWidths(bytes, [0])).toEqual(expected);
+  } finally {
+    await engine.call("close", { docId }).promise;
+  }
 });

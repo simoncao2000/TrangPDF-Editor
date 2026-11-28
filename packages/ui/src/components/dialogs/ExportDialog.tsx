@@ -102,10 +102,10 @@ function ExportReview({ request }: { readonly request: BlockedExport }) {
  * @returns The scrollable Fields card.
  */
 function PhoneReviewFields() {
-  const fields = useDocumentFields();
+  const { fields, message } = useDocumentFields();
   return (
     <div className="pointer-events-auto max-h-[30dvh] w-full overflow-y-auto rounded-xs border border-line bg-raised px-4 py-3 shadow-3">
-      <FieldsPanel fields={fields} validate />
+      {message ? <p role="status">{message}</p> : <FieldsPanel fields={fields} validate />}
     </div>
   );
 }

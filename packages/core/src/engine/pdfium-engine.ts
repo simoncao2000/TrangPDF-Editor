@@ -456,8 +456,12 @@ export class PdfiumEngine {
     includeFallback = false,
   ): Result<EngineResult<"checkPageTextFont">, "unknown-document"> {
     return this.withHeldPage(at, (page) => {
-      const { font, missingCharacter } = this.textObjects.checkDocumentFont(page, run);
-      const standard = { ...run, font: run.font?.kind === "standard" ? run.font : undefined };
+      const { font, missingCharacter, fallbackFamily } = this.textObjects.checkDocumentFont(page, run);
+      const standard = {
+        ...run,
+        fontFamily: fallbackFamily ?? run.fontFamily,
+        font: run.font?.kind === "standard" ? run.font : undefined,
+      };
       const needsFallback = includeFallback && !font && !this.textObjects.standardSupports(page, standard);
       return ok({ ...(missingCharacter && { missingCharacter }), ...(needsFallback && { needsFallback: true }) });
     });
@@ -487,12 +491,14 @@ export class PdfiumEngine {
     const fonts: EditFonts = { borrowed: new Map(), sources: new Map() };
     const subsets = new Map<string, ArrayBuffer>();
     const resolved: TextRun[] = [];
+    const fallbackSlots = new Set<number>();
     let missingCharacter: string | undefined;
     try {
       for (const [index, run] of runs.entries()) {
         const choice =
           plan.slots[index]!.retained !== undefined ? { run } : this.prepareEditRun({ at, page, fonts }, run);
         if (!choice) return err("text-edit-failed");
+        if (choice.missingCharacter) fallbackSlots.add(index);
         missingCharacter ??= choice.missingCharacter;
         resolved.push(choice.run);
       }
@@ -502,7 +508,8 @@ export class PdfiumEngine {
     } catch {
       return err("text-edit-failed");
     }
-    const edit = this.textObjects.commitEdit({ ...page, subsets, borrowed: fonts.borrowed }, plan, resolved);
+    const destination = { ...page, subsets, borrowed: fonts.borrowed, fallbackSlots };
+    const edit = this.textObjects.commitEdit(destination, plan, resolved);
     if (!edit) return err("text-edit-failed");
     doc.textEdits.set(editId, { pageIndex: at.pageIndex, edit, applied: true });
     return ok(missingCharacter ? { missingCharacter } : {});
@@ -519,18 +526,23 @@ export class PdfiumEngine {
     run: TextRun,
   ): (TextRunFontCheck & { run: TextRun }) | null {
     const { at, page, fonts } = context;
-    const { font, missingCharacter } = this.textObjects.checkDocumentFont(page, run);
+    const { font, missingCharacter, fallbackFamily } = this.textObjects.checkDocumentFont(page, run);
     const reference = run.font;
     if (font && reference?.kind === "embedded") {
       fonts.borrowed.set(fontRequestKey(reference), font);
       return { run };
     }
-    const standard = { ...run, font: reference?.kind === "standard" ? reference : undefined };
+    const fontFamily = fallbackFamily ?? run.fontFamily;
+    const standard = { ...run, fontFamily, font: reference?.kind === "standard" ? reference : undefined };
     if (reference?.kind !== "embedded" || reference.documentFontId) {
       if (this.textObjects.standardSupports(page, standard)) return { run: standard, missingCharacter };
     }
     const available = this.documentFonts.get(at.docId);
-    const bundled = [...(available ?? [])].filter((id) => id.startsWith("bundled:"));
+    const family = fontFamily === "Times" ? "lora" : fontFamily === "Courier" ? "jet-brains-mono" : "inter";
+    const preferred = `bundled:${family}:${run.italic ? "italic" : "regular"}`;
+    const bundled = missingCharacter
+      ? [preferred]
+      : [...(available ?? [])].filter((id) => id.startsWith("bundled:")).sort();
     const candidates = new Set([...(reference?.kind === "embedded" ? [reference.fontId] : []), ...bundled]);
     for (const id of candidates) {
       const bytes = available?.has(id) ? this.fontBytes.get(id) : undefined;

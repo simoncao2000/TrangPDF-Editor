@@ -261,21 +261,18 @@ export function withoutSubsetTag(baseName: string): string {
 }
 
 /**
- * Works out how a font looks from its name, then its flags.
+ * Works out how a font looks from its descriptor flags and base name.
  * @param baseName The font's /BaseFont.
  * @param flags The font descriptor's flags (0 when unknown).
  * @returns Family, bold and italic.
  */
 export function fontStyleOf(baseName: string, flags: number): FontStyle {
   const name = withoutSubsetTag(baseName);
-  const family: FontFamilyKind =
-    MONO_NAMES.test(name) || flags & FLAG_FIXED_PITCH
-      ? "mono"
-      : SANS_NAMES.test(name)
-        ? "sans"
-        : SERIF_NAMES.test(name) || flags & FLAG_SERIF
-          ? "serif"
-          : "sans";
+  let family: FontFamilyKind = "sans";
+  if (flags & FLAG_FIXED_PITCH) family = "mono";
+  else if (flags & FLAG_SERIF) family = "serif";
+  else if (MONO_NAMES.test(name)) family = "mono";
+  else if (!SANS_NAMES.test(name) && SERIF_NAMES.test(name)) family = "serif";
   return {
     family,
     bold: BOLD_NAMES.test(name) || (flags & FLAG_FORCE_BOLD) !== 0,

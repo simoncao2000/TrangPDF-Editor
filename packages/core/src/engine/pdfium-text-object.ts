@@ -117,7 +117,8 @@ export class TextObjectAccess {
    * @returns Its family, weight and slant, from its name and flags.
    */
   styleOf(font: number): FontStyle {
-    return fontStyleOf(this.fontName(font), this.pdfium.FPDFFont_GetFlags(font));
+    const style = fontStyleOf(this.fontName(font), Math.max(0, this.pdfium.FPDFFont_GetFlags(font)));
+    return { ...style, bold: style.bold || this.pdfium.FPDFFont_GetWeight(font) >= 600 };
   }
 
   /**

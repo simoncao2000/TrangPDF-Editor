@@ -9,13 +9,7 @@ from functools import partial
 from io import BytesIO
 from unittest.mock import patch
 
-from PIL import Image, ImageDraw, ImageFont
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont, TTFontMaker
-from reportlab.pdfgen.canvas import Canvas
-from reportlab.lib.utils import ImageReader
 from pathlib import Path
-from pypdf import PdfReader, PdfWriter
 
 HERE = Path(__file__).parent
 
@@ -64,6 +58,8 @@ def three_pages():
 
 def encrypted(algorithm="RC4-128", password="harbour", permissions=None):
     """Encrypt the original pages with reproducible test-only salts and IVs."""
+    from pypdf import PdfReader, PdfWriter
+
     writer = PdfWriter(clone_from=PdfReader(BytesIO(three_pages())))
     options = {} if permissions is None else {"permissions_flag": permissions}
     with patch("secrets.token_bytes", random.Random(6981).randbytes):
@@ -184,6 +180,8 @@ def page(content, resources="", extra=()):
 
 def canvas_pdf(draw):
     """Serialize a ReportLab drawing with fixed timestamps and document ID."""
+    from reportlab.pdfgen.canvas import Canvas
+
     buf = BytesIO()
     canvas = Canvas(buf, pagesize=(612, 792), invariant=1)
     draw(canvas)
@@ -193,6 +191,8 @@ def canvas_pdf(draw):
 
 def standard_fonts(c):
     """Draw the fourteen standard fonts, including each Latin style."""
+    from reportlab.pdfbase import pdfmetrics
+
     for i, font in enumerate(pdfmetrics.standardFonts):
         c.setFont(font, 16)
         c.drawString(48, 730 - 42 * i, font)
@@ -200,6 +200,8 @@ def standard_fonts(c):
 
 def script_font():
     """Reassemble the local Allura WOFF1 tables as a TrueType font for ReportLab."""
+    from reportlab.pdfbase.ttfonts import TTFont, TTFontMaker
+
     path = HERE.parent / "packages/ui/node_modules/@fontsource/allura/files/allura-latin-400-normal.woff"
     data = path.read_bytes()
     count = struct.unpack_from(">H", data, 12)[0]
@@ -212,6 +214,9 @@ def script_font():
 
 def subset_fonts(c):
     """Place different embedded fonts, sizes and colours on the same baseline."""
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+
     line = c.beginText(48, 640)
     for i, (font, label) in enumerate(zip(("inter", "lora", "jet-brains-mono", "nunito", "playpen-sans"),
                                           ("Harbour ", "tide ", "08:30 ", "on ", "Friday"))):
@@ -239,6 +244,8 @@ endbfchar endcmap CMapName currentdict /CMap defineresource pop end end""")
 
 def cid_font():
     """Embed a Lora subset with Identity-H CIDs and an explicit Unicode map."""
+    from reportlab.pdfbase.ttfonts import TTFont
+
     label = "Tiếng Việt ở Huế · café déjà vu"
     chars = list(dict.fromkeys(label))
     face = TTFont("CID", str(FONTS / "lora.ttf")).face
@@ -257,6 +264,20 @@ def cid_font():
     ])
 
 
+def subset_edit():
+    """Place the first five subset glyphs under a large, anisotropic text matrix."""
+    content = ("BT /F 1 Tf 8.08 0 0 10.1 48 640 Tm <00010002000300040005> Tj ET "
+               "BT /T 10.1 Tf 1 0 0 1 69.2 640 Tm (next) Tj ET "
+               "BT /T 10.1 Tf 1 0 0 1 48 600 Tm (Medical Device Packaging) Tj ET")
+    resources = "/Font << /F 5 0 R /T << /Type /Font /Subtype /Type1 /BaseFont /Times-Roman >> >>"
+    # Reuse the CID fixture's exact embedded subset and widths (objects 5 through 9).
+    source = (HERE / "fonts-cid-unicode.pdf").read_bytes()
+    xref = int(source.rsplit(b"startxref\n", 1)[1].splitlines()[0])
+    offsets = [int(entry[:10]) for entry in source[xref:].splitlines()[2:12]] + [xref]
+    objects = [source[offsets[i]:offsets[i+1]].split(b"\n", 1)[1].removesuffix(b"\nendobj\n") for i in range(5, 10)]
+    return page(content, resources, objects)
+
+
 def type3():
     """Draw a triangular glyph defined by a Type3 CharProc."""
     return page("BT /F 48 Tf 50 650 Td (AAA) Tj ET", "/Font << /F 5 0 R >>", [
@@ -269,6 +290,8 @@ def type3():
 
 def arabic():
     """Embed bitmap glyphs from Playpen Sans Arabic for the non-joining letters of ورد."""
+    from PIL import Image, ImageDraw, ImageFont
+
     chars = "ورد"
     font = ImageFont.truetype(str(ARABIC), 96)
     procs, widths = [], []
@@ -366,6 +389,8 @@ def annotations(kind):
 
 def field_fixture(kind):
     """Extend the legacy form with specialised widgets or exercise missing appearances."""
+    from pypdf import PdfReader, PdfWriter
+
     from pypdf.generic import BooleanObject, NameObject, TextStringObject
     writer = PdfWriter(clone_from=PdfReader(BytesIO(form_pdf())))
     form = writer.root_object["/AcroForm"]
@@ -402,6 +427,9 @@ def field_fixture(kind):
 
 def image_page(c, mixed):
     """Draw a synthetic JPEG scan and optionally a translucent PNG over it."""
+    from PIL import Image, ImageDraw, ImageFont
+    from reportlab.lib.utils import ImageReader
+
     scan = Image.new("RGB", (420, 540), "ivory")
     draw = ImageDraw.Draw(scan)
     draw.text((32, 32), "Harbour survey", font=ImageFont.truetype(str(FONTS / "inter.ttf"), 26), fill="black")
@@ -489,7 +517,8 @@ def main():
         "text": plain_text, "latex-spaces": latex_spaces, "damaged": lambda: three_pages()[:180],
         "not-a-pdf": lambda: bytes.fromhex("89504e470d0a1a0a0000000d49484452") + bytes(64),
         "fonts-standard14": partial(canvas_pdf, standard_fonts), "fonts-truetype-subset": partial(canvas_pdf, subset_fonts),
-        "fonts-cid-unicode": cid_font, "fonts-type3": type3, "text-in-form-xobject": form_xobject,
+        "fonts-cid-unicode": cid_font, "fonts-subset-edit": subset_edit,
+        "fonts-type3": type3, "text-in-form-xobject": form_xobject,
         "text-rotated-and-scaled": transforms, "text-rtl-arabic": arabic,
         "text-tight-kerning": partial(text_pdf, b"BT /F1 32 Tf 48 650 Td 5 Tw [(A) 110 (V A) 85 (T tide)] TJ ET", HELV),
         "pages-mixed-sizes": partial(page_boxes, "sizes"), "pages-rotated": partial(page_boxes, "rotate"),

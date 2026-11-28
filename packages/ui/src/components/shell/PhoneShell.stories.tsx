@@ -11,7 +11,7 @@ export const Default: Story = {
   args: { keysEnabled: true },
   /** @param args The component props. @returns The component in the routed editor. */
   render: (args) => (
-    <EditorFixture sample="text" path="/">
+    <EditorFixture sample="form" path="/?panel=fields">
       <PhoneShell {...args} />
     </EditorFixture>
   ),

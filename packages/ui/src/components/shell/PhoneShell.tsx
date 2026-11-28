@@ -34,8 +34,8 @@ export function PhoneShell({ keysEnabled }: PhoneShellProps) {
   const currentPage = useViewer((state) => state.currentPage);
   const { mode, setMode } = useViewMode();
   const { panel, closePanel } = useOpenPanel();
-  const { threads, count } = useDocumentThreads(panel === "comments");
-  const fields = useDocumentFields();
+  const { threads, count, message: commentMessage } = useDocumentThreads(panel === "comments");
+  const { fields, message: fieldMessage } = useDocumentFields(panel === "fields");
   const progress = fieldProgress(fields);
   const { open } = useFieldNavigation();
   const ready = status === "clean" || status === "dirty" || status === "saving";
@@ -73,18 +73,26 @@ export function PhoneShell({ keysEnabled }: PhoneShellProps) {
         )}
         {ready && <PhoneTools keysEnabled={keysEnabled && !panel} showTray={!panel} />}
       </div>
-      <PanelTabs threadCount={count} progress={progress} />
+      <PanelTabs threadCount={count} progress={fieldMessage ? undefined : progress} />
 
       {panel === "files" && <FilesSheet onClose={closePanel} />}
       {panel === "more" && <MoreSheet />}
       {panel === "comments" && (
         <Sheet title={count === 0 ? "Comments" : `Comments · ${count}`} onDismiss={closePanel}>
-          <CommentsPanel threads={threads} />
+          {commentMessage ? <p role="status">{commentMessage}</p> : <CommentsPanel threads={threads} />}
         </Sheet>
       )}
       {panel === "fields" && (
-        <Sheet title="Fields" meta={`${progress.done} of ${progress.total} done`} onDismiss={closePanel}>
-          <FieldsPanel fields={fields} validate={false} headingHidden onOpenField={visitField} />
+        <Sheet
+          title="Fields"
+          meta={fieldMessage ? undefined : `${progress.done} of ${progress.total} done`}
+          onDismiss={closePanel}
+        >
+          {fieldMessage ? (
+            <p role="status">{fieldMessage}</p>
+          ) : (
+            <FieldsPanel fields={fields} validate={false} headingHidden onOpenField={visitField} />
+          )}
         </Sheet>
       )}
       {panel === "properties" && (
