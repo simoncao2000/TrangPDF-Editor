@@ -3,6 +3,7 @@
  * (the worker in the app, Node in tests) and returns plain pixels, never DOM objects.
  */
 import { init, type WrappedPdfiumModule } from "@embedpdf/pdfium";
+import { stripForm } from "./strip-form";
 import { err, ok, type PdfPoint, type PdfRect, type Result, type TextRunFontCheck } from "@pdf-editor/shared";
 import type { Annotation, EditableAnnotation } from "../annotations/annotation";
 import type { CommentReply } from "../annotations/comment";
@@ -794,7 +795,7 @@ export class PdfiumEngine {
   assemble(
     parts: readonly AssemblePart[],
     options: AssembleOptions = {},
-  ): Result<ArrayBuffer, "unknown-document" | "assemble-failed"> {
+  ): Result<ArrayBuffer, "unknown-document" | "assemble-failed" | "flatten-failed"> {
     const first = parts[0];
     const base = first ? this.docs.get(first.docId) : undefined;
     if (!first || !base || parts.some((part) => !this.docs.has(part.docId))) return err("unknown-document");
@@ -806,11 +807,23 @@ export class PdfiumEngine {
     try {
       const order = this.importForeignPages(dest.handle, first.docId, parts);
       if (!order || !this.arrange(dest.handle, order)) return err("assemble-failed");
-      parts.forEach((part, index) => this.finishPage(dest.handle, index, part.rotation, options.flatten ?? false));
+      for (const [index, part] of parts.entries()) {
+        if (!this.finishPage(dest.handle, index, part.rotation, options.flatten ?? false) && options.flatten)
+          return err("flatten-failed");
+      }
       const bytes = this.saveCopy(dest.handle);
+      if (options.flatten) {
+        if (!bytes) return err("flatten-failed");
+        const stripped = stripForm(bytes);
+        if (!stripped.ok) return stripped;
+        if (this.countPages(stripped.value, base.password, true) !== parts.length) return err("flatten-failed");
+        return stripped;
+      }
       // An encrypted file stays encrypted when saved, so it is checked with the same password.
       if (!bytes || this.countPages(bytes, base.password) !== parts.length) return err("assemble-failed");
       return ok(bytes);
+    } catch {
+      return err(options.flatten ? "flatten-failed" : "assemble-failed");
     } finally {
       this.pdfium.FPDF_CloseDocument(dest.handle);
       this.pdfium.pdfium.wasmExports.free(dest.bufferPtr);
@@ -891,17 +904,19 @@ export class PdfiumEngine {
    * @param pageIndex The page.
    * @param rotation Extra rotation.
    * @param flatten Draw the annotations into the page.
+   * @returns Whether PDFium processed the page successfully.
    */
-  private finishPage(dest: number, pageIndex: number, rotation: Rotation, flatten: boolean): void {
+  private finishPage(dest: number, pageIndex: number, rotation: Rotation, flatten: boolean): boolean {
     const page = this.pdfium.FPDF_LoadPage(dest, pageIndex);
-    if (!page) return;
+    if (!page) return false;
     this.annotations.stripRemoved(page);
-    if (flatten) this.pdfium.FPDFPage_Flatten(page, FLATTEN_AS_SHOWN);
+    const success = !flatten || this.pdfium.FPDFPage_Flatten(page, FLATTEN_AS_SHOWN) !== 0;
     if (rotation !== 0) {
       const quarterTurns = (this.pdfium.FPDFPage_GetRotation(page) + rotation / QUARTER_TURN) % 4;
       this.pdfium.FPDFPage_SetRotation(page, quarterTurns);
     }
     this.pdfium.FPDF_ClosePage(page);
+    return success;
   }
 
   /**
@@ -931,13 +946,19 @@ export class PdfiumEngine {
    * Opens bytes just to count their pages (the save verification step).
    * @param bytes A PDF.
    * @param password Its password, if it is encrypted.
+   * @param flattened Whether a surviving form invalidates the copy.
    * @returns The page count, or -1 if the bytes do not open.
    */
-  private countPages(bytes: ArrayBuffer, password: string): number {
-    const opened = this.open(bytes, password || undefined);
-    if (!opened.ok) return -1;
-    this.close(opened.value.docId);
-    return opened.value.pages.length;
+  private countPages(bytes: ArrayBuffer, password: string, flattened = false): number {
+    const opened = this.loadCopy(bytes, password);
+    if (!opened) return -1;
+    try {
+      if (flattened && this.pdfium.FPDF_GetFormType(opened.handle) !== 0) return -1;
+      return this.pdfium.FPDF_GetPageCount(opened.handle);
+    } finally {
+      this.pdfium.FPDF_CloseDocument(opened.handle);
+      this.pdfium.pdfium.wasmExports.free(opened.bufferPtr);
+    }
   }
 
   /**

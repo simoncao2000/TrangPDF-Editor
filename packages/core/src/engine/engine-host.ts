@@ -398,8 +398,10 @@ export function createEngineHost(deps: EngineHostDeps): { receive(request: Engin
     async assemble({ parts, flatten }) {
       const built = requireEngine().assemble(parts, { flatten });
       if (!built.ok) {
-        const code = built.error === "unknown-document" ? "unknown-document" : "assemble-failed";
-        throw new HostError({ code, message: "The new file could not be built." });
+        const code = built.error;
+        const message =
+          code === "flatten-failed" ? "The form could not be flattened." : "The new file could not be built.";
+        throw new HostError({ code, message });
       }
       return [{ bytes: built.value }, [built.value]];
     },

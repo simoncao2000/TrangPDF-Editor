@@ -2,7 +2,7 @@
  * Every edit and save the UI offers, in one place: runs the command through the session, confirms it
  * with a toast (with Undo), and gets save targets from the FileAdapter at click time.
  */
-import { deletePages, insertPages, movePages, pagesLabel, rotatePages } from "@pdf-editor/core";
+import { EngineCallError, deletePages, insertPages, movePages, pagesLabel, rotatePages } from "@pdf-editor/core";
 import type { SaveTarget } from "@pdf-editor/shared";
 import { useCallback, useMemo } from "react";
 import { useToast } from "../state/toast-store";
@@ -177,8 +177,12 @@ export function useDocumentActions(): DocumentActions {
         try {
           const saved = await target.write(await session.buildPdf(pageIds, { flatten: options.flatten }));
           show(`Saved ${saved.name}`);
-        } catch {
-          show("Couldn’t save the extracted pages.", { tone: "error" });
+        } catch (error) {
+          const message =
+            error instanceof EngineCallError && error.detail.code === "flatten-failed"
+              ? "Couldn’t flatten this PDF. The copy was not saved."
+              : "Couldn’t save the extracted pages.";
+          show(message, { tone: "error" });
         }
       },
       save,

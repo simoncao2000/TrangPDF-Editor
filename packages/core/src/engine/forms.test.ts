@@ -1,8 +1,10 @@
 /** Form field reads and writes through EngineClient, the worker host, and PDFium. */
+import { init, type WrappedPdfiumModule } from "@embedpdf/pdfium";
 import type { PdfRect } from "@pdf-editor/shared";
 import { beforeAll, expect, it } from "bun:test";
 import { Buffer } from "node:buffer";
-import { corpusFile, createTestEngine, type FakeBitmap } from "../testing/fixtures";
+import { corpusFile, createTestEngine, pdfiumWasm, type FakeBitmap } from "../testing/fixtures";
+import { stripForm } from "./strip-form";
 import type { EngineClient } from "./engine-client";
 import type { PageAddress } from "./protocol";
 
@@ -300,5 +302,112 @@ it("renders the filled name and flattens the text and choice as searchable page 
     }
   } finally {
     await engine.call("close", { docId: at.docId }).promise;
+  }
+});
+
+it("preserves all 14 fields on ordinary export and flattens them into searchable page content", async () => {
+  const at = await open("form-all-fields.pdf");
+  try {
+    await fill(at);
+    const parts = [{ ...at, rotation: 0 }] as const;
+    const { bytes } = await engine.call("assemble", { parts }).promise;
+    await inspectCopy(bytes, "", (pdfium, doc) => {
+      expect(pdfium.FPDF_GetFormType(doc)).toBe(1);
+    });
+    const raw = Buffer.from(bytes).toString("latin1");
+    const fields = /\/Fields\s*\[([^\]]*)\]/.exec(raw)?.[1];
+    expect(fields?.match(/\d+\s+\d+\s+R/g)).toHaveLength(14);
+    const flattened = await engine.call("assemble", { parts, flatten: true }).promise;
+    await inspectCopy(flattened.bytes, "", (pdfium, doc) => {
+      expect(pdfium.FPDF_GetFormType(doc)).toBe(0);
+      const page = pdfium.FPDF_LoadPage(doc, 0);
+      try {
+        expect(page).toBeTruthy();
+        expect(pdfium.FPDFPage_GetAnnotCount(page)).toBe(0);
+      } finally {
+        pdfium.FPDF_ClosePage(page);
+      }
+    });
+    const { docId } = await engine.call("open", { source: flattened }).promise;
+    const saved = { docId, pageIndex: 0 };
+    try {
+      expect(await engine.call("getFormFields", saved).promise).toEqual([]);
+      expect(await engine.call("getAnnotations", saved).promise).toEqual([]);
+      const params = { docId: saved.docId, pageIndexes: [0], query: filledWidgets[0].value, limit: 1 };
+      expect(await engine.call("findText", params).promise).toHaveLength(1);
+    } finally {
+      await engine.call("close", { docId: saved.docId }).promise;
+    }
+  } finally {
+    await engine.call("close", { docId: at.docId }).promise;
+  }
+});
+
+it("rejects an unexpected trailer without a root", () => {
+  const bytes = Buffer.from(corpusFile("form-all-fields.pdf"));
+  const index = bytes.lastIndexOf("/Root");
+  expect(index).toBeGreaterThan(0);
+  bytes.write("/Boot", index);
+  expect(stripForm(Uint8Array.from(bytes).buffer)).toEqual({ ok: false, error: "flatten-failed" });
+});
+
+/**
+ * @param bytes The serialized copy to inspect with PDFium.
+ * @param password The document password.
+ * @param work Reads or updates the opened document.
+ * @returns The result before releasing the document and its buffer.
+ */
+async function inspectCopy<T>(
+  bytes: ArrayBuffer,
+  password: string,
+  work: (pdfium: WrappedPdfiumModule, doc: number) => T,
+) {
+  const pdfium = await init({ wasmBinary: pdfiumWasm() });
+  pdfium.PDFiumExt_Init();
+  const ptr = pdfium.pdfium.wasmExports.malloc(bytes.byteLength);
+  pdfium.pdfium.HEAPU8.set(new Uint8Array(bytes), ptr);
+  const doc = pdfium.FPDF_LoadMemDocument(ptr, bytes.byteLength, password);
+  try {
+    expect(doc).toBeTruthy();
+    return work(pdfium, doc);
+  } finally {
+    if (doc) pdfium.FPDF_CloseDocument(doc);
+    pdfium.pdfium.wasmExports.free(ptr);
+    pdfium.FPDF_DestroyLibrary();
+  }
+}
+
+it("preserves password protection when flattening an encrypted AcroForm", async () => {
+  const password = "harbour";
+  const encrypted = await inspectCopy(corpusFile("form-all-fields.pdf"), "", (pdfium, doc) => {
+    expect(pdfium.EPDF_SetEncryption(doc, password, "owner", -4)).toBeTruthy();
+    const writer = pdfium.PDFiumExt_OpenFileWriter();
+    try {
+      expect(pdfium.PDFiumExt_SaveAsCopy(doc, writer)).toBeTruthy();
+      const size = pdfium.PDFiumExt_GetFileWriterSize(writer);
+      const ptr = pdfium.pdfium.wasmExports.malloc(size);
+      try {
+        pdfium.PDFiumExt_GetFileWriterData(writer, ptr, size);
+        return pdfium.pdfium.HEAPU8.slice(ptr, ptr + size).buffer;
+      } finally {
+        pdfium.pdfium.wasmExports.free(ptr);
+      }
+    } finally {
+      pdfium.PDFiumExt_CloseFileWriter(writer);
+    }
+  });
+  const { docId } = await engine.call("open", { source: { bytes: encrypted }, password }).promise;
+  try {
+    const { bytes } = await engine.call("assemble", { parts: [{ docId, pageIndex: 0, rotation: 0 }], flatten: true })
+      .promise;
+    await inspectCopy(bytes, password, (pdfium, doc) => {
+      expect(pdfium.EPDF_IsEncrypted(doc)).toBeTruthy();
+      expect(pdfium.FPDF_GetFormType(doc)).toBe(0);
+    });
+    await expect(engine.call("open", { source: { bytes } }).promise).rejects.toMatchObject({
+      detail: { code: "password-required" },
+    });
+  } finally {
+    await engine.call("close", { docId }).promise;
   }
 });

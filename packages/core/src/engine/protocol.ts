@@ -157,6 +157,7 @@ export type EngineErrorCode =
   | "cancelled"
   | "not-initialized"
   | "assemble-failed"
+  | "flatten-failed"
   | "unknown-annotation"
   | "annotation-failed"
   | "rich-comment-too-large"
