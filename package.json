@@ -3,6 +3,7 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "e2e": "playwright test",
     "story": "storybook dev --host 127.0.0.1 --port 6006 --no-open --disable-telemetry",
     "dev": "bun --filter web dev",
     "build": "bun --filter web build",
