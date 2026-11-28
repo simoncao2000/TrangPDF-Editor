@@ -262,7 +262,17 @@ bun run test
 
 - **Unit tests** cover commands, history, selection, zoom maths, the render queue, the bitmap cache and file validation.
 - **Property tests** with fast-check run random sequences of edits and check that undoing all of them returns the exact starting document.
-- **Test corpus** in `test-corpus/` holds small PDFs for the awkward cases: encrypted, damaged, and files that only pretend to be PDFs.
+- **Test corpus** in `test-corpus/` holds a PDF for every feature and awkward case. That includes:
+  - fonts (standard, subset, CID Unicode and Type3), plus rotated and kerned text
+  - mixed page sizes, rotations and crop boxes
+  - every annotation kind and comment threads
+  - every form field type
+  - scans and images
+  - AES-256 and owner-only encryption
+  - incremental, broken and compressed file structure
+  - a 1,000-page file for performance
+
+  `test-corpus/README.md` lists each file, what it guards and any password. Regenerate the files with `python3 test-corpus/generate.py`, which needs `pypdf` and `reportlab`. `--huge` writes an over-500 MB file to the temp folder for the size-limit check. A corpus test fails when a file is missing, over its size budget or not listed.
 
 ## Roadmap
 

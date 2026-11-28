@@ -52,6 +52,7 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 /PRODUCT.md
 /DESIGN.md
 *.pdf
+!/test-corpus/*.pdf
 
 # Local tool files
 CLAUDE.md

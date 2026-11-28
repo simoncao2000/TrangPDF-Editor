@@ -1,0 +1,85 @@
+%PDF-1.7
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Count 1 /Kids [3 0 R] >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [5 0 R 6 0 R 7 0 R 8 0 R 9 0 R 10 0 R 11 0 R 12 0 R 13 0 R 14 0 R 15 0 R 16 0 R 17 0 R] /Resources << /Font << /Helv 18 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<<  /Length 614 >>
+stream
+BT /Helv 14 Tf 50 730 Td (Highlight sample) Tj ET BT /Helv 14 Tf 50 680 Td (Underline sample) Tj ET BT /Helv 14 Tf 50 630 Td (StrikeOut sample) Tj ET BT /Helv 14 Tf 50 580 Td (Squiggly sample) Tj ET BT /Helv 14 Tf 50 530 Td (Ink sample) Tj ET BT /Helv 14 Tf 50 480 Td (Square sample) Tj ET BT /Helv 14 Tf 50 430 Td (Circle sample) Tj ET BT /Helv 14 Tf 50 380 Td (Line sample) Tj ET BT /Helv 14 Tf 50 330 Td (Polygon sample) Tj ET BT /Helv 14 Tf 50 280 Td (FreeText sample) Tj ET BT /Helv 14 Tf 50 230 Td (Text sample) Tj ET BT /Helv 14 Tf 50 180 Td (Stamp sample) Tj ET BT /Helv 14 Tf 50 130 Td (Link sample) Tj ET
+endstream
+endobj
+5 0 obj
+<< /Type /Annot /Subtype /Highlight /Rect [48 723 242 751] /T (Reviewer) /Contents (Highlight) /C [1 .55 0] /F 4 /QuadPoints [50 749 240 749 50 725 240 725] >>
+endobj
+6 0 obj
+<< /Type /Annot /Subtype /Underline /Rect [48 673 242 701] /T (Reviewer) /Contents (Underline) /C [1 .55 0] /F 4 /QuadPoints [50 699 240 699 50 675 240 675] >>
+endobj
+7 0 obj
+<< /Type /Annot /Subtype /StrikeOut /Rect [48 623 242 651] /T (Reviewer) /Contents (StrikeOut) /C [1 .55 0] /F 4 /QuadPoints [50 649 240 649 50 625 240 625] >>
+endobj
+8 0 obj
+<< /Type /Annot /Subtype /Squiggly /Rect [48 573 242 601] /T (Reviewer) /Contents (Squiggly) /C [1 .55 0] /F 4 /QuadPoints [50 599 240 599 50 575 240 575] >>
+endobj
+9 0 obj
+<< /Type /Annot /Subtype /Ink /Rect [48 523 242 551] /T (Reviewer) /Contents (Ink) /C [1 .55 0] /F 4 /InkList [[60 528 140 547 215 533]] >>
+endobj
+10 0 obj
+<< /Type /Annot /Subtype /Square /Rect [48 473 242 501] /T (Reviewer) /Contents (Square) /C [1 .55 0] /F 4  >>
+endobj
+11 0 obj
+<< /Type /Annot /Subtype /Circle /Rect [48 423 242 451] /T (Reviewer) /Contents (Circle) /C [1 .55 0] /F 4  >>
+endobj
+12 0 obj
+<< /Type /Annot /Subtype /Line /Rect [48 373 242 401] /T (Reviewer) /Contents (Line) /C [1 .55 0] /F 4 /L [58 379 230 395] /LE [/OpenArrow /ClosedArrow] >>
+endobj
+13 0 obj
+<< /Type /Annot /Subtype /Polygon /Rect [48 323 242 351] /T (Reviewer) /Contents (Polygon) /C [1 .55 0] /F 4 /Vertices [60 328 140 347 215 333] >>
+endobj
+14 0 obj
+<< /Type /Annot /Subtype /FreeText /Rect [48 273 242 301] /T (Reviewer) /Contents (FreeText) /C [1 .55 0] /F 4 /DA (/Helv 12 Tf 0 g) >>
+endobj
+15 0 obj
+<< /Type /Annot /Subtype /Text /Rect [48 223 242 251] /T (Reviewer) /Contents (Text) /C [1 .55 0] /F 4  >>
+endobj
+16 0 obj
+<< /Type /Annot /Subtype /Stamp /Rect [48 173 242 201] /T (Reviewer) /Contents (Stamp) /C [1 .55 0] /F 4 /Name /Approved >>
+endobj
+17 0 obj
+<< /Type /Annot /Subtype /Link /Rect [48 123 242 151] /T (Reviewer) /Contents (Link) /C [1 .55 0] /F 4 /Dest [3 0 R /Fit] >>
+endobj
+18 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 19
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000346 00000 n 
+0000001012 00000 n 
+0000001187 00000 n 
+0000001362 00000 n 
+0000001537 00000 n 
+0000001710 00000 n 
+0000001865 00000 n 
+0000001992 00000 n 
+0000002119 00000 n 
+0000002291 00000 n 
+0000002454 00000 n 
+0000002606 00000 n 
+0000002729 00000 n 
+0000002869 00000 n 
+0000003010 00000 n 
+trailer
+<< /Size 19 /Root 1 0 R >>
+startxref
+3081
+%%EOF
