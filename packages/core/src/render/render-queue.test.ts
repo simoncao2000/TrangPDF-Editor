@@ -19,7 +19,8 @@ describe("RenderQueue", () => {
     const queue = new RenderQueue(1);
     const log: string[] = [];
     const running: Record<string, ReturnType<typeof controllable>> = {};
-    const add = (name: string, priority: number) => queue.enqueue(() => (running[name] = controllable(log, name)), priority);
+    const add = (name: string, priority: number) =>
+      queue.enqueue(() => (running[name] = controllable(log, name)), priority);
 
     const first = add("first", 5);
     add("far", 9);

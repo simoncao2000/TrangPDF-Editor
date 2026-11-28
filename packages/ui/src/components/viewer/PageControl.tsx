@@ -23,8 +23,17 @@ export function PageControl() {
   };
 
   return (
-    <div role="group" aria-label="Page and zoom" className="flex h-10 items-center gap-0.5 rounded-sm border border-line bg-raised p-0.5 text-sm tabular-nums">
-      <IconButton icon={ChevronUp} label="Previous page" disabled={currentPage === 0} onClick={() => goToPage(currentPage - 1)} />
+    <div
+      role="group"
+      aria-label="Page and zoom"
+      className="flex h-10 items-center gap-0.5 rounded-xs border border-line bg-raised p-0.5 text-sm tabular-nums"
+    >
+      <IconButton
+        icon={ChevronUp}
+        label="Previous page"
+        disabled={currentPage === 0}
+        onClick={() => goToPage(currentPage - 1)}
+      />
       <label className="flex items-center gap-1.5 px-1 font-mono text-muted">
         <input
           value={draft ?? String(currentPage + 1)}
@@ -41,25 +50,16 @@ export function PageControl() {
         />
         of {pageCount}
       </label>
-      <IconButton icon={ChevronDown} label="Next page" disabled={currentPage >= pageCount - 1} onClick={() => goToPage(currentPage + 1)} />
+      <IconButton
+        icon={ChevronDown}
+        label="Next page"
+        disabled={currentPage >= pageCount - 1}
+        onClick={() => goToPage(currentPage + 1)}
+      />
       <span className="mx-1 h-5 w-px bg-divider" aria-hidden="true" />
       <IconButton icon={Minus} label="Zoom out" onClick={() => zoomBy(-1)} />
       <ZoomMenu />
       <IconButton icon={Plus} label="Zoom in" onClick={() => zoomBy(1)} />
     </div>
-  );
-}
-
-/**
- * The narrow layout's page indicator ("3 / 8").
- * @returns A small pill.
- */
-export function PageIndicator() {
-  const pageCount = useDocument((state) => state.pages.length);
-  const currentPage = useViewer((state) => state.currentPage);
-  return (
-    <output aria-live="polite" className="rounded-sm border border-line bg-raised px-3 py-1 font-mono text-sm font-semibold">
-      {currentPage + 1} / {pageCount}
-    </output>
   );
 }

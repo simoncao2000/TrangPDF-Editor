@@ -1,7 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import { currentPageIndex, layoutPages, sizesAtWidth, visibleRange } from "./page-layout";
 
-const tenPages = layoutPages(Array.from({ length: 10 }, () => ({ width: 100, height: 100 })), { gap: 10, padding: 20 });
+const tenPages = layoutPages(
+  Array.from({ length: 10 }, () => ({ width: 100, height: 100 })),
+  { gap: 10, padding: 20 },
+);
 
 describe("layoutPages", () => {
   it("stacks boxes with gaps and padding", () => {

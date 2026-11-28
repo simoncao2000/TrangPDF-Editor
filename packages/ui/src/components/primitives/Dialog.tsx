@@ -21,7 +21,15 @@ interface DialogProps {
  * @param props Title, optional description, icon and tone, body, actions and dismiss handler.
  * @returns The open dialog.
  */
-export function Dialog({ title, description, icon: IconComponent, tone = "neutral", onDismiss, children, actions }: DialogProps) {
+export function Dialog({
+  title,
+  description,
+  icon: IconComponent,
+  tone = "neutral",
+  onDismiss,
+  children,
+  actions,
+}: DialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -41,12 +49,14 @@ export function Dialog({ title, description, icon: IconComponent, tone = "neutra
       onClick={(event) => {
         if (event.target === event.currentTarget) onDismiss();
       }}
-      className="m-auto w-[min(100%-2rem,440px)] rounded-sm border border-line bg-raised p-0 text-ink backdrop:bg-scrim starting:scale-96 starting:opacity-0 open:scale-100 open:opacity-100 transition-[opacity,scale] duration-(--duration-enter) ease-out"
+      className="m-auto w-[min(100%-2rem,440px)] rounded-xs border border-line bg-raised p-0 text-ink transition-[opacity,scale] duration-(--duration-enter) ease-out backdrop:bg-scrim open:scale-100 open:opacity-100 starting:scale-96 starting:opacity-0"
     >
       <div className="grid gap-4 p-5">
         <div className="flex items-start gap-3">
           {IconComponent && (
-            <span className={`grid size-9 shrink-0 place-items-center rounded-full ${tone === "danger" ? "bg-danger/15 text-danger" : "bg-signal-soft text-signal"}`}>
+            <span
+              className={`grid size-9 shrink-0 place-items-center rounded-full ${tone === "danger" ? "bg-danger/15 text-danger" : "bg-signal-soft text-signal"}`}
+            >
               <IconComponent className="size-5" aria-hidden="true" />
             </span>
           )}

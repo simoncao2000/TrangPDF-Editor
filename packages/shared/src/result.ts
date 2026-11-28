@@ -1,7 +1,5 @@
 /** Outcome of an operation that can fail in an expected way. Unexpected failures still throw. */
-export type Result<T, E> =
-  | { readonly ok: true; readonly value: T }
-  | { readonly ok: false; readonly error: E };
+export type Result<T, E> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: E };
 
 /**
  * Wraps a successful value.

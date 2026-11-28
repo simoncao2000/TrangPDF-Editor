@@ -29,5 +29,13 @@
   --spark-soft: var(--palette-light-spark-soft);
   --inverse: var(--palette-light-inverse);
   --on-inverse: var(--palette-light-on-inverse);
+  --comment-ink-black: var(--text);
+  --comment-ink-navy: #243d63;
+  --comment-ink-blue: #305e86;
+  --comment-ink-teal: #1f7a7a;
+  --comment-ink-moss: #4f7a2a;
+  --comment-ink-brown: #7a4b2a;
+  --comment-ink-plum: #6a3d7a;
+  --comment-ink-amber: #a25c15;
   --shadow-rgb: var(--palette-light-shadow);
 }

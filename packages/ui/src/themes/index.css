@@ -3,6 +3,7 @@
 @import "./semantic.css";
 @import "./palettes/light.css";
 @import "./palettes/dark.css";
+@import "./controls.css";
 
 /* dark: matches data-theme="dark", or the OS setting when no theme is chosen. */
 @custom-variant dark {
@@ -35,6 +36,13 @@
   --color-hover: var(--surface-hover);
   --color-pressed: var(--surface-active);
   --color-ink: var(--text);
+  --color-comment-navy: var(--comment-ink-navy);
+  --color-comment-blue: var(--comment-ink-blue);
+  --color-comment-teal: var(--comment-ink-teal);
+  --color-comment-moss: var(--comment-ink-moss);
+  --color-comment-brown: var(--comment-ink-brown);
+  --color-comment-plum: var(--comment-ink-plum);
+  --color-comment-amber: var(--comment-ink-amber);
   --color-muted: var(--text-muted);
   --color-disabled: var(--text-disabled);
   --color-line: var(--border);
@@ -77,6 +85,7 @@
   --font-doc: var(--primitive-font-doc);
   --font-mono: var(--primitive-font-mono);
   --default-font-family: var(--primitive-font-ui);
+  --default-mono-font-family: var(--primitive-font-ui);
   --text-2xs: var(--type-2xs);
   --text-xs: var(--type-xs);
   --text-sm: var(--type-sm);
@@ -111,5 +120,16 @@
 @layer base {
   .lucide {
     stroke-width: 1.75;
+  }
+
+  /* Browser surfaces in the palette's colours: selection, caret, thin scrollbars. */
+  ::selection {
+    background: var(--selection);
+    color: var(--on-selection);
+  }
+  html {
+    caret-color: var(--signal);
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--text-muted) 40%, transparent) transparent;
   }
 }

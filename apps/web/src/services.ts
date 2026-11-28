@@ -1,10 +1,17 @@
 /**
- * Builds the editor services for the web: the browser file adapter, the engine worker, the document
- * session and the page renderer. The only place that knows the app runs in a browser.
+ * Builds the editor services for the web: the browser file adapter, the engine worker, the
+ * workspace of open documents and the page renderer. The only place that knows the app runs in a
+ * browser.
  */
 import wasmUrl from "@embedpdf/pdfium/pdfium.wasm?url";
-import { createDocumentSession, EngineClient, PageRenderer, spawnEngineWorker } from "@pdf-editor/core";
-import { createWebFileAdapter } from "@pdf-editor/platform";
+import {
+  createDocumentSession,
+  createWorkspace,
+  EngineClient,
+  PageRenderer,
+  spawnEngineWorker,
+} from "@pdf-editor/core";
+import { createWebFileAdapter, createWebFontFileStore } from "@pdf-editor/platform";
 import type { EditorServices } from "@pdf-editor/ui";
 
 /**
@@ -17,7 +24,8 @@ export function createWebServices(): EditorServices {
   engine.call("init", { wasmUrl: new URL(wasmUrl, window.location.href).href });
   return {
     files: createWebFileAdapter(),
-    session: createDocumentSession(engine),
+    fontFiles: createWebFontFileStore(),
+    workspace: createWorkspace(() => createDocumentSession(engine)),
     renderer: new PageRenderer(engine),
   };
 }

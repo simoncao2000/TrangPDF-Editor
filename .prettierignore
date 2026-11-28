@@ -1,0 +1,5 @@
+dist
+node_modules
+bun.lock
+*.pdf
+e2e/results/

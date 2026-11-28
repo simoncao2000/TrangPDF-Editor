@@ -3,7 +3,8 @@
  * Reordering, rotating, deleting and merging only change this list; bytes are built when saving.
  */
 import type { OpenErrorKind, PageSize } from "@pdf-editor/shared";
-import type { DocId, Rotation } from "../engine/protocol";
+import type { DocId, PageAddress, PageGeometry, Rotation } from "../engine/protocol";
+import { pageSizeOf } from "../geometry/coordinates";
 
 export type SourceId = string;
 
@@ -14,8 +15,8 @@ export interface SourceDoc {
   readonly id: SourceId;
   readonly name: string;
   readonly pageCount: number;
-  /** Page sizes in points, the page's own rotation applied. */
-  readonly pageSizes: readonly PageSize[];
+  /** Each page's crop box and own rotation. */
+  readonly pages: readonly PageGeometry[];
   /** The engine's id for this file. */
   readonly docId: DocId;
 }
@@ -34,6 +35,12 @@ export interface PageRef {
 export interface DocumentContent {
   readonly sources: Readonly<Record<SourceId, SourceDoc>>;
   readonly pages: readonly PageRef[];
+  /**
+   * A token per page that changes whenever the page's annotations or form values change (PDFium
+   * holds those, architecture §6.1). Caches of a page's picture and annotations are keyed by it.
+   * Pages without an entry are at revision 0.
+   */
+  readonly annotationRevisions: Readonly<Record<string, number>>;
 }
 
 export interface DocumentState extends DocumentContent {
@@ -49,6 +56,8 @@ export interface DocumentState extends DocumentContent {
   /** Labels of the commands Undo and Redo would run; `null` when there is none. */
   readonly undoLabel: string | null;
   readonly redoLabel: string | null;
+  /** The newest edit the engine could not carry out; `serial` changes with every failure. */
+  readonly failedEdit: { readonly label: string; readonly serial: number } | null;
 }
 
 export const EMPTY_DOCUMENT: DocumentState = {
@@ -57,11 +66,16 @@ export const EMPTY_DOCUMENT: DocumentState = {
   fileId: null,
   sources: {},
   pages: [],
+  annotationRevisions: {},
   selection: [],
   error: null,
   undoLabel: null,
   redoLabel: null,
+  failedEdit: null,
 };
+
+/** Stand-in geometry for a page whose source is unknown. */
+const LETTER: PageGeometry = { cropBox: { x: 0, y: 0, width: 612, height: 792 }, rotation: 0 };
 
 /**
  * Size of a page as shown, after the page reference's extra rotation.
@@ -69,9 +83,46 @@ export const EMPTY_DOCUMENT: DocumentState = {
  * @param page A page in `content.pages`.
  * @returns Width and height in points.
  */
-export function displayedPageSize(content: DocumentContent, page: PageRef): PageSize {
-  const size = content.sources[page.source]?.pageSizes[page.sourceIndex] ?? { width: 612, height: 792 };
-  return page.rotation % 180 === 0 ? size : { width: size.height, height: size.width };
+export function displayedPageSize(content: Pick<DocumentContent, "sources">, page: PageRef): PageSize {
+  const geometry = content.sources[page.source]?.pages[page.sourceIndex] ?? LETTER;
+  return pageSizeOf(geometry, page.rotation);
+}
+
+/**
+ * A page's annotation revision.
+ * @param content Sources, pages and revisions.
+ * @param pageId A page id.
+ * @returns The revision token; 0 until the page's annotations are first edited.
+ */
+export function annotationRevisionOf(content: Pick<DocumentContent, "annotationRevisions">, pageId: string): number {
+  return content.annotationRevisions[pageId] ?? 0;
+}
+
+const pageIndexes = new WeakMap<readonly PageRef[], ReadonlyMap<string, PageRef>>();
+
+/**
+ * Indexes an immutable page list once, when the list changes.
+ * @param pages The document's current pages.
+ * @returns The pages by stable id.
+ */
+export function indexPages(pages: readonly PageRef[]): ReadonlyMap<string, PageRef> {
+  const cached = pageIndexes.get(pages);
+  if (cached) return cached;
+  const index = new Map(pages.map((page) => [page.id, page]));
+  pageIndexes.set(pages, index);
+  return index;
+}
+
+/**
+ * Where a page lives in the engine.
+ * @param content Sources and pages.
+ * @param pageId A page id.
+ * @returns Its engine document and page index, or `null` if the page or its source is unknown.
+ */
+export function pageAddressOf(content: DocumentContent, pageId: string): PageAddress | null {
+  const page = indexPages(content.pages).get(pageId);
+  const docId = page ? docIdOf(content, page) : null;
+  return page && docId ? { docId, pageIndex: page.sourceIndex } : null;
 }
 
 /**
@@ -80,6 +131,6 @@ export function displayedPageSize(content: DocumentContent, page: PageRef): Page
  * @param page A page in `content.pages`.
  * @returns Its docId, or `null` if the source is unknown.
  */
-export function docIdOf(content: DocumentContent, page: PageRef): DocId | null {
+export function docIdOf(content: Pick<DocumentContent, "sources">, page: PageRef): DocId | null {
   return content.sources[page.source]?.docId ?? null;
 }

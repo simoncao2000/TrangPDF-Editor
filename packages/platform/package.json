@@ -1,11 +1,11 @@
 {
-    "name": "@pdf-editor/platform",
-    "version": "0.0.0",
-    "private": true,
-    "type": "module",
-    "main": "./src/index.ts",
-    "types": "./src/index.ts",
-    "dependencies": {
-        "@pdf-editor/shared": "workspace:*"
-    }
+  "name": "@pdf-editor/platform",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "dependencies": {
+    "@pdf-editor/shared": "workspace:*"
+  }
 }

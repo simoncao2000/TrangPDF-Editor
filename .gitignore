@@ -4,6 +4,7 @@ node_modules
 # output
 out
 dist
+/storybook-static/
 *.tgz
 
 # code coverage
@@ -46,4 +47,20 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 # Working notes and guides (kept locally)
 /docs/
+
+# Product and design records (kept locally, like the design)
+/PRODUCT.md
+/DESIGN.md
 *.pdf
+!/test-corpus/*.pdf
+
+# Local tool files
+CLAUDE.md
+AGENTS.md
+.claude/
+.codex/
+.gemini/
+.impeccable/
+.taste-skill/
+graphify-out/
+e2e/results/

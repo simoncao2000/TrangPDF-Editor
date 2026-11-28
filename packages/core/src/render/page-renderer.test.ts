@@ -20,7 +20,17 @@ function fakeEngine() {
   return { engine, stats };
 }
 
-const request = { docId: "doc-1", pageIndex: 0, rotation: 0 as const, width: 100, height: 130, priority: 0 };
+const request = {
+  docId: "doc-1",
+  pageIndex: 0,
+  rotation: 0 as const,
+  hideEditable: false,
+  revision: 0,
+  width: 100,
+  height: 130,
+  priority: 0,
+};
+const image = { docId: "doc-1", pageIndex: 0, rotation: 0 as const, hideEditable: false };
 
 describe("PageRenderer", () => {
   it("serves a repeated request from the cache", async () => {
@@ -45,7 +55,7 @@ describe("PageRenderer", () => {
     const renderer = new PageRenderer(engine);
     await renderer.request({ ...request, width: 50, height: 65 }).promise;
     const big = await renderer.request(request).promise;
-    expect(renderer.bestCached("doc-1", 0, 0)).toBe(big);
+    expect(renderer.bestCached(image)).toBe(big);
   });
 
   it("forgets a closed document", async () => {
@@ -53,7 +63,7 @@ describe("PageRenderer", () => {
     const renderer = new PageRenderer(engine);
     await renderer.request(request).promise;
     renderer.forgetDocument("doc-1");
-    expect(renderer.bestCached("doc-1", 0, 0)).toBeUndefined();
+    expect(renderer.bestCached(image)).toBeUndefined();
   });
 
   it("starts a fresh render when a request arrives right after every waiter cancelled", async () => {
@@ -66,5 +76,31 @@ describe("PageRenderer", () => {
     await blocker.promise;
     await expect(second.promise).resolves.toBeDefined();
     expect(stats.renders).toBe(2);
+  });
+
+  it("renders again when the page's annotations change, and keeps the old picture as a stand-in", async () => {
+    const { engine, stats } = fakeEngine();
+    const renderer = new PageRenderer(engine);
+    const old = await renderer.request(request).promise;
+    await renderer.request({ ...request, revision: 7 }).promise;
+    expect(stats.renders).toBe(2);
+    expect(renderer.bestCached(image)).toBeDefined();
+    expect(old).toBeDefined();
+  });
+
+  it("keeps pictures with and without the editor's annotations apart, and tells the engine which", async () => {
+    const seen: (boolean | undefined)[] = [];
+    const { engine } = fakeEngine();
+    const spy: RenderEngine = {
+      call(method, params) {
+        seen.push((params as EngineParams<"renderPage">).hideEditable);
+        return engine.call(method, params);
+      },
+    };
+    const renderer = new PageRenderer(spy);
+    await renderer.request(request).promise;
+    await renderer.request({ ...request, hideEditable: true }).promise;
+    expect(seen).toEqual([false, true]);
+    expect(renderer.bestCached({ ...image, hideEditable: true })).toBeDefined();
   });
 });

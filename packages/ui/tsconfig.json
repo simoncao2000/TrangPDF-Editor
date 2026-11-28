@@ -1,6 +1,5 @@
 {
-    "extends": "../../tsconfig.base.json",
-    "include": [
-        "src"
-    ]
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "types": ["bun", "vite/client"] },
+  "include": ["src", "stories", "../core/src/engine/font-assets.d.ts"]
 }

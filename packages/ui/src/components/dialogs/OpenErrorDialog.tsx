@@ -24,7 +24,15 @@ export function OpenErrorDialog({ kind, fileName, onClose }: OpenErrorDialogProp
   return (
     <Dialog
       title={message.title}
-      description={fileName ? <><strong className="text-ink">{fileName}</strong>: {message.body}</> : message.body}
+      description={
+        fileName ? (
+          <>
+            <strong className="text-ink">{fileName}</strong>: {message.body}
+          </>
+        ) : (
+          message.body
+        )
+      }
       icon={TriangleAlert}
       tone="danger"
       onDismiss={onClose}

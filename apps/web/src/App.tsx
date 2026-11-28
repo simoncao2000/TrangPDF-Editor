@@ -1,7 +1,8 @@
-import { EditorApp, EditorProvider } from "@pdf-editor/ui";
+import { createBrowserHistory, EditorApp, EditorProvider, EditorRouter } from "@pdf-editor/ui";
 import { createWebServices } from "./services";
 
 const services = createWebServices();
+const history = createBrowserHistory();
 
 /**
  * The web shell: provides the browser services to the shared editor UI.
@@ -10,7 +11,9 @@ const services = createWebServices();
 export default function App() {
   return (
     <EditorProvider services={services}>
-      <EditorApp />
+      <EditorRouter history={history}>
+        <EditorApp />
+      </EditorRouter>
     </EditorProvider>
   );
 }

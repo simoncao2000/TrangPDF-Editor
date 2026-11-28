@@ -25,7 +25,8 @@ let nextId = 1;
 
 export const useToast = create<ToastState>((set, get) => ({
   toast: null,
-  show: (message, options = {}) => set({ toast: { id: nextId++, message, tone: options.tone ?? "neutral", action: options.action } }),
+  show: (message, options = {}) =>
+    set({ toast: { id: nextId++, message, tone: options.tone ?? "neutral", action: options.action } }),
   dismiss: (id) => {
     if (id === undefined || get().toast?.id === id) set({ toast: null });
   },

@@ -55,6 +55,7 @@ Most PDF tools ask you to upload a file before you can rotate a page. TrangPDF d
 - Open by picker, drag and drop anywhere on the window, or from the recent files list.
 - Smooth, virtualised scrolling that stays fast on documents with hundreds of pages.
 - Crisp rendering at any zoom: fit width, fit page, or 50% to 400% presets, sharp on high-density screens.
+- Pinch to zoom the page on touch screens, trackpad pinch or `Ctrl/⌘` + scroll on desktop, and double-tap to switch between fit width and 200% on phones. The interface never scales with it.
 - Page thumbnails, a page jump control, and the current page kept in view as you zoom.
 - Password-protected files open after you enter the password, and stay encrypted when saved.
 - Clear messages for damaged files, files that are not PDFs, and files over 500 MB.
@@ -106,16 +107,16 @@ The interface is a "sketchbook": quiet neutral surfaces, a single hand-lettered 
     <td><img src=".github/assets/design-signature-placed-wide-light.png" alt="A form filled in and signed" /></td>
   </tr>
   <tr>
-    <td align="center"><sub><b>Annotate</b>: highlight from a text selection (coming)</sub></td>
-    <td align="center"><sub><b>Fill and sign</b> (coming)</sub></td>
+    <td align="center"><sub><b>Annotate</b>: highlight from a text selection</sub></td>
+    <td align="center"><sub><b>Fill and sign</b></sub></td>
   </tr>
   <tr>
     <td><img src=".github/assets/design-form-fields-wide-dark.png" alt="Form fields panel" /></td>
     <td><img src=".github/assets/design-comments-wide-dark.png" alt="Adding a comment" /></td>
   </tr>
   <tr>
-    <td align="center"><sub><b>Forms</b> (coming)</sub></td>
-    <td align="center"><sub><b>Comments</b> (coming)</sub></td>
+    <td align="center"><sub><b>Forms</b></sub></td>
+    <td align="center"><sub><b>Comments</b></sub></td>
   </tr>
 </table>
 
@@ -128,32 +129,32 @@ The interface is a "sketchbook": quiet neutral surfaces, a single hand-lettered 
 </p>
 <p align="center"><sub>The narrow layout: reading, organising, and signing on a phone</sub></p>
 
-| | |
-| --- | --- |
+|              |                                                                                                                                                       |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Typeface** | [Playpen Sans](https://fonts.google.com/specimen/Playpen+Sans), a variable handwriting face with wide script coverage, self-hosted through Fontsource |
-| **Palette** | Neutral greys with ink-dark actions. Colour is kept for meaning, never decoration |
-| **Tokens** | Three layers: primitives → semantic roles → components, all CSS custom properties exposed to Tailwind |
-| **Themes** | Light and dark, chosen by the system or by hand, applied before first paint to avoid a flash |
-| **Icons** | [Lucide](https://lucide.dev), stroke icons matched to the hand-drawn weight |
-| **Motion** | Short and calm: under 300 ms except sheets and toasts, and off when reduced motion is requested |
+| **Palette**  | Neutral greys with ink-dark actions. Colour is kept for meaning, never decoration                                                                     |
+| **Tokens**   | Three layers: primitives → semantic roles → components, all CSS custom properties exposed to Tailwind                                                 |
+| **Themes**   | Light and dark, chosen by the system or by hand, applied before first paint to avoid a flash                                                          |
+| **Icons**    | [Lucide](https://lucide.dev), stroke icons matched to the hand-drawn weight                                                                           |
+| **Motion**   | Short and calm: under 300 ms except sheets and toasts, and off when reduced motion is requested                                                       |
 
 ## Tech stack
 
-| Area | Choice | Why |
-| --- | --- | --- |
-| Runtime and tooling | [Bun](https://bun.sh) workspaces | One fast tool for installs, scripts, tests and type checking |
-| UI | [React 19](https://react.dev) | Components, concurrent rendering, StrictMode safety |
-| Language | [TypeScript](https://www.typescriptlang.org), strict | Typed boundaries between every layer |
-| Build | [Vite 8](https://vite.dev) | Dev server with HMR, worker and WebAssembly bundling |
-| Styling | [Tailwind CSS 4](https://tailwindcss.com) | Utility classes generated from the design tokens |
-| PDF engine | [PDFium](https://pdfium.googlesource.com/pdfium/) via [`@embedpdf/pdfium`](https://www.embedpdf.com) | Rendering, page assembly, encryption, in WebAssembly |
-| Concurrency | Web Worker | The engine never blocks the interface |
-| State | [Zustand](https://zustand.docs.pmnd.rs) | A framework-free store in the core, React bindings in the UI |
-| Drag and drop | [dnd-kit](https://dndkit.com) | Accessible sorting by mouse, touch and keyboard |
-| Icons | [lucide-react](https://lucide.dev) | Consistent, tree-shaken SVG icons |
-| Font | [Playpen Sans](https://fontsource.org/fonts/playpen-sans) via Fontsource | Self-hosted, no font CDN |
-| Tests | `bun test` + [fast-check](https://fast-check.dev) | Unit tests and property-based tests |
-| Linting | [ESLint](https://eslint.org) with import boundaries | Keeps each layer from reaching into the wrong one |
+| Area                | Choice                                                                                               | Why                                                          |
+| ------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| Runtime and tooling | [Bun](https://bun.sh) workspaces                                                                     | One fast tool for installs, scripts, tests and type checking |
+| UI                  | [React 19](https://react.dev)                                                                        | Components, concurrent rendering, StrictMode safety          |
+| Language            | [TypeScript](https://www.typescriptlang.org), strict                                                 | Typed boundaries between every layer                         |
+| Build               | [Vite 8](https://vite.dev)                                                                           | Dev server with HMR, worker and WebAssembly bundling         |
+| Styling             | [Tailwind CSS 4](https://tailwindcss.com)                                                            | Utility classes generated from the design tokens             |
+| PDF engine          | [PDFium](https://pdfium.googlesource.com/pdfium/) via [`@embedpdf/pdfium`](https://www.embedpdf.com) | Rendering, page assembly, encryption, in WebAssembly         |
+| Concurrency         | Web Worker                                                                                           | The engine never blocks the interface                        |
+| State               | [Zustand](https://zustand.docs.pmnd.rs)                                                              | A framework-free store in the core, React bindings in the UI |
+| Drag and drop       | [dnd-kit](https://dndkit.com)                                                                        | Accessible sorting by mouse, touch and keyboard              |
+| Icons               | [lucide-react](https://lucide.dev)                                                                   | Consistent, tree-shaken SVG icons                            |
+| Font                | [Playpen Sans](https://fontsource.org/fonts/playpen-sans) via Fontsource                             | Self-hosted, no font CDN                                     |
+| Tests               | `bun test` + [fast-check](https://fast-check.dev)                                                    | Unit tests and property-based tests                          |
+| Linting             | [ESLint](https://eslint.org) with import boundaries                                                  | Keeps each layer from reaching into the wrong one            |
 
 ## Architecture
 
@@ -218,32 +219,42 @@ bun run dev
 
 Then open the address Vite prints, usually <http://localhost:5173>.
 
-| Script | What it does |
-| --- | --- |
-| `bun run dev` | Start the web app with hot reload |
-| `bun run build` | Build the web app for production |
-| `bun run typecheck` | Type check every package |
-| `bun run lint` | Lint, including the layer boundary rules |
-| `bun run test` | Run unit and property tests |
+| Script              | What it does                             |
+| ------------------- | ---------------------------------------- |
+| `bun run dev`       | Start the web app with hot reload        |
+| `bun run build`     | Build the web app for production         |
+| `bun run typecheck` | Type check every package                 |
+| `bun run lint`      | Lint, including the layer boundary rules |
+| `bun run test`      | Run unit and property tests              |
 
 > [!TIP]
 > Saving back to the same file needs the File System Access API (Chrome, Edge and other Chromium browsers). In other browsers, Save downloads a copy instead.
 
 ## Keyboard shortcuts
 
-| Action | macOS | Windows and Linux |
-| --- | --- | --- |
-| Open a file | `⌘ O` | `Ctrl O` |
-| Save | `⌘ S` | `Ctrl S` |
-| Save as | `⇧ ⌘ S` | `Ctrl Shift S` |
-| Undo | `⌘ Z` | `Ctrl Z` |
-| Redo | `⇧ ⌘ Z` | `Ctrl Y` or `Ctrl Shift Z` |
-| Select all pages | `⌘ A` | `Ctrl A` |
-| Delete selected pages | `Delete` or `⌫` | `Delete` or `Backspace` |
-| Pick up and drop a page | `M`, then arrows, then `M` or `Enter` | same |
-| Clear selection, or leave organise | `Esc` | `Esc` |
+| Action                             | macOS                                 | Windows and Linux          |
+| ---------------------------------- | ------------------------------------- | -------------------------- |
+| Open a file                        | `⌘ O`                                 | `Ctrl O`                   |
+| Save                               | `⌘ S`                                 | `Ctrl S`                   |
+| Save as                            | `⇧ ⌘ S`                               | `Ctrl Shift S`             |
+| Undo                               | `⌘ Z`                                 | `Ctrl Z`                   |
+| Redo                               | `⇧ ⌘ Z`                               | `Ctrl Y` or `Ctrl Shift Z` |
+| Select all pages                   | `⌘ A`                                 | `Ctrl A`                   |
+| Delete selected pages              | `Delete` or `⌫`                       | `Delete` or `Backspace`    |
+| Pick up and drop a page            | `M`, then arrows, then `M` or `Enter` | same                       |
+| Clear selection, or leave organise | `Esc`                                 | `Esc`                      |
+| Zoom the page                      | `⌘` + scroll, or pinch                | `Ctrl` + scroll, or pinch  |
 
 ## Testing
+
+Run `bun story` and open [Storybook](http://127.0.0.1:6006) to try UI components in isolation.
+If port 6006 is in use, run `bun story --port 6007`.
+Use the toolbar to switch themes and preview the desktop or mobile viewport.
+Place `*.stories.tsx` beside their components under `packages/ui/src/`. Shared fixtures live in `packages/ui/stories/`.
+
+Run `bun run build-storybook` to create a static preview in `storybook-static/`.
+Install Chromium once with `bunx playwright install chromium`, then run
+`bun run test-storybook` to check the catalog in a browser.
 
 ```bash
 bun run test
@@ -251,14 +262,45 @@ bun run test
 
 - **Unit tests** cover commands, history, selection, zoom maths, the render queue, the bitmap cache and file validation.
 - **Property tests** with fast-check run random sequences of edits and check that undoing all of them returns the exact starting document.
-- **Test corpus** in `test-corpus/` holds small PDFs for the awkward cases: encrypted, damaged, and files that only pretend to be PDFs.
+- **Test corpus** in `test-corpus/` holds a PDF for every feature and awkward case. That includes:
+  - fonts (standard, subset, CID Unicode and Type3), plus rotated and kerned text
+  - mixed page sizes, rotations and crop boxes
+  - every annotation kind and comment threads
+  - every form field type
+  - scans and images
+  - AES-256 and owner-only encryption
+  - incremental, broken and compressed file structure
+  - a 1,000-page file for performance
+
+  `test-corpus/README.md` lists each file, what it guards and any password. Regenerate the files with `python3 test-corpus/generate.py`, which needs `pypdf` and `reportlab`. `--huge` writes an over-500 MB file to the temp folder for the size-limit check. A corpus test fails when a file is missing, over its size budget or not listed.
 
 ## Roadmap
 
 - [x] **Phase 0: Setup.** Workspaces, engine running in a worker
 - [x] **Phase 1: Viewer.** Open, render, zoom, navigate, passwords, recent files
 - [x] **Phase 2: Page tools.** Reorder, rotate, delete, insert, extract, undo, save
-- [ ] **Phase 3: Annotations and forms.** Highlight, draw, shapes, text, images, signatures, form filling, flatten on export
+- [x] **Phase 3: Annotations, comments and forms**
+  - [x] Select text and choose Copy, Highlight or Comment
+  - [x] Edit the page's own text in place (click, retype, drag to move), add new page text
+  - [x] Several files open in tabs, command palette (search text, run commands, switch files), collapsible sidebars
+  - [x] Every markup is a comment, Acrobat style: threads with replies, a Comments panel grouped by page
+  - [x] Highlight, underline, strikethrough, squiggly, sticky notes, freehand drawing, rectangles, ellipses, lines and arrows, with colour and size properties and undo
+  - [x] Redesigned shell: menu bar (File, Edit, View, Tools, Pages), files in their own tab row, a tool palette you drag anywhere and turn flat or upright, tools visible at every width
+  - [x] Phone layout: file switcher and bottom bar
+  - [x] Phone tool bar with + menu
+  - [x] Insert images, draw and save signatures on the device, and flatten on export
+  - [x] Fill forms in place, track progress in the Fields tab, undo changes and check required fields before export
+  - [x] Phone top bar and bottom tabs with Comments and Fields sheets
+  - [x] Organize on the phone with a touch-and-hold page menu and Move to…
+  - [x] Typed signatures
+  - [x] Rich text: fonts, size, colour, bold, italic and underline on selected words, with fonts from the PDF, bundled fonts, the device and font files
+  - [x] Rich comments: bold, italic, underline and colour
+  - [x] Double-click to type: on a line to edit it with the caret where you clicked, on empty paper for a new text box
+  - [x] Move a line or text box by dragging its dashed frame, in Select and Edit text
+  - [x] Signature preview that follows the pointer before you place it
+  - [x] Phone tool cards that rise like the tool menus, shrink to a chip while you work and never hide the end of the page
+  - [x] Pinch, double-tap and trackpad zoom on the page only
+  - [x] Component catalogue in Storybook
 - [ ] **Phase 4: Desktop app.** Tauri 2, open PDFs from the system, save in place, auto-updates
 - [ ] **Phase 5: Mobile app.** Capacitor, share sheet, touch gestures, bottom sheets
 - [ ] **Phase 6: Sync and paid tier.** Accounts, document sync, OCR

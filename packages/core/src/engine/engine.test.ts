@@ -1,5 +1,6 @@
 /** End-to-end protocol tests: EngineClient → engine host → real PDFium, over an in-memory transport. */
 import { beforeAll, describe, expect, it } from "bun:test";
+import { pageSizeOf } from "../geometry/coordinates";
 import { corpusFile, createTestEngine, type FakeBitmap } from "../testing/fixtures";
 import { EngineCallError, type EngineClient } from "./engine-client";
 import type { EngineError } from "./protocol";
@@ -10,7 +11,10 @@ import type { EngineError } from "./protocol";
  * @returns The engine error it rejected with.
  */
 async function rejection(promise: Promise<unknown>): Promise<EngineError> {
-  const error = await promise.then(() => null, (e: unknown) => e);
+  const error = await promise.then(
+    () => null,
+    (e: unknown) => e,
+  );
   expect(error).toBeInstanceOf(EngineCallError);
   return (error as EngineCallError).detail;
 }
@@ -32,10 +36,15 @@ function openFailure(name: string, password?: string): Promise<EngineError> {
 }
 
 describe("engine protocol", () => {
-  it("opens a file and reports every page size, rotation applied", async () => {
+  it("opens a file and reports every page's crop box and own rotation", async () => {
     const opened = await engine.call("open", { source: { bytes: corpusFile("three-pages.pdf") } }).promise;
     expect(opened.pageCount).toBe(3);
-    expect(opened.pageSizes).toEqual([
+    expect(opened.pages).toEqual([
+      { cropBox: { x: 0, y: 0, width: 612, height: 792 }, rotation: 0 },
+      { cropBox: { x: 0, y: 0, width: 595, height: 842 }, rotation: 0 },
+      { cropBox: { x: 0, y: 0, width: 612, height: 792 }, rotation: 90 },
+    ]);
+    expect(opened.pages.map((page) => pageSizeOf(page))).toEqual([
       { width: 612, height: 792 },
       { width: 595, height: 842 },
       { width: 792, height: 612 },
@@ -60,7 +69,9 @@ describe("engine protocol", () => {
     expect(first.code).toBe("password-required");
     expect(first.lockedId).toBeTruthy();
 
-    const wrong = await rejection(engine.call("open", { source: { lockedId: first.lockedId! }, password: "nope" }).promise);
+    const wrong = await rejection(
+      engine.call("open", { source: { lockedId: first.lockedId! }, password: "nope" }).promise,
+    );
     expect(wrong.code).toBe("wrong-password");
 
     const opened = await engine.call("open", { source: { lockedId: first.lockedId! }, password: "harbour" }).promise;
@@ -88,7 +99,8 @@ describe("engine protocol", () => {
 
   it("renders a page turned by an extra rotation", async () => {
     const { docId } = await engine.call("open", { source: { bytes: corpusFile("three-pages.pdf") } }).promise;
-    const rendered = await engine.call("renderPage", { docId, pageIndex: 0, width: 129, height: 100, rotation: 90 }).promise;
+    const rendered = await engine.call("renderPage", { docId, pageIndex: 0, width: 129, height: 100, rotation: 90 })
+      .promise;
     const bitmap = rendered.bitmap as unknown as FakeBitmap;
     // Page 1 has its blue band at the bottom; turned clockwise the band is on the left.
     const leftMiddle = (50 * 129 + 20) * 4;
@@ -103,7 +115,8 @@ describe("assemble (save pipeline)", () => {
    * Opens a corpus file.
    * @returns Its docId.
    */
-  const openThreePages = async () => (await engine.call("open", { source: { bytes: corpusFile("three-pages.pdf") } }).promise).docId;
+  const openThreePages = async () =>
+    (await engine.call("open", { source: { bytes: corpusFile("three-pages.pdf") } }).promise).docId;
 
   /**
    * Reopens built bytes and reads their page sizes.
@@ -113,7 +126,7 @@ describe("assemble (save pipeline)", () => {
   const sizesOf = async (bytes: ArrayBuffer) => {
     const reopened = await engine.call("open", { source: { bytes } }).promise;
     await engine.call("close", { docId: reopened.docId }).promise;
-    return reopened.pageSizes.map(({ width, height }) => `${width}x${height}`);
+    return reopened.pages.map((page) => pageSizeOf(page)).map(({ width, height }) => `${width}x${height}`);
   };
 
   it("reorders, drops and rotates pages of one file", async () => {
@@ -142,19 +155,24 @@ describe("assemble (save pipeline)", () => {
   });
 
   it("keeps an encrypted file encrypted when building, and verifies it with its password", async () => {
-    const first = await rejection(engine.call("open", { source: { bytes: corpusFile("encrypted-harbour.pdf") } }).promise);
+    const first = await rejection(
+      engine.call("open", { source: { bytes: corpusFile("encrypted-harbour.pdf") } }).promise,
+    );
     const opened = await engine.call("open", { source: { lockedId: first.lockedId! }, password: "harbour" }).promise;
-    const { bytes } = await engine.call("assemble", { parts: [{ docId: opened.docId, pageIndex: 1, rotation: 0 }] }).promise;
+    const { bytes } = await engine.call("assemble", { parts: [{ docId: opened.docId, pageIndex: 1, rotation: 0 }] })
+      .promise;
     const locked = await rejection(engine.call("open", { source: { bytes } }).promise);
     expect(locked.code).toBe("password-required"); // still protected after saving
     const reopened = await engine.call("open", { source: { lockedId: locked.lockedId! }, password: "harbour" }).promise;
-    expect(reopened.pageSizes).toEqual([{ width: 595, height: 842 }]);
+    expect(reopened.pages.map((page) => pageSizeOf(page))).toEqual([{ width: 595, height: 842 }]);
   });
 
   it("refuses parts from a closed document", async () => {
     const a = await openThreePages();
     await engine.call("close", { docId: a }).promise;
-    const error = await rejection(engine.call("assemble", { parts: [{ docId: a, pageIndex: 0, rotation: 0 }] }).promise);
+    const error = await rejection(
+      engine.call("assemble", { parts: [{ docId: a, pageIndex: 0, rotation: 0 }] }).promise,
+    );
     expect(error.code).toBe("unknown-document");
   });
 });

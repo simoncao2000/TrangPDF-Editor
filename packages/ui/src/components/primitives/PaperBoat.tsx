@@ -9,7 +9,16 @@ interface PaperBoatProps {
  */
 export function PaperBoat({ className = "" }: PaperBoatProps) {
   return (
-    <svg className={`h-auto text-ink ${className}`} viewBox="0 0 134 78" fill="none" stroke="currentColor" strokeWidth={1.65} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg
+      className={`h-auto text-ink ${className}`}
+      viewBox="0 0 134 78"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.65}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
       <path d="M12 44l30 3 28-32 7 28 42-11-24 29-63 2zM12 44l41 11 66-23M42 47l11 8 17-40M77 43L53 55M32 63l23-6 40 4" />
       <path
         strokeWidth={0.95}

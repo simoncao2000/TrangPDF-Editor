@@ -4,14 +4,48 @@
  */
 export * from "./document/document-state";
 export * from "./document/document-session";
+export * from "./workspace/workspace";
 export * from "./document/commands";
 export * from "./document/selection";
+export * from "./annotations/annotation";
+export * from "./annotations/comment";
+export { nearestCommentInk } from "./annotations/comment-inks";
+export { isRichCommentTooLarge } from "./engine/comment-xhtml";
+export * from "./annotations/annotation-commands";
+export * from "./annotations/comment-commands";
+export * from "./forms/form-field";
+export * from "./forms/form-commands";
+export * from "./page-text/page-text";
+export * from "./page-text/page-text-commands";
 export { isDirty, type History } from "./document/history";
 export * from "./engine/protocol";
-export { EngineClient, EngineCallError, spawnEngineWorker, type EngineTransport, type EngineCall } from "./engine/engine-client";
+export {
+  EngineClient,
+  EngineCallError,
+  spawnEngineWorker,
+  type EngineTransport,
+  type EngineCall,
+} from "./engine/engine-client";
 export * from "./render/bitmap-cache";
 export * from "./render/render-queue";
-export { PageRenderer, type RenderRequest, type RenderTicket, type RenderEngine, type PageRendererOptions } from "./render/page-renderer";
+export {
+  PageRenderer,
+  type PageImage,
+  type RenderRequest,
+  type RenderTicket,
+  type RenderEngine,
+  type PageRendererOptions,
+} from "./render/page-renderer";
 export * from "./geometry/zoom";
 export * from "./geometry/page-layout";
+export * from "./geometry/coordinates";
 export { inspectPdfBytes } from "./validate";
+
+export {
+  canEmbedLocalFont,
+  canSubsetFont,
+  fontName,
+  MAX_FONT_BYTES,
+  missingFontCharacter,
+  validFontBytes,
+} from "./page-text/sfnt";

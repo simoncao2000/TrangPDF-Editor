@@ -43,7 +43,11 @@ export function undo(step: Step): Step {
   if (!command) return step;
   return {
     content: command.undo(step.content),
-    history: { ...step.history, undoStack: step.history.undoStack.slice(0, -1), redoStack: [...step.history.redoStack, command] },
+    history: {
+      ...step.history,
+      undoStack: step.history.undoStack.slice(0, -1),
+      redoStack: [...step.history.redoStack, command],
+    },
   };
 }
 
@@ -57,7 +61,11 @@ export function redo(step: Step): Step {
   if (!command) return step;
   return {
     content: command.apply(step.content),
-    history: { ...step.history, undoStack: [...step.history.undoStack, command], redoStack: step.history.redoStack.slice(0, -1) },
+    history: {
+      ...step.history,
+      undoStack: [...step.history.undoStack, command],
+      redoStack: step.history.redoStack.slice(0, -1),
+    },
   };
 }
 

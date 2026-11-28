@@ -1,10 +1,11 @@
 import { layoutPages, sizesAtWidth, visibleRange } from "@pdf-editor/core";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useDocument } from "../../editor/hooks";
 import { useElementSize } from "../../hooks/use-element-size";
 import { LayoutGrid } from "lucide-react";
+import { useViewMode } from "../../routing/hooks";
 import { useViewer } from "../../state/viewer-store";
 import { IconButton } from "../primitives/IconButton";
+import { PanelHeader } from "../primitives/PanelHeader";
 import { PageCanvas } from "./PageCanvas";
 import { usePageDrawInfo } from "./use-page-geometry";
 
@@ -23,10 +24,32 @@ export function ThumbnailRail() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const viewport = useElementSize(scrollRef);
   const [scrollTop, setScrollTop] = useState(0);
-  const { currentPage, goToPage, setMode } = useViewer();
-  const pageCount = useDocument((state) => state.pages.length);
+  const { currentPage, goToPage } = useViewer();
+  const { setMode } = useViewMode();
   const pages = usePageDrawInfo();
-  const layout = useMemo(() => layoutPages(sizesAtWidth(pages.map((page) => page.size), THUMB_WIDTH), { ...SPACING, extraHeight: CAPTION_HEIGHT }), [pages]);
+  const firstSource = pages[0]?.docId;
+  const [idleSource, setIdleSource] = useState<string>();
+  useEffect(() => {
+    if (!firstSource) return;
+    const ready = () => setIdleSource(firstSource);
+    if (typeof window.requestIdleCallback === "function") {
+      const idle = window.requestIdleCallback(ready, { timeout: 1000 });
+      return () => window.cancelIdleCallback(idle);
+    }
+    const timer = window.setTimeout(ready, 100);
+    return () => window.clearTimeout(timer);
+  }, [firstSource]);
+  const layout = useMemo(
+    () =>
+      layoutPages(
+        sizesAtWidth(
+          pages.map((page) => page.size),
+          THUMB_WIDTH,
+        ),
+        { ...SPACING, extraHeight: CAPTION_HEIGHT },
+      ),
+    [pages],
+  );
 
   // Keep the current page's thumbnail in view.
   useEffect(() => {
@@ -42,12 +65,17 @@ export function ThumbnailRail() {
   const mounted = range ? layout.boxes.slice(range.first, range.last + 1) : [];
 
   return (
-    <nav aria-label="Pages" className="grid min-h-0 grid-rows-[auto_1fr] border-r border-divider bg-rail">
-      <div className="flex items-center gap-2 pt-2 pr-2 pb-1 pl-4">
-        <h2 className="flex-1 font-hand text-[1.44rem] font-normal">{pageCount === 1 ? "Page" : "Pages"}</h2>
-        <IconButton icon={LayoutGrid} label="Organize pages" onClick={() => setMode("organize")} />
-      </div>
-      <div ref={scrollRef} onScroll={() => setScrollTop(scrollRef.current?.scrollTop ?? 0)} className="min-h-0 overflow-y-auto">
+    <nav aria-labelledby="pages-title" className="grid min-h-0 grid-rows-[auto_1fr] border-r border-divider bg-rail">
+      <PanelHeader
+        id="pages-title"
+        title="Pages"
+        actions={<IconButton icon={LayoutGrid} label="Organize pages" onClick={() => setMode("organize")} />}
+      />
+      <div
+        ref={scrollRef}
+        onScroll={() => setScrollTop(scrollRef.current?.scrollTop ?? 0)}
+        className="min-h-0 overflow-y-auto"
+      >
         <ol className="relative" style={{ height: layout.totalHeight }}>
           {mounted.map((box) => {
             const page = pages[box.index]!;
@@ -62,20 +90,21 @@ export function ThumbnailRail() {
                   aria-label={`Page ${box.index + 1}`}
                   className="group grid justify-items-center gap-1.5 rounded-sm transition-transform duration-(--duration-press) ease-out active:scale-(--press-scale)"
                 >
-                  <PageCanvas
-                    docId={page.docId}
-                    pageIndex={page.sourceIndex}
-                    rotation={page.rotation}
-                    width={THUMB_WIDTH}
-                    height={pageHeight}
-                    priority={THUMBNAIL_PRIORITY + Math.abs(box.index - currentPage)}
-                    className="border border-paper-line outline-offset-3 group-hover:shadow-2 group-aria-[current=page]:outline-2 group-aria-[current=page]:outline-signal"
-                  />
-                  { !isCurrent && 
-                    <span className="font-mono text-sm text-muted">
-                      {box.index + 1}
-                    </span> 
-                  }
+                  {idleSource === firstSource ? (
+                    <PageCanvas
+                      docId={page.docId}
+                      pageIndex={page.sourceIndex}
+                      rotation={page.rotation}
+                      revision={page.revision}
+                      width={THUMB_WIDTH}
+                      height={pageHeight}
+                      priority={THUMBNAIL_PRIORITY + Math.abs(box.index - currentPage)}
+                      className="border border-paper-line outline-offset-3 group-hover:shadow-2 group-aria-[current=page]:outline-2 group-aria-[current=page]:outline-signal"
+                    />
+                  ) : (
+                    <span aria-hidden="true" style={{ width: THUMB_WIDTH, height: pageHeight }} />
+                  )}
+                  {!isCurrent && <span className="font-mono text-sm text-muted">{box.index + 1}</span>}
                 </button>
               </li>
             );

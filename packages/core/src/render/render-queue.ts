@@ -104,7 +104,11 @@ export class RenderQueue {
       for (let i = 1; i < this.waiting.length; i++) {
         const candidate = this.waiting[i]!;
         const best = this.waiting[bestIndex]!;
-        if (candidate.priority < best.priority || (candidate.priority === best.priority && candidate.order < best.order)) bestIndex = i;
+        if (
+          candidate.priority < best.priority ||
+          (candidate.priority === best.priority && candidate.order < best.order)
+        )
+          bestIndex = i;
       }
       const [next] = this.waiting.splice(bestIndex, 1);
       next!.start();

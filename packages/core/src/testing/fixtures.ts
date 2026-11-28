@@ -48,8 +48,19 @@ export async function createTestEngine(): Promise<EngineClient> {
     loadWasm: async () => pdfiumWasm(),
     createEngine: (wasm) => PdfiumEngine.create(wasm),
     toBitmap: async ({ width, height, pixels }) =>
-      ({ width, height, pixels, closed: false, close() { this.closed = true; } }) satisfies FakeBitmap as unknown as ImageBitmap,
-    post: (response) => queueMicrotask(() => listeners.forEach((listener) => listener({ data: response } as MessageEvent<EngineResponse>))),
+      ({
+        width,
+        height,
+        pixels,
+        closed: false,
+        close() {
+          this.closed = true;
+        },
+      }) satisfies FakeBitmap as unknown as ImageBitmap,
+    post: (response) =>
+      queueMicrotask(() =>
+        listeners.forEach((listener) => listener({ data: response } as MessageEvent<EngineResponse>)),
+      ),
   });
   const transport: EngineTransport = {
     postMessage: (message: EngineRequest) => host.receive(structuredClone(message)),

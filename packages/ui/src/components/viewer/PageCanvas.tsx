@@ -1,4 +1,11 @@
-import { bitmapSize, EngineCallError, RenderCancelledError, type DocId, type RenderTicket, type Rotation } from "@pdf-editor/core";
+import {
+  bitmapSize,
+  EngineCallError,
+  RenderCancelledError,
+  type DocId,
+  type RenderTicket,
+  type Rotation,
+} from "@pdf-editor/core";
 import { useEffect, useRef, useState } from "react";
 import { useEditorServices } from "../../editor/hooks";
 
@@ -11,6 +18,10 @@ interface PageCanvasProps {
   readonly pageIndex: number;
   /** Extra clockwise rotation from the Rotate command. */
   readonly rotation: Rotation;
+  /** The page's annotation revision: a new one redraws the page. */
+  readonly revision: number;
+  /** Leave out the annotations the annotation layer draws on top (the main view only). */
+  readonly hideEditable?: boolean;
   /** On-screen size in CSS pixels (already turned for a quarter rotation). */
   readonly width: number;
   readonly height: number;
@@ -25,7 +36,9 @@ interface PageCanvasProps {
  * @returns Whether to ignore it.
  */
 function isCancellation(error: unknown): boolean {
-  return error instanceof RenderCancelledError || (error instanceof EngineCallError && error.detail.code === "cancelled");
+  return (
+    error instanceof RenderCancelledError || (error instanceof EngineCallError && error.detail.code === "cancelled")
+  );
 }
 
 /**
@@ -34,7 +47,17 @@ function isCancellation(error: unknown): boolean {
  * @param props Which page, its CSS size and its render priority.
  * @returns A `<canvas>` sized in CSS pixels.
  */
-export function PageCanvas({ docId, pageIndex, rotation, width, height, priority, className = "" }: PageCanvasProps) {
+export function PageCanvas({
+  docId,
+  pageIndex,
+  rotation,
+  revision,
+  hideEditable = false,
+  width,
+  height,
+  priority,
+  className = "",
+}: PageCanvasProps) {
   const { renderer } = useEditorServices();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const ticketRef = useRef<RenderTicket | null>(null);
@@ -62,10 +85,11 @@ export function PageCanvas({ docId, pageIndex, rotation, width, height, priority
       context.drawImage(bitmap, 0, 0);
     };
 
-    const placeholder = renderer.bestCached(docId, pageIndex, rotation);
+    const image = { docId, pageIndex, rotation, hideEditable };
+    const placeholder = renderer.bestCached(image);
     if (placeholder) draw(placeholder);
 
-    const ticket = renderer.request({ docId, pageIndex, rotation, width: settled.width, height: settled.height, priority });
+    const ticket = renderer.request({ ...image, revision, width: settled.width, height: settled.height, priority });
     ticketRef.current = ticket;
     ticket.promise.then(draw, (error: unknown) => {
       if (active && !isCancellation(error)) setFailedSize(`${settled.width}x${settled.height}`);
@@ -74,15 +98,18 @@ export function PageCanvas({ docId, pageIndex, rotation, width, height, priority
       active = false;
       ticket.cancel();
     };
-  }, [renderer, docId, pageIndex, rotation, settled.width, settled.height]); // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [renderer, docId, pageIndex, rotation, hideEditable, revision, settled.width, settled.height]);
 
   useEffect(() => ticketRef.current?.setPriority(priority), [priority]);
 
   return (
     <div className={`relative bg-paper ${className}`} style={{ width, height }}>
-      <canvas ref={canvasRef} className="block size-full" aria-hidden="true" />
+      <canvas ref={canvasRef} data-page-canvas="" className="block size-full" aria-hidden="true" />
       {failedSize === `${settled.width}x${settled.height}` && (
-        <p className="absolute inset-0 grid place-items-center p-4 text-center text-sm text-paper-muted">This page couldn’t be drawn.</p>
+        <p className="absolute inset-0 grid place-items-center p-4 text-center text-sm text-paper-muted">
+          This page couldn’t be drawn.
+        </p>
       )}
     </div>
   );

@@ -1,0 +1,45 @@
+%PDF-1.7
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Count 1 /Kids [3 0 R] >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [5 0 R 6 0 R 7 0 R] /Resources << /Font << /Helv 8 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<<  /Length 134 >>
+stream
+BT /Helv 14 Tf 50 730 Td (Text sample) Tj ET BT /Helv 14 Tf 50 680 Td (Text sample) Tj ET BT /Helv 14 Tf 50 630 Td (Text sample) Tj ET
+endstream
+endobj
+5 0 obj
+<< /Type /Annot /Subtype /Text /Rect [48 723 242 751] /T (Reviewer) /Contents (Review this page) /C [1 .55 0] /F 4 /RC (<body xmlns='http://www.w3.org/1999/xhtml'><p>Review <b>this page</b></p></body>) >>
+endobj
+6 0 obj
+<< /Type /Annot /Subtype /Text /Rect [48 673 242 701] /T (Reviewer) /Contents (First reply) /C [1 .55 0] /F 4 /IRT 5 0 R /RT /R >>
+endobj
+7 0 obj
+<< /Type /Annot /Subtype /Text /Rect [48 623 242 651] /T (Reviewer) /Contents (Nested reply) /C [1 .55 0] /F 4 /IRT 6 0 R /RT /R >>
+endobj
+8 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 9
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000277 00000 n 
+0000000463 00000 n 
+0000000683 00000 n 
+0000000829 00000 n 
+0000000976 00000 n 
+trailer
+<< /Size 9 /Root 1 0 R >>
+startxref
+1046
+%%EOF

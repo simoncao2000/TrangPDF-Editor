@@ -31,6 +31,12 @@ export interface RecentFile {
  * Knows nothing about PDFs. Share is added in Phase 5.
  */
 export interface FileAdapter {
+  /**
+   * Whether files can be written back where they came from and reopened later from the recent
+   * list. False in browsers without the File System Access API (Firefox, Safari): there, saving
+   * downloads a copy and recent files cannot be reopened.
+   */
+  readonly canSaveInPlace: boolean;
   /** Shows the platform's file picker. Resolves `null` when the user cancels. */
   open(): Promise<OpenedFile | null>;
   /** Reads the first PDF from a drag-and-drop payload. Resolves `null` when there is none. */

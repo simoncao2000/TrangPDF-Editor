@@ -11,7 +11,16 @@ import { EMPTY_HISTORY, execute, isDirty, markSaved, redo, undo, type Step } fro
  * @returns The source.
  */
 function source(id: string, count: number): SourceDoc {
-  return { id, name: `${id}.pdf`, pageCount: count, pageSizes: Array.from({ length: count }, () => ({ width: 612, height: 792 })), docId: `doc-${id}` };
+  return {
+    id,
+    name: `${id}.pdf`,
+    pageCount: count,
+    pages: Array.from({ length: count }, () => ({
+      cropBox: { x: 0, y: 0, width: 612, height: 792 },
+      rotation: 0 as const,
+    })),
+    docId: `doc-${id}`,
+  };
 }
 
 /**
@@ -21,7 +30,16 @@ function source(id: string, count: number): SourceDoc {
  */
 function content(count: number): DocumentContent {
   const a = source("a", count);
-  return { sources: { a }, pages: Array.from({ length: count }, (_, i) => ({ id: `a:${i}`, source: "a", sourceIndex: i, rotation: 0 as const })) };
+  return {
+    sources: { a },
+    pages: Array.from({ length: count }, (_, i) => ({
+      id: `a:${i}`,
+      source: "a",
+      sourceIndex: i,
+      rotation: 0 as const,
+    })),
+    annotationRevisions: {},
+  };
 }
 
 const ids = (c: DocumentContent) => c.pages.map((page) => page.id);
@@ -102,9 +120,20 @@ type Spec =
 /** Random command against the current content (the property test's alphabet). */
 const commandArbitrary = (count: number): fc.Arbitrary<Spec> =>
   fc.oneof(
-    fc.record({ kind: fc.constant("rotate" as const), picks: fc.array(fc.nat(count * 2), { minLength: 1, maxLength: 4 }), degrees: fc.constantFrom(90 as const, -90 as const, 180 as const) }),
-    fc.record({ kind: fc.constant("move" as const), picks: fc.array(fc.nat(count * 2), { minLength: 1, maxLength: 4 }), to: fc.nat(count * 2) }),
-    fc.record({ kind: fc.constant("delete" as const), picks: fc.array(fc.nat(count * 2), { minLength: 1, maxLength: 3 }) }),
+    fc.record({
+      kind: fc.constant("rotate" as const),
+      picks: fc.array(fc.nat(count * 2), { minLength: 1, maxLength: 4 }),
+      degrees: fc.constantFrom(90 as const, -90 as const, 180 as const),
+    }),
+    fc.record({
+      kind: fc.constant("move" as const),
+      picks: fc.array(fc.nat(count * 2), { minLength: 1, maxLength: 4 }),
+      to: fc.nat(count * 2),
+    }),
+    fc.record({
+      kind: fc.constant("delete" as const),
+      picks: fc.array(fc.nat(count * 2), { minLength: 1, maxLength: 3 }),
+    }),
     fc.record({ kind: fc.constant("insert" as const), size: fc.integer({ min: 1, max: 3 }), at: fc.nat(count * 2) }),
   );
 
@@ -116,7 +145,13 @@ const commandArbitrary = (count: number): fc.Arbitrary<Spec> =>
  * @returns The command.
  */
 function build(current: DocumentContent, spec: Spec, serial: number): Command {
-  const pick = (indexes: number[]) => [...new Set(indexes.map((i) => current.pages[i % Math.max(1, current.pages.length)]?.id).filter((id): id is string => Boolean(id)))];
+  const pick = (indexes: number[]) => [
+    ...new Set(
+      indexes
+        .map((i) => current.pages[i % Math.max(1, current.pages.length)]?.id)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
   switch (spec.kind) {
     case "rotate":
       return rotatePages(pick(spec.picks), spec.degrees);

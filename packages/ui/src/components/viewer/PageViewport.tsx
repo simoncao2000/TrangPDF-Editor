@@ -1,8 +1,16 @@
-import { currentPageIndex, visibleRange } from "@pdf-editor/core";
+import { currentPageIndex, pageFrame, pdfRectToScreen, visibleRange } from "@pdf-editor/core";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useElementSize } from "../../hooks/use-element-size";
+import { useAnnotationUi } from "../../state/annotation-store";
 import { useViewer } from "../../state/viewer-store";
+import { AnnotationLayer } from "../annotations/AnnotationLayer";
+import { FormLayer } from "../forms/FormLayer";
+import { PageTextLayer } from "../page-text/PageTextLayer";
+import { useAnnotationShortcuts } from "../annotations/use-annotation-shortcuts";
+import { phoneBottomPadding } from "../shell/phone-surface";
 import { PageCanvas } from "./PageCanvas";
+import { SearchHighlight } from "./SearchHighlight";
+import { usePinchZoom } from "./use-pinch-zoom";
 import { usePageGeometry } from "./use-page-geometry";
 
 interface PageViewportProps {
@@ -22,6 +30,9 @@ export function PageViewport({ narrow }: PageViewportProps) {
   const { zoomMode, currentPage, scrollRequest, reportZoom, reportCurrentPage } = useViewer();
   const spacing = useMemo(() => (narrow ? { gap: 12, padding: 8 } : { gap: 24, padding: 24 }), [narrow]);
   const { pages, zoom, layout } = usePageGeometry(zoomMode, viewport, spacing, currentPage);
+  const selectAnnotation = useAnnotationUi((state) => state.select);
+  const clearSearchHit = useViewer((state) => state.showSearchHit);
+  useAnnotationShortcuts(true);
 
   useEffect(() => reportZoom(zoom), [zoom, reportZoom]);
 
@@ -38,12 +49,26 @@ export function PageViewport({ narrow }: PageViewportProps) {
       if (box) element.scrollTop = box.top + previous.fraction * box.height - viewport.height * 0.4;
     }
     const box = layout.boxes[current];
-    anchor.current = box ? { page: current, fraction: (scrollTop + viewport.height * 0.4 - box.top) / box.height, zoom } : null;
+    anchor.current = box
+      ? { page: current, fraction: (scrollTop + viewport.height * 0.4 - box.top) / box.height, zoom }
+      : null;
   }, [zoom, layout, current, scrollTop, viewport.height]);
 
   useEffect(() => {
     const box = scrollRequest ? layout.boxes[scrollRequest.page] : undefined;
-    if (box) scrollRef.current?.scrollTo({ top: box.top - spacing.padding });
+    const element = scrollRef.current;
+    if (!box || !element) return;
+    const hit = useViewer.getState().searchHit;
+    const page = pages[box.index];
+    const rect = hit?.rects[0];
+    if (narrow && page && hit?.pageId === page.id && rect) {
+      const target = pdfRectToScreen(rect, pageFrame(page.sourceGeometry, page.rotation, zoom));
+      const inset = parseFloat(getComputedStyle(element).scrollPaddingBottom) || 0;
+      const visible = Math.max(0, element.clientHeight - inset);
+      element.scrollTo({ top: box.top + target.top - Math.max(0, (visible - target.height) / 2) });
+    } else {
+      element.scrollTo({ top: box.top - spacing.padding });
+    }
   }, [scrollRequest]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // One state update per frame while scrolling.
@@ -55,22 +80,73 @@ export function PageViewport({ narrow }: PageViewportProps) {
 
   const range = visibleRange(layout, scrollTop, viewport.height, 1);
   const contentWidth = Math.max(viewport.width, layout.maxWidth + spacing.padding * 2);
+  const { stackRef, doubleTap } = usePinchZoom(scrollRef, { layout, contentWidth, zoom });
   const mounted = range ? layout.boxes.slice(range.first, range.last + 1) : [];
 
   return (
-    <div ref={scrollRef} onScroll={onScroll} tabIndex={0} aria-label="Document pages" className="relative min-h-0 overflow-auto bg-canvas outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-inset">
-      <div className="relative" style={{ height: layout.totalHeight, width: contentWidth }}>
+    <div
+      data-document-pages=""
+      ref={scrollRef}
+      onScroll={onScroll}
+      style={narrow ? { scrollPaddingBottom: phoneBottomPadding(spacing.padding) } : undefined}
+      onFocusCapture={(event) => {
+        const target = event.target;
+        if (narrow && target.matches("input, textarea, select, button, [contenteditable=true]")) {
+          requestAnimationFrame(() => {
+            if (document.activeElement === target) target.scrollIntoView({ block: "nearest", inline: "nearest" });
+          });
+        }
+      }}
+      onPointerDownCapture={(event) => {
+        if (narrow && event.isPrimary) {
+          window.dispatchEvent(new CustomEvent("phone-page-gesture", { detail: event.nativeEvent }));
+        }
+      }}
+      // A press anywhere but on an annotation lets go of the selected one.
+      onPointerDown={(event) => {
+        clearSearchHit(null);
+        if (!(event.target as Element).closest("[data-annotation]")) selectAnnotation(null);
+      }}
+      tabIndex={0}
+      aria-label="Document pages"
+      className="relative min-h-0 [touch-action:pan-x_pan-y] overflow-auto bg-canvas outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-inset"
+    >
+      <div
+        ref={stackRef}
+        className="relative origin-top-left"
+        style={{ height: narrow ? phoneBottomPadding(layout.totalHeight) : layout.totalHeight, width: contentWidth }}
+      >
         {mounted.map((box) => {
           const page = pages[box.index]!;
           return (
             <div
               key={page.id}
-              role="img"
+              role="group"
+              data-page=""
               aria-label={`Page ${box.index + 1}`}
               className="absolute border border-paper-line"
               style={{ top: box.top, left: Math.max(spacing.padding, (contentWidth - box.width) / 2) }}
             >
-              <PageCanvas docId={page.docId} pageIndex={page.sourceIndex} rotation={page.rotation} width={box.width} height={box.height} priority={Math.abs(box.index - current)} />
+              <PageCanvas
+                docId={page.docId}
+                pageIndex={page.sourceIndex}
+                rotation={page.rotation}
+                revision={page.revision}
+                hideEditable
+                width={box.width}
+                height={box.height}
+                priority={Math.abs(box.index - current)}
+              />
+              <SearchHighlight page={page} zoom={zoom} width={box.width} height={box.height} />
+              <PageTextLayer
+                onEmptyDoubleTap={doubleTap}
+                page={page}
+                zoom={zoom}
+                width={box.width}
+                height={box.height}
+              />
+              <FormLayer page={page} zoom={zoom} width={box.width} height={box.height} />
+              <AnnotationLayer page={page} zoom={zoom} width={box.width} height={box.height} />
             </div>
           );
         })}

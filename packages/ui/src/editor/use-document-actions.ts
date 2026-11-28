@@ -2,7 +2,7 @@
  * Every edit and save the UI offers, in one place: runs the command through the session, confirms it
  * with a toast (with Undo), and gets save targets from the FileAdapter at click time.
  */
-import { deletePages, insertPages, movePages, pagesLabel, rotatePages } from "@pdf-editor/core";
+import { EngineCallError, deletePages, insertPages, movePages, pagesLabel, rotatePages } from "@pdf-editor/core";
 import type { SaveTarget } from "@pdf-editor/shared";
 import { useCallback, useMemo } from "react";
 import { useToast } from "../state/toast-store";
@@ -11,6 +11,14 @@ import { useEditorServices } from "./hooks";
 import { useLeaveGuard } from "./leave-guard";
 
 /** A file chosen for insertion, opened and waiting for a position. */
+/** How a copy is exported. */
+export interface ExportOptions {
+  /** The file name to suggest; built from the pages when left out. */
+  readonly name?: string;
+  /** Draw annotations and form fields into the pages, so they can no longer be edited. */
+  readonly flatten?: boolean;
+}
+
 export interface PagesToInsert {
   readonly name: string;
   readonly pageCount: number;
@@ -28,14 +36,20 @@ export interface DocumentActions {
   move(pageIds: readonly string[], toIndex: number): void;
   /** Picks a PDF and opens it as a source; resolves its page count, or `null` if nothing was added. */
   pickPagesToInsert(): Promise<PagesToInsert | null>;
-  /** Saves the selected pages as a new file. */
-  extract(pageIds: readonly string[]): Promise<void>;
+  /**
+   * Saves pages as a new file.
+   * @param pageIds The pages, in document order.
+   * @param options The file's suggested name, and whether to flatten annotations into the pages.
+   */
+  extract(pageIds: readonly string[], options?: ExportOptions): Promise<void>;
   /** Saves in place when possible, otherwise asks where. Resolves true when saved. */
   save(): Promise<boolean>;
   /** Always asks where to save. Resolves true when saved. */
   saveAs(): Promise<boolean>;
   /** Runs `action` now, or after the user decides about unsaved changes. */
   guardUnsaved(action: () => void): void;
+  /** Closes a tab (the one in front by default), asking about its unsaved changes first. */
+  closeTab(tabId?: string): void;
 }
 
 /**
@@ -43,7 +57,7 @@ export interface DocumentActions {
  * @returns Stable action functions.
  */
 export function useDocumentActions(): DocumentActions {
-  const { session, files } = useEditorServices();
+  const { session, files, workspace } = useEditorServices();
   const show = useToast((state) => state.show);
   const ask = useLeaveGuard((state) => state.ask);
 
@@ -71,7 +85,10 @@ export function useDocumentActions(): DocumentActions {
     [session],
   );
 
-  const confirm = useCallback((message: string) => show(message, { action: { label: "Undo", run: () => session.undo() } }), [session, show]);
+  const confirm = useCallback(
+    (message: string) => show(message, { action: { label: "Undo", run: () => session.undo() } }),
+    [session, show],
+  );
 
   const writeWith = useCallback(
     async (getTarget: () => Promise<SaveTarget | null>) => {
@@ -85,8 +102,10 @@ export function useDocumentActions(): DocumentActions {
       if (!target) return false;
       const result = await session.save((bytes) => target.write(bytes));
       if (result.saved) show(`Saved ${result.file.name}`);
-      else if (result.reason === "build-failed") show("The PDF couldn’t be built, so nothing was written. Your changes are still open.", { tone: "error" });
-      else if (result.reason === "write-failed") show("Couldn’t write the file. Your changes are still open; try Save as.", { tone: "error" });
+      else if (result.reason === "build-failed")
+        show("The PDF couldn’t be built, so nothing was written. Your changes are still open.", { tone: "error" });
+      else if (result.reason === "write-failed")
+        show("Couldn’t write the file. Your changes are still open; try Save as.", { tone: "error" });
       return result.saved;
     },
     [session, show],
@@ -125,7 +144,10 @@ export function useDocumentActions(): DocumentActions {
         if (!file) return null;
         const imported = await session.importSource(file);
         if (!imported.ok) {
-          const reason = imported.error === "password-required" ? "it has a password. Remove the password and try again" : "it isn’t a PDF that can be read";
+          const reason =
+            imported.error === "password-required"
+              ? "it has a password. Remove the password and try again"
+              : "it isn’t a PDF that can be read";
           show(`Couldn’t insert ${file.name}: ${reason}.`, { tone: "error" });
           return null;
         }
@@ -140,9 +162,11 @@ export function useDocumentActions(): DocumentActions {
           cancel: () => void session.releaseSource(source),
         };
       },
-      async extract(pageIds) {
+      async extract(pageIds, options = {}) {
         const numbers = numbersOf(pageIds);
-        const name = `${baseName(session.store.getState().fileName ?? "Document")} (${describePages(numbers)}).pdf`;
+        const name =
+          options.name ??
+          `${baseName(session.store.getState().fileName ?? "Document")} (${describePages(numbers)}).pdf`;
         let target;
         try {
           target = await files.pickSaveTarget(name);
@@ -151,10 +175,14 @@ export function useDocumentActions(): DocumentActions {
         }
         if (!target) return;
         try {
-          const saved = await target.write(await session.buildPdf(pageIds));
+          const saved = await target.write(await session.buildPdf(pageIds, { flatten: options.flatten }));
           show(`Saved ${saved.name}`);
-        } catch {
-          show("Couldn’t save the extracted pages.", { tone: "error" });
+        } catch (error) {
+          const message =
+            error instanceof EngineCallError && error.detail.code === "flatten-failed"
+              ? "Couldn’t flatten this PDF. The copy was not saved."
+              : "Couldn’t save the extracted pages.";
+          show(message, { tone: "error" });
         }
       },
       save,
@@ -163,7 +191,17 @@ export function useDocumentActions(): DocumentActions {
         if (session.store.getState().status === "dirty") ask(action);
         else action();
       },
+      closeTab(tabId) {
+        const id = tabId ?? workspace.store.getState().activeId;
+        const tab = workspace.store.getState().tabs.find((candidate) => candidate.id === id);
+        if (!tab) return;
+        const close = () => void workspace.close(tab.id);
+        if (tab.session.store.getState().status !== "dirty") return close();
+        // The unsaved-changes dialog works on the tab in front, so bring this one forward first.
+        workspace.activate(tab.id);
+        ask(close);
+      },
     }),
-    [undoNow, redoNow, session, confirm, numbersOf, files, show, save, saveAs, ask],
+    [undoNow, redoNow, session, workspace, confirm, numbersOf, files, show, save, saveAs, ask],
   );
 }
