@@ -74,6 +74,8 @@ interface PageTextEditorProps {
   readonly pageId: string;
   readonly revision: number;
   readonly clickPoint?: ScreenPoint;
+  /** @param commit Completion of font registration and draft dispatch. @returns Nothing. */
+  onPendingCommit?(commit: Promise<void>): void;
   /** @param runs The edited line, or null on cancel. @returns Nothing. */
   onDone(runs: readonly TextRun[] | null, offset?: { x: number; y: number }): void;
 }
@@ -210,6 +212,7 @@ function Draft({
   pageId,
   revision,
   clickPoint,
+  onPendingCommit,
   onDone,
   source,
   defaults,
@@ -308,10 +311,11 @@ function Draft({
       }
       const changed = runs.filter((run) => !source.some((old) => old.text === run.text && sameRunStyle(old, run)));
       if (changed.length) {
-        void registerEditFonts(session, pageId, changed).then(() => onDone(runs, movement.offsetRef.current));
+        const commit = registerEditFonts(session, pageId, changed).then(() => onDone(runs, movement.offsetRef.current));
+        onPendingCommit?.(commit);
       } else onDone(runs, movement.offsetRef.current);
     },
-    [defaults, editor, movement.offsetRef, onDone, pageId, session, source],
+    [defaults, editor, movement.offsetRef, onDone, onPendingCommit, pageId, session, source],
   );
 
   useEffect(() => {

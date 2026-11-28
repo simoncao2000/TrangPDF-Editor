@@ -85,6 +85,7 @@ export function PageViewport({ narrow }: PageViewportProps) {
 
   return (
     <div
+      data-document-pages=""
       ref={scrollRef}
       onScroll={onScroll}
       style={narrow ? { scrollPaddingBottom: phoneBottomPadding(spacing.padding) } : undefined}

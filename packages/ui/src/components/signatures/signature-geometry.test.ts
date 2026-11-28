@@ -1,5 +1,6 @@
+import { pdfToScreen, type PageFrame } from "@pdf-editor/core";
 import { describe, expect, it } from "bun:test";
-import { placeSignature, signatureFrom } from "./signature-geometry";
+import { acceptsDrop, placeSignature, signatureBounds, signatureFrom, startedDrag } from "./signature-geometry";
 
 describe("signatures", () => {
   it("keeps a drawing's shape, cropped to its ink and one unit wide", () => {
@@ -38,5 +39,29 @@ describe("signatures", () => {
       ],
     ]);
     expect(ink.rect).toEqual({ x: 99, y: 424, width: 152, height: 77 });
+  });
+});
+
+describe("signature drops", () => {
+  it("centres the ink in PDF space at every rotation and zoom", () => {
+    for (const rotation of [0, 90, 180, 270] as const) {
+      for (const zoom of [0.5, 2]) {
+        const frame: PageFrame = { rotation, zoom, cropBox: { x: 10, y: 20, width: 500, height: 700 } };
+        const point = pdfToScreen({ x: 220, y: 370 }, frame);
+        expect(signatureBounds(point, frame, 0.5, 1)).toEqual({ x: 140, y: 330, width: 160, height: 80 });
+      }
+    }
+  });
+  it("fits a narrow page and clamps the stroke inside its crop box", () => {
+    const frame: PageFrame = { rotation: 90, zoom: 1, cropBox: { x: 10, y: 20, width: 100, height: 200 } };
+    const point = pdfToScreen({ x: 110, y: 220 }, frame);
+    expect(signatureBounds(point, frame, 0.5, 1)).toEqual({ x: 11, y: 170, width: 98, height: 49 });
+  });
+  it("uses six CSS pixels of movement and discards cancelled or off-page drops", () => {
+    expect(startedDrag({ x: 3, y: 4 }, { x: 6, y: 8 })).toBe(false);
+    expect(startedDrag({ x: 3, y: 4 }, { x: 9, y: 4 })).toBe(true);
+    expect(acceptsDrop(true, true)).toBe(false);
+    expect(acceptsDrop(false, false)).toBe(false);
+    expect(acceptsDrop(false, true)).toBe(true);
   });
 });

@@ -4,6 +4,9 @@ import { clampFrameMove, pointerDelta } from "./frame-move";
 
 const ZERO = { x: 0, y: 0 };
 
+/** Inset the move outline enough to keep its hit band outside the edited text. */
+const FRAME_OUTLINE_INSET = 2;
+
 /** @returns A marker for the outline, its live translation, and its translation at commit time. */
 export function useFrameMove() {
   const marker = useRef<HTMLSpanElement>(null);
@@ -109,6 +112,13 @@ export function useFrameMove() {
       window.removeEventListener("keydown", escape, true);
     };
   }, []);
-  const edges = <span ref={marker} aria-hidden="true" className="pointer-events-none absolute -inset-0.5" />;
+  const edges = (
+    <span
+      ref={marker}
+      aria-hidden="true"
+      className="pointer-events-none absolute"
+      style={{ inset: FRAME_OUTLINE_INSET }}
+    />
+  );
   return { offset, offsetRef, edges };
 }

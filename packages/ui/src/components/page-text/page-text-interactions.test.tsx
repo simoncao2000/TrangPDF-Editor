@@ -4,10 +4,11 @@ import { corpusFile, createTestEngine } from "../../../../core/src/testing/fixtu
 import type { PointerEvent } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { DrawingSurface } from "../annotations/DrawingSurface";
-import { openTextHit, pageHit } from "./page-hit";
+import { commitPageDraft } from "./draft-commands";
+import { isEditClick, openTextHit, pageHit } from "./page-hit";
 import { useAnnotationUi } from "../../state/annotation-store";
 import { EditorContext, type EditorContextValue } from "../../editor/context";
-import { onLineEdge, useTextDrag, type TextDrag } from "./use-text-drag";
+import { useTextDrag, type TextDrag } from "./use-text-drag";
 
 /** @returns The fixture page and a session with real hit testing and undo. */
 async function openPage() {
@@ -16,31 +17,48 @@ async function openPage() {
   return { session, page: session.store.getState().pages[0]!.id };
 }
 
-test("Select double-click opens the hit line for editing and inserts on empty paper", async () => {
+test("only a stationary click or short touch tap edits", () => {
+  expect(isEditClick("mouse", 3, 800, false)).toBe(true);
+  expect(isEditClick("mouse", 4, 80, false)).toBe(false);
+  expect(isEditClick("mouse", 0, 80, true)).toBe(false);
+  expect(isEditClick("touch", 1, 100, false)).toBe(true);
+  expect(isEditClick("touch", 1, 500, false)).toBe(false);
+  expect(isEditClick("touch", 5, 100, false)).toBe(false);
+});
+
+test("switching lines opens the clicked line after the current edit commits", async () => {
   const { session, page } = await openPage();
   const edit = mock();
   const insert = mock();
-  const hit = await pageHit(session, page, { x: 100, y: 708 });
-  openTextHit(hit, edit, insert);
+  const first = { x: 100, y: 708 };
+  const hit = await pageHit(session, page, first);
+  if (!hit || hit === "occupied") throw new Error("Missing first line");
+  openTextHit(hit, "line", edit, insert);
   expect(edit).toHaveBeenCalledWith(hit);
+  const pendingCommit = Promise.resolve().then(() =>
+    commitPageDraft(session, page, hit, { runs: [{ ...hit.runs![0]!, text: "Changed line" }], delta: { x: 0, y: 0 } }),
+  );
+  const second = await pageHit(session, page, { x: 100, y: 680 }, { tool: "select", pendingCommit });
+  if (!second || second === "occupied") throw new Error("Missing second line");
+  openTextHit(second, "line", edit, insert);
+  expect(edit).toHaveBeenLastCalledWith(second);
+  expect((await session.textObjectAt(page, first))?.text).toBe("Changed line");
+  openTextHit(second, "paper", edit, insert);
+  openTextHit("occupied", "line", edit, insert);
+  openTextHit(null, "line", edit, insert);
   expect(insert).not.toHaveBeenCalled();
-  const secondLine = await session.textObjectAt(page, { x: 100, y: 680 });
-  if (secondLine) openTextHit(secondLine, edit, insert);
-  expect(edit).toHaveBeenLastCalledWith(secondLine);
-  openTextHit(await pageHit(session, page, { x: 10, y: 10 }), edit, insert);
+  openTextHit(null, "paper", edit, insert);
   expect(insert).toHaveBeenCalledTimes(1);
   expect(edit).toHaveBeenCalledTimes(2);
 });
 
-test("only the edge starts a line drag and undo restores its position", async () => {
+test("dragging an Edit text frame moves the line and undo restores its position", async () => {
   const { session, page } = await openPage();
   const from = { x: 100, y: 708 };
   const object = (await session.textObjectAt(page, from))!;
   const frame: PageFrame = { cropBox: { x: 0, y: 0, width: 612, height: 792 }, zoom: 1, rotation: 0 };
   const box = pdfRectToScreen(object.bounds, frame);
   const center = { x: box.left + box.width / 2, y: box.top + box.height / 2 };
-  expect(onLineEdge(box, center)).toBe(false);
-  expect(onLineEdge(box, { ...center, x: box.left - 5 })).toBe(true);
   let drag!: TextDrag;
   /** @returns An empty render that initializes the pointer handlers. */
   function Harness() {

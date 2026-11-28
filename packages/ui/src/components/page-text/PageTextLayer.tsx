@@ -1,4 +1,5 @@
-import { openTextHit, pageHit } from "./page-hit";
+import { TEXT_FRAME_CLASS, TEXT_FRAME_DASH } from "../text-format/frame-edge";
+import { isEditClick, openTextHit, pageHit } from "./page-hit";
 import { commitPageDraft } from "./draft-commands";
 import { shouldZoomTap } from "../viewer/use-pinch-zoom";
 import {
@@ -20,7 +21,7 @@ import { DraggedText } from "./DraggedText";
 import { PageTextEditor } from "./PageTextEditor";
 import { SelectedText } from "./SelectedText";
 import { useSelectText } from "./use-select-text";
-import { onLineEdge, useTextDrag } from "./use-text-drag";
+import { useTextDrag } from "./use-text-drag";
 
 const NewTextEditor = lazy(async () => ({ default: (await import("../annotations/NewTextEditor")).NewTextEditor }));
 
@@ -38,8 +39,6 @@ const OUTLINE_GAP = 2;
 /** Arrow keys move text this far, in screen pixels (Shift: ten times). */
 const NUDGE = 1;
 const NUDGE_FAR = 10;
-/** Shared outline styling for every text line frame. */
-const TEXT_FRAME_CLASS = "fill-none stroke-paper-focus";
 const ARROWS: Record<string, readonly [number, number]> = {
   ArrowLeft: [-1, 0],
   ArrowRight: [1, 0],
@@ -48,7 +47,7 @@ const ARROWS: Record<string, readonly [number, number]> = {
 };
 
 /**
- * The page's own text, made editable. With Select, double-click a line to edit it. With Edit text,
+ * The page's own text, made editable. With Select, click a line to edit it. With Edit text,
  * every piece of text is outlined: click to change it, drag (or use the arrow keys) to move it.
  * Sits under the annotation layer, which only catches presses on annotations.
  * @param props The page, the zoom and the page's on-screen size.
@@ -61,11 +60,12 @@ export function PageTextLayer({ page, zoom, width, height, onEmptyDoubleTap }: P
     () => pageFrame(page.sourceGeometry, page.rotation, zoom),
     [page.sourceGeometry, page.rotation, zoom],
   );
-  const objects = usePageTextObjects(page.id, page.revision, tool === "editText" || tool === "select");
+  const objects = usePageTextObjects(page.id, page.revision, tool === "editText");
   const [editing, setEditing] = useState<PageTextObject | null>(null);
   const [editPoint, setEditPoint] = useState<ScreenPoint | undefined>();
 
   const [at, setAt] = useState<{ x: number; y: number } | null>(null);
+  const pendingCommit = useRef<Promise<void> | undefined>(undefined);
   const request = useRef(0);
   const move = (object: PageTextObject, dx: number, dy: number) =>
     session.dispatch((content) => movePageText(content, page.id, object, { dx, dy }));
@@ -79,27 +79,13 @@ export function PageTextLayer({ page, zoom, width, height, onEmptyDoubleTap }: P
         }
       : undefined,
   );
-  const [hovered, setHovered] = useState<PageTextObject | null>(null);
-  const boxes = useMemo(
-    () => objects.map((object) => ({ object, box: pdfRectToScreen(object.bounds, frame) })),
-    [objects, frame],
-  );
-  const outline = boxes.find(({ object }) => object === hovered)?.box;
-
-  /** @param event The pointer on the Select surface. @returns The line whose edge is under the mouse. */
-  function edgeAt(event: PointerEvent<SVGRectElement>) {
-    if (event.pointerType !== "mouse") return null;
-    const rect = event.currentTarget.getBoundingClientRect();
-    const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
-    return boxes.find(({ box }) => onLineEdge(box, point))?.object ?? null;
-  }
   const selectText = useSelectText(page.id, frame);
   // The page's fresh text (read after a move, as the page redraws) replaces the drag preview.
   const { clear } = drag;
   useEffect(clear, [objects, clear]);
 
   const touchPointer = useRef(false);
-  const touchStart = useRef<ScreenPoint | null>(null);
+  const press = useRef<{ at: ScreenPoint; time: number; id: number } | null>(null);
   const lastTap = useRef<{ at: ScreenPoint; time: number } | null>(null);
   useEffect(() => {
     /** @returns Nothing. */
@@ -111,28 +97,38 @@ export function PageTextLayer({ page, zoom, width, height, onEmptyDoubleTap }: P
       invalidate();
       document.removeEventListener("pointerdown", invalidate, true);
     };
-  }, [page.id, page.revision, tool, frame]);
+  }, [page.id, tool, frame]);
 
   /**
    * @param at The on-page screen position.
    * Touch edits a text line and zooms empty paper. Desktop double-click inserts on empty paper.
-   * @param touch Whether the Select gesture was a touch double-tap.
+   * @param gesture The action requested by the pointer gesture.
    * @param clickPoint Client coordinates for the caret or zoom anchor.
    * @param outline The outlined line that received the double-click.
    * @returns Completion of the hit test.
    */
-  const editAt = async (at: ScreenPoint, touch = false, clickPoint?: ScreenPoint, outline?: PageTextObject) => {
+  const editAt = async (
+    at: ScreenPoint,
+    gesture: "click" | "double" | "zoom",
+    clickPoint?: ScreenPoint,
+    outline?: PageTextObject,
+  ) => {
     const point = screenToPdf(at, frame);
     const ticket = ++request.current;
-    const found = await pageHit(session, page.id, point, { tool, outline }).catch(() => undefined);
+    const found = await pageHit(session, page.id, point, {
+      tool,
+      outline,
+      pendingCommit: pendingCommit.current,
+    }).catch(() => undefined);
     const activeTool = useAnnotationUi.getState().tool;
     if (ticket !== request.current || activeTool !== tool) return;
-    if (shouldZoomTap(touch, found) && clickPoint) {
+    if (shouldZoomTap(gesture === "zoom", found) && clickPoint) {
       onEmptyDoubleTap?.(clickPoint);
       return;
     }
     openTextHit(
       found,
+      tool === "editText" ? "either" : gesture === "click" ? "line" : "paper",
       (object) => {
         setEditPoint(clickPoint);
         setEditing(object);
@@ -146,33 +142,35 @@ export function PageTextLayer({ page, zoom, width, height, onEmptyDoubleTap }: P
     const object = editing;
     setEditing((current) => (current === object ? null : current));
     const delta = screenDeltaToPdf(offset ?? { x: 0, y: 0 }, frame);
-    if (object) commitPageDraft(session, page.id, object, { runs, delta });
+    if (object) {
+      commitPageDraft(session, page.id, object, { runs, delta });
+      pendingCommit.current = session.settled();
+    }
   };
 
   /** @param event The released Select pointer. @returns Nothing. */
   function release(event: PointerEvent<SVGRectElement>) {
-    selectText.onPointerUp(event);
-    const start = touchStart.current;
-    touchStart.current = null;
-    if (
-      !start ||
-      !event.isPrimary ||
-      event.pointerType !== "touch" ||
-      Math.hypot(event.clientX - start.x, event.clientY - start.y) > 8
-    ) {
+    const selected = selectText.onPointerUp(event);
+    const start = press.current;
+    press.current = null;
+    if (!start || start.id !== event.pointerId || selected === undefined) return;
+    const point = { x: event.clientX, y: event.clientY };
+    const distance = Math.hypot(point.x - start.at.x, point.y - start.at.y);
+    if (!isEditClick(event.pointerType, distance, event.timeStamp - start.time, selected)) {
       lastTap.current = null;
       return;
     }
-    const previous = lastTap.current;
-    const now = event.timeStamp;
-    lastTap.current = { at: start, time: now };
-    if (!previous || now - previous.time > 300 || Math.hypot(start.x - previous.at.x, start.y - previous.at.y) > 16) {
-      return;
-    }
-    lastTap.current = null;
     const box = event.currentTarget.getBoundingClientRect();
-    const clickPoint = { x: event.clientX, y: event.clientY };
-    void editAt({ x: clickPoint.x - box.left, y: clickPoint.y - box.top }, true, clickPoint);
+    const at = { x: point.x - box.left, y: point.y - box.top };
+    const previous = lastTap.current;
+    const touch = event.pointerType === "touch";
+    const twice =
+      touch &&
+      previous &&
+      event.timeStamp - previous.time <= 300 &&
+      Math.hypot(point.x - previous.at.x, point.y - previous.at.y) <= 16;
+    lastTap.current = touch && !twice ? { at: point, time: event.timeStamp } : null;
+    void editAt(at, twice ? "zoom" : "click", point);
   }
 
   const onKeyDown = (event: KeyboardEvent<SVGElement>, object: PageTextObject) => {
@@ -201,19 +199,16 @@ export function PageTextLayer({ page, zoom, width, height, onEmptyDoubleTap }: P
             y={0}
             width={width}
             height={height}
+            role={tool === "select" ? "group" : undefined}
+            aria-label={tool === "select" ? "Page text" : undefined}
+            aria-description={tool === "select" ? "Click to edit, drag to select" : undefined}
             fill="transparent"
-            className={
-              tool === "select"
-                ? outline
-                  ? "pointer-events-auto cursor-move"
-                  : "pointer-events-auto cursor-text"
-                : "pointer-events-auto cursor-text"
-            }
+            className="pointer-events-auto cursor-text"
             onDoubleClick={(event) => {
               if (touchPointer.current) return;
               if (event.target !== event.currentTarget) return;
               const rect = event.currentTarget.getBoundingClientRect();
-              void editAt({ x: event.clientX - rect.left, y: event.clientY - rect.top }, false, {
+              void editAt({ x: event.clientX - rect.left, y: event.clientY - rect.top }, "double", {
                 x: event.clientX,
                 y: event.clientY,
               });
@@ -222,44 +217,20 @@ export function PageTextLayer({ page, zoom, width, height, onEmptyDoubleTap }: P
             onPointerDown={(event) => {
               if (tool !== "select") return;
               touchPointer.current = event.pointerType === "touch";
-              const edge = edgeAt(event);
-              if (edge) {
-                drag.onPointerDown(event, edge);
-                return;
-              }
-              touchStart.current = event.pointerType === "touch" ? { x: event.clientX, y: event.clientY } : null;
+              press.current = {
+                at: { x: event.clientX, y: event.clientY },
+                time: event.timeStamp,
+                id: event.pointerId,
+              };
               selectText.onPointerDown(event);
             }}
-            onPointerMove={(event) => {
+            onPointerUp={tool === "select" ? release : undefined}
+            onPointerCancel={() => {
               if (tool !== "select") return;
-              if (!event.buttons) setHovered(edgeAt(event));
-              drag.onPointerMove(event);
-              selectText.onPointerMove(event);
-            }}
-            onPointerLeave={() => setHovered(null)}
-            onPointerUp={(event) => {
-              if (tool !== "select") return;
-              drag.onPointerUp(event);
-              release(event);
-            }}
-            onPointerCancel={(event) => {
-              if (tool !== "select") return;
-              drag.onPointerCancel(event);
               lastTap.current = null;
-              touchStart.current = null;
+              press.current = null;
               selectText.onPointerCancel();
             }}
-          />
-        )}
-        {tool === "select" && outline && !drag.moving && !editing && (
-          <rect
-            x={outline.left}
-            y={outline.top}
-            width={outline.width}
-            height={outline.height}
-            className={`pointer-events-none ${TEXT_FRAME_CLASS}`}
-            strokeWidth={1}
-            strokeDasharray="4 3"
           />
         )}
         {tool === "editText" &&
@@ -280,14 +251,14 @@ export function PageTextLayer({ page, zoom, width, height, onEmptyDoubleTap }: P
                 rx={2}
                 className={`pointer-events-auto cursor-text touch-none ${TEXT_FRAME_CLASS} stroke-paper-focus/35 transition-[fill,stroke] duration-(--duration-press) outline-none hover:fill-paper-focus/8 hover:stroke-paper-focus focus-visible:stroke-paper-focus active:cursor-grabbing ${hidden === object.id ? "invisible" : ""}`}
                 strokeWidth={1}
-                strokeDasharray="4 3"
+                strokeDasharray={TEXT_FRAME_DASH}
                 onDoubleClick={(event) => {
                   event.stopPropagation();
                   const rect = event.currentTarget.ownerSVGElement?.getBoundingClientRect();
                   if (rect) {
                     void editAt(
                       { x: event.clientX - rect.left, y: event.clientY - rect.top },
-                      false,
+                      "double",
                       {
                         x: event.clientX,
                         y: event.clientY,
@@ -322,6 +293,9 @@ export function PageTextLayer({ page, zoom, width, height, onEmptyDoubleTap }: P
           revision={page.revision}
           clickPoint={editPoint}
           frame={frame}
+          onPendingCommit={(commit) => {
+            pendingCommit.current = commit;
+          }}
           onDone={finish}
         />
       )}

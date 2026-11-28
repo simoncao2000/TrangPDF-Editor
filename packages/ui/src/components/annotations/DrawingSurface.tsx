@@ -1,3 +1,4 @@
+import { TEXT_FRAME_CLASS, TEXT_FRAME_DASH } from "../text-format/frame-edge";
 import {
   boundsOf,
   CSS_PIXELS_PER_POINT,
@@ -12,23 +13,17 @@ import {
   type TextMarkupKind,
 } from "@pdf-editor/core";
 import type { PdfPoint, PdfRect } from "@pdf-editor/shared";
-import { useLayoutEffect, useRef, useState, type PointerEvent, type RefObject } from "react";
+import { useRef, useState, type PointerEvent } from "react";
 import { useEditorServices } from "../../editor/hooks";
 import { useAnnotationUi, type DrawingTool, type ToolStyle } from "../../state/annotation-store";
 import { cssColor } from "./annotation-display";
 import { AnnotationShape } from "./AnnotationShape";
 import { CLICK_SLOP, extendStroke, rectBetween, shouldDiscardGesture } from "./drawing-geometry";
 import { useImageTool } from "../../state/image-store";
-import { useToast } from "../../state/toast-store";
-import { useSignatures, type SignatureState, type TypedSignature } from "../../state/signature-store";
-import { pagePointer, trackSignature } from "./signature-hover";
-import { placeSignature } from "../signatures/signature-geometry";
-import { renderTypedSignature } from "../signatures/typed-signature";
+import { signaturePages } from "../signatures/signature-pages";
 
 /** A sticky note's size on the page, in points. */
 const NOTE_SIZE = 24;
-/** A placed signature's width, in points (about 5.6 cm); drag its corners to resize it. */
-const SIGNATURE_WIDTH = 160;
 /** The widest a picture starts when placed with a click, in points. */
 const IMAGE_MAX_WIDTH = 300;
 /** Room around a line for its round caps and arrowhead, as a multiple of its width. */
@@ -84,7 +79,7 @@ const CURSORS: Record<DrawingTool, string> = {
   line: "cursor-crosshair",
   arrow: "cursor-crosshair",
   textBox: "cursor-text",
-  sign: "cursor-copy",
+  sign: "cursor-default",
   image: "cursor-crosshair",
 };
 
@@ -107,9 +102,9 @@ export function DrawingSurface({ pageId, tool, style, frame, width, height, onCr
   const latestPoint = useRef<PdfPoint | null>(null);
   const scale = frame.zoom * CSS_PIXELS_PER_POINT;
 
-  const surface = useRef<SVGRectElement>(null);
   const pointOf = (event: PointerEvent<SVGRectElement>): ScreenPoint => {
-    return pagePointer(event, event.currentTarget);
+    const box = event.currentTarget.getBoundingClientRect();
+    return { x: event.clientX - box.left, y: event.clientY - box.top };
   };
 
   const previewText = (from: PdfPoint): void => {
@@ -176,17 +171,6 @@ export function DrawingSurface({ pageId, tool, style, frame, width, height, onCr
       useAnnotationUi.getState().select({ pageId, id });
       return;
     }
-    if (tool === "sign" && finished.kind === "drag") {
-      const surface = event.currentTarget;
-      const placement = signAt(screenToPdf(finished.start, frame), style);
-      const signed = placement instanceof Promise ? await placement : placement;
-      if (!surface.isConnected || useAnnotationUi.getState().tool !== "sign") return;
-      if (!signed) return;
-      onCreate({ ...signed, id });
-      useAnnotationUi.getState().setTool("select");
-      useAnnotationUi.getState().select({ pageId, id });
-      return;
-    }
     if (tool === "note" && finished.kind === "drag") {
       const at = screenToPdf(finished.start, frame);
       onCreate({ ...noteAt(at), id, color: style.color, opacity: style.opacity });
@@ -199,6 +183,35 @@ export function DrawingSurface({ pageId, tool, style, frame, width, height, onCr
     if (made) onCreate({ ...made, id } as EditableAnnotation);
   };
 
+  if (tool === "sign") {
+    return (
+      <>
+        <rect
+          width={width}
+          height={height}
+          fill="transparent"
+          className="peer pointer-events-auto cursor-default"
+          data-signature-page=""
+          ref={(node) => {
+            if (!node) return;
+            signaturePages.set(node, { pageId, frame, onCreate });
+            return () => {
+              signaturePages.delete(node);
+            };
+          }}
+        />
+        <rect
+          x={1}
+          y={1}
+          width={Math.max(0, width - 2)}
+          height={Math.max(0, height - 2)}
+          className={`pointer-events-none hidden peer-data-[drop]:block ${TEXT_FRAME_CLASS}`}
+          strokeDasharray={TEXT_FRAME_DASH}
+          strokeOpacity={0.7}
+        />
+      </>
+    );
+  }
   const preview = draft ? previewOf(draft, tool, style, frame) : null;
   return (
     <>
@@ -207,7 +220,6 @@ export function DrawingSurface({ pageId, tool, style, frame, width, height, onCr
         <DragBox start={draft.start} end={draft.end} color={cssColor(style.color)} width={style.lineWidth * scale} />
       )}
       <rect
-        ref={surface}
         x={0}
         y={0}
         width={width}
@@ -220,7 +232,6 @@ export function DrawingSurface({ pageId, tool, style, frame, width, height, onCr
         onPointerUp={(event) => void onPointerUp(event)}
         onPointerCancel={() => setDraft(null)}
       />
-      {tool === "sign" && <SignatureCursor surface={surface} frame={frame} style={style} />}
     </>
   );
 }
@@ -256,118 +267,6 @@ function imageFrom(draft: Extract<Draft, { kind: "drag" }>, frame: PageFrame): E
  */
 function placedImage(rect: PdfRect, image: ImageFile): ImageAnnotation {
   return { kind: "image", id: "", rect, color: { r: 0, g: 0, b: 0 }, opacity: 1, image };
-}
-
-/** @param state Signature library and temporary selection. @returns The signature ready to place. */
-function chosenSignature(state: SignatureState) {
-  return state.temporary ?? state.signatures.find((candidate) => candidate.id === state.currentId);
-}
-
-const renderedSignatures = new WeakMap<
-  TypedSignature,
-  {
-    color: string;
-    rendering: ReturnType<typeof renderTypedSignature>;
-  }
->();
-
-/**
- * Shares the rasterized ink across visible pages and placement.
- * @param signature The typed signature to render.
- * @param color The current Sign tool colour.
- * @returns The rendered PNG and its aspect ratio.
- */
-function signatureImage(signature: TypedSignature, color: string) {
-  const cached = renderedSignatures.get(signature);
-  if (cached?.color === color) return cached.rendering;
-  const rendering = renderTypedSignature(signature, color).catch((error: unknown) => {
-    if (renderedSignatures.get(signature)?.rendering === rendering) renderedSignatures.delete(signature);
-    throw error;
-  });
-  renderedSignatures.set(signature, { color, rendering });
-  return rendering;
-}
-
-interface SignatureCursorProps {
-  surface: RefObject<SVGRectElement | null>;
-  frame: PageFrame;
-  style: ToolStyle;
-}
-
-/** @param props Page geometry and ink style. @returns The chosen signature's pointer preview. */
-function SignatureCursor({ surface, frame, style }: SignatureCursorProps) {
-  const signature = useSignatures(chosenSignature);
-  const hover = useRef<ScreenPoint | null>(null);
-  const group = useRef<SVGGElement>(null);
-  const color = cssColor(style.color);
-  const [image, setImage] = useState<{ signature: TypedSignature; color: string; url: string; aspect: number }>();
-  useLayoutEffect(() => {
-    if (signature?.kind !== "typed") return;
-    let active = true;
-    let url: string | undefined;
-    void signatureImage(signature, color)
-      .then(({ bytes, aspect }) => {
-        if (!active) return;
-        url = URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
-        setImage({ signature, color, url, aspect });
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-      if (url) URL.revokeObjectURL(url);
-    };
-  }, [signature, color]);
-  const ready = signature?.kind === "drawn" || (image && image.signature === signature && image.color === color);
-  useLayoutEffect(() => {
-    if (surface.current) return trackSignature(surface.current, ready ? group.current : null, hover);
-  }, [surface, ready]);
-  if (!signature || !ready) return null;
-  const width = SIGNATURE_WIDTH * frame.zoom * CSS_PIXELS_PER_POINT;
-  return (
-    <g ref={group} visibility="hidden" opacity={0.6} pointerEvents="none" aria-hidden="true">
-      {signature.kind === "drawn" ? (
-        <AnnotationShape
-          annotation={placeSignature(signature, screenToPdf({ x: 0, y: 0 }, frame), {
-            color: style.color,
-            lineWidth: style.lineWidth,
-            width: SIGNATURE_WIDTH,
-          })}
-          frame={frame}
-        />
-      ) : (
-        image && (
-          <image href={image.url} width={width} height={width * image.aspect} transform={`rotate(${frame.rotation})`} />
-        )
-      )}
-    </g>
-  );
-}
-
-/**
- * The chosen signature placed at a point, or the drawing pad opened when there is none yet.
- * @param at Where its top-left corner goes, in PDF space.
- * @param style The Sign tool's style.
- * @returns The drawn ink or pending typed image, or null when the pad is opened.
- */
-function signAt(at: PdfPoint, style: ToolStyle): EditableAnnotation | Promise<EditableAnnotation | null> | null {
-  const signature = chosenSignature(useSignatures.getState());
-  if (!signature) {
-    useSignatures.getState().setDrawing(true);
-    return null;
-  }
-  if (signature.kind === "typed") {
-    return signatureImage(signature, cssColor(style.color))
-      .then(({ bytes, aspect }) => {
-        const height = SIGNATURE_WIDTH * aspect;
-        const rect = { x: at.x, y: at.y - height, width: SIGNATURE_WIDTH, height };
-        return placedImage(rect, { bytes, format: "png" });
-      })
-      .catch(() => {
-        useToast.getState().show("Could not render the signature. Try another name or style.", { tone: "error" });
-        return null;
-      });
-  }
-  return placeSignature(signature, at, { color: style.color, lineWidth: style.lineWidth, width: SIGNATURE_WIDTH });
 }
 
 /**

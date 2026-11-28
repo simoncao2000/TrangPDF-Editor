@@ -1,3 +1,4 @@
+import { useSignatureDrag } from "../signatures/signature-pages";
 import { annotationRevisionOf } from "@pdf-editor/core";
 import { ChevronDown, ChevronUp, Plus } from "lucide-react";
 import { useCallback, useEffect, useId, useLayoutEffect, useReducer, useRef, useState } from "react";
@@ -125,6 +126,7 @@ interface PhoneToolBarProps {
  * @returns The toolbar and its dismissible page scrim.
  */
 function PhoneToolBar({ editable, recent, showTray, onPick, onRecent }: PhoneToolBarProps) {
+  const draggingSignature = useSignatureDrag((state) => state.dragging);
   const tool = useAnnotationUi((state) => state.tool);
   const lastMarkup = useAnnotationUi((state) => state.lastMarkup);
   const lastShape = useAnnotationUi((state) => state.lastShape);
@@ -224,7 +226,7 @@ function PhoneToolBar({ editable, recent, showTray, onPick, onRecent }: PhoneToo
       observer.disconnect();
       host.style.removeProperty("--phone-chrome-bottom");
     };
-  }, [surface, card, phoneSurface.trayCollapsed]);
+  }, [surface, card, phoneSurface.trayCollapsed, draggingSignature]);
 
   useEffect(() => {
     /** @param y Pointer position in viewport pixels. @returns Whether it overlaps the dock vertically. */
@@ -369,7 +371,7 @@ function PhoneToolBar({ editable, recent, showTray, onPick, onRecent }: PhoneToo
     : "pointer-events-none opacity-0 duration-(--duration-exit)";
   return (
     <>
-      {surface === "tray" && phoneSurface.trayCollapsed && (
+      {surface === "tray" && (phoneSurface.trayCollapsed || draggingSignature) && (
         <button
           ref={chipRef}
           type="button"
@@ -400,6 +402,8 @@ function PhoneToolBar({ editable, recent, showTray, onPick, onRecent }: PhoneToo
       )}
       {surface === "tray" && !phoneSurface.trayCollapsed && (
         <section
+          hidden={draggingSignature}
+          style={draggingSignature ? { display: "none" } : undefined}
           ref={trayRef}
           key={card}
           aria-labelledby={trayTitleId}

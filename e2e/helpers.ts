@@ -189,16 +189,24 @@ export async function sign(page: Page, touch: boolean) {
   const x = box.x + box.width * 0.5;
   // Desktop: bottom of the page, clear of the form fields. Phone: upper page, clear of the floating tool card.
   const y = box.y + box.height * (touch ? 0.3 : 0.9);
-  /** @returns After a placement gesture at the chosen signature position. */
-  const place = () => (touch ? page.touchscreen.tap(x, y) : page.mouse.click(x, y));
   const create = page.getByRole("button", { name: "New signature" });
-  if (await create.isVisible()) await create.click();
-  else await place();
+  await create.filter({ visible: true }).first().click();
   await dialog.getByText("Type", { exact: true }).click();
   await dialog.getByLabel("Your name").fill("Ada Harbour");
   await dialog.getByRole("button", { name: "Use signature" }).click();
   await expect(dialog).toBeHidden();
-  await place();
+  const tile = page.getByRole("button", { name: "Use signature: Ada Harbour" }).filter({ visible: true }).first();
+  if (touch) {
+    // A tap on the tile places the signature in the middle of the visible page.
+    await tile.tap();
+  } else {
+    // Drag the tile from the Sign panel and drop it where the signature should go.
+    const from = await bounds(tile);
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(x, y, { steps: 12 });
+    await page.mouse.up();
+  }
   await expect(page.locator('[data-page] [data-annotation][aria-label="Image"]')).toHaveCount(1);
 }
 
