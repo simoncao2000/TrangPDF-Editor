@@ -10,6 +10,8 @@ import {
   type ScreenRect,
 } from "@pdf-editor/core";
 
+import type { DrawingTool } from "../../state/annotation-store";
+
 /** Ink points closer than this to the previous one are dropped, in CSS pixels. */
 export const MIN_STROKE_STEP = 1.5;
 /** Line height of new text, as a multiple of the font size (the editor uses the same). */
@@ -32,6 +34,17 @@ export function hasGestureTravel(points: readonly ScreenPoint[]): boolean {
   if (points.length < 2) return false;
   const first = points[0]!;
   return points.some((point) => Math.hypot(point.x - first.x, point.y - first.y) >= MIN_GESTURE_TRAVEL);
+}
+
+/** Decides whether a stroke or drag is too short for the active tool.
+ * @param tool The active drawing tool.
+ * @param points Screen positions recorded during the gesture.
+ * @returns True when a drag-drawn tool received less than its minimum travel.
+ */
+export function shouldDiscardGesture(tool: DrawingTool, points: readonly ScreenPoint[]): boolean {
+  const requiresTravel =
+    tool === "ink" || tool === "line" || tool === "arrow" || tool === "square" || tool === "circle";
+  return requiresTravel && !hasGestureTravel(points);
 }
 
 /**

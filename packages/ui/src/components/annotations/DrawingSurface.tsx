@@ -17,14 +17,13 @@ import { useEditorServices } from "../../editor/hooks";
 import { useAnnotationUi, type DrawingTool, type ToolStyle } from "../../state/annotation-store";
 import { cssColor } from "./annotation-display";
 import { AnnotationShape } from "./AnnotationShape";
-import { CLICK_SLOP, extendStroke, rectBetween } from "./drawing-geometry";
+import { CLICK_SLOP, extendStroke, rectBetween, shouldDiscardGesture } from "./drawing-geometry";
 import { useImageTool } from "../../state/image-store";
 import { useToast } from "../../state/toast-store";
 import { useSignatures, type SignatureState, type TypedSignature } from "../../state/signature-store";
 import { pagePointer, trackSignature } from "./signature-hover";
 import { placeSignature } from "../signatures/signature-geometry";
 import { renderTypedSignature } from "../signatures/typed-signature";
-import { hasGestureTravel } from "./drawing-geometry";
 
 /** A sticky note's size on the page, in points. */
 const NOTE_SIZE = 24;
@@ -154,8 +153,8 @@ export function DrawingSurface({ pageId, tool, style, frame, width, height, onCr
     const finished = draft;
     setDraft(null);
     if (!finished) return;
-    if (finished.kind === "stroke" && !hasGestureTravel(finished.points)) return;
-    if (finished.kind === "drag" && !hasGestureTravel([finished.start, finished.end])) return;
+    if (finished.kind === "stroke" && shouldDiscardGesture(tool, finished.points)) return;
+    if (finished.kind === "drag" && shouldDiscardGesture(tool, [finished.start, finished.end])) return;
     const id = crypto.randomUUID();
     if (finished.kind === "text" && isTextTool(tool)) {
       latestPoint.current = null;
