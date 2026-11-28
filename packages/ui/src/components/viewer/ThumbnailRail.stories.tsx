@@ -11,7 +11,9 @@ export const Default: Story = {
   /** @param args The component props. @returns The component in the routed editor. */
   render: (args) => (
     <EditorFixture sample="text" path="/">
-      <ThumbnailRail {...args} />
+      <div style={{ height: 360, display: "grid" }}>
+        <ThumbnailRail {...args} />
+      </div>
     </EditorFixture>
   ),
 };

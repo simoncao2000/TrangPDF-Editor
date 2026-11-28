@@ -27,6 +27,18 @@ export function ThumbnailRail() {
   const { currentPage, goToPage } = useViewer();
   const { setMode } = useViewMode();
   const pages = usePageDrawInfo();
+  const firstSource = pages[0]?.docId;
+  const [idleSource, setIdleSource] = useState<string>();
+  useEffect(() => {
+    if (!firstSource) return;
+    const ready = () => setIdleSource(firstSource);
+    if (typeof window.requestIdleCallback === "function") {
+      const idle = window.requestIdleCallback(ready, { timeout: 1000 });
+      return () => window.cancelIdleCallback(idle);
+    }
+    const timer = window.setTimeout(ready, 100);
+    return () => window.clearTimeout(timer);
+  }, [firstSource]);
   const layout = useMemo(
     () =>
       layoutPages(
@@ -78,16 +90,20 @@ export function ThumbnailRail() {
                   aria-label={`Page ${box.index + 1}`}
                   className="group grid justify-items-center gap-1.5 rounded-sm transition-transform duration-(--duration-press) ease-out active:scale-(--press-scale)"
                 >
-                  <PageCanvas
-                    docId={page.docId}
-                    pageIndex={page.sourceIndex}
-                    rotation={page.rotation}
-                    revision={page.revision}
-                    width={THUMB_WIDTH}
-                    height={pageHeight}
-                    priority={THUMBNAIL_PRIORITY + Math.abs(box.index - currentPage)}
-                    className="border border-paper-line outline-offset-3 group-hover:shadow-2 group-aria-[current=page]:outline-2 group-aria-[current=page]:outline-signal"
-                  />
+                  {idleSource === firstSource ? (
+                    <PageCanvas
+                      docId={page.docId}
+                      pageIndex={page.sourceIndex}
+                      rotation={page.rotation}
+                      revision={page.revision}
+                      width={THUMB_WIDTH}
+                      height={pageHeight}
+                      priority={THUMBNAIL_PRIORITY + Math.abs(box.index - currentPage)}
+                      className="border border-paper-line outline-offset-3 group-hover:shadow-2 group-aria-[current=page]:outline-2 group-aria-[current=page]:outline-signal"
+                    />
+                  ) : (
+                    <span aria-hidden="true" style={{ width: THUMB_WIDTH, height: pageHeight }} />
+                  )}
                   {!isCurrent && <span className="font-mono text-sm text-muted">{box.index + 1}</span>}
                 </button>
               </li>

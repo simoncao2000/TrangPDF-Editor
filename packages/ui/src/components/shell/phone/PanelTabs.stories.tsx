@@ -16,3 +16,5 @@ export const Default: Story = {
     </EditorFixture>
   ),
 };
+
+export const BeforePanelScan: Story = { ...Default, args: { threadCount: 0 } };

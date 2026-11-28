@@ -21,6 +21,7 @@ import {
   type PositionedTextRun,
   type TextRun,
   type TextRunFont,
+  type TextRunFamily,
   type TextRunLineLayout,
   type TextRunPlacement,
 } from "../page-text/page-text";
@@ -36,6 +37,8 @@ const HIT_TOLERANCE = 2;
 const OPAQUE = 255;
 const PATH_OBJECT = 2;
 const WINDING_FILL = 2;
+const MIN_FIT_SCALE = 0.9;
+const BASELINE_TOLERANCE = 0.5;
 const EXACT_RUN = -1;
 const UNDERLINE = -2;
 const RUN_FAMILIES = { Helvetica: "sans", Times: "serif", Courier: "mono" } as const;
@@ -62,6 +65,7 @@ export function subsetKey(font: Extract<TextRunFont, { kind: "embedded" }>): str
 
 /** The page being edited: its document, the loaded page and the document's text ids. */
 export interface PageContext {
+  readonly fallbackSlots?: ReadonlySet<number>;
   readonly borrowed?: ReadonlyMap<string, number>;
   readonly subsets?: ReadonlyMap<string, ArrayBuffer>;
   /** The document handle; new objects belong to it. */
@@ -262,6 +266,18 @@ interface EditLayout {
 }
 
 export class PageTextObjects {
+  private readonly coverage = new WeakMap<
+    TextObjectIds,
+    Map<
+      string,
+      {
+        bytes?: ArrayBuffer;
+        style: FontStyle;
+        characters: Map<string, boolean>;
+        anchor?: string;
+      }
+    >
+  >();
   private readonly pdfium: WrappedPdfiumModule;
   private readonly heap: PdfiumHeap;
   private readonly objects: TextObjectAccess;
@@ -383,33 +399,51 @@ export class PageTextObjects {
    * @param run The run to write.
    * @returns A usable handle or the first missing character.
    */
-  checkDocumentFont(page: PageContext, run: TextRun): { font?: number; missingCharacter?: string } {
+  checkDocumentFont(
+    page: PageContext,
+    run: TextRun,
+  ): {
+    font?: number;
+    missingCharacter?: string;
+    fallbackFamily?: TextRunFamily;
+  } {
     const reference = run.font;
     if (reference?.kind !== "embedded" || !reference.documentFontId || !run.text) return {};
     const characters = [...new Set(run.text)];
     const font = this.findFont(page, reference.documentFontId);
-    const bytes = font && this.fontData(font);
-    if (
-      !bytes ||
-      !canSubsetFont(bytes) ||
-      this.pdfium.FPDFFont_GetIsEmbedded(font) !== 1 ||
-      withoutSubsetTag(this.objects.fontName(font)) !== reference.name
-    ) {
+    if (!font || withoutSubsetTag(this.objects.fontName(font)) !== reference.name) {
       return { missingCharacter: characters[0] };
     }
-    const sample = characters.join("");
-    const anchor =
-      characters.find(
-        (char) => char.trim() && !missingFontCharacter(bytes, char, true) && this.fontRoundTrips(page, font, char),
-      ) ?? "";
-    if (!missingFontCharacter(bytes, sample, true) && this.fontRoundTrips(page, font, anchor + sample + anchor)) {
-      const style = this.pageFontStyle(font, bytes);
-      return style.bold === run.bold && style.italic === run.italic ? { font } : {};
+    if (this.pdfium.FPDFFont_GetIsEmbedded(font) !== 1) return {};
+    let faces = this.coverage.get(page.ids);
+    if (!faces) this.coverage.set(page.ids, (faces = new Map()));
+    let face = faces.get(reference.documentFontId);
+    if (!face) {
+      const bytes = this.fontData(font);
+      face = { bytes, style: this.pageFontStyle(font, bytes), characters: new Map() };
+      faces.set(reference.documentFontId, face);
     }
-    const missingCharacter = characters.find(
-      (char) => missingFontCharacter(bytes, char, true) || !this.fontRoundTrips(page, font, anchor + char + anchor),
-    );
-    return { missingCharacter: missingCharacter ?? characters[0] };
+    if (face.bytes && !canSubsetFont(face.bytes)) return { missingCharacter: characters[0] };
+    for (const char of characters) {
+      if (!face.characters.has(char)) {
+        const mapped =
+          (face.bytes && !missingFontCharacter(face.bytes, char, true)) ||
+          this.heap.withBuffer(
+            4,
+            (ptr) => this.pdfium.FPDFFont_GetGlyphWidth(font, char.codePointAt(0)!, 1, ptr) && this.heap.float(ptr) > 0,
+          );
+        const sample = char.trim() ? char : (face.anchor ?? "") + char + (face.anchor ?? "");
+        const covered = Boolean(mapped && this.fontRoundTrips(page, font, sample));
+        face.characters.set(char, covered);
+        if (covered && char.trim()) face.anchor = char;
+      }
+      if (!face.characters.get(char)) {
+        const family = face.style.family;
+        const fallbackFamily = family === "serif" ? "Times" : family === "mono" ? "Courier" : "Helvetica";
+        return { missingCharacter: char, fallbackFamily };
+      }
+    }
+    return face.style.bold === run.bold && face.style.italic === run.italic ? { font } : {};
   }
 
   /**
@@ -667,15 +701,21 @@ export class PageTextObjects {
       }
       const matrix = [...model.matrix];
       const originalOffset = (matrix[4]! - startX) * axis.x + (matrix[5]! - startY) * axis.y;
+      if (previous && original) {
+        const dx = original.matrix[4]! - previous.matrix[4]!;
+        const dy = original.matrix[5]! - previous.matrix[5]!;
+        if (Math.abs(dx * axis.y - dy * axis.x) > BASELINE_TOLERANCE) shift = originalOffset;
+      }
       matrix[4] = matrix[4]! + axis.x * (shift - originalOffset);
       matrix[5] = matrix[5]! + axis.y * (shift - originalOffset);
       const next = plan.slots.slice(index + 1).find((slot) => slot.source !== undefined)?.source;
       const anchor =
         original?.index ??
         (next === undefined ? (model.underline?.index ?? model.index) + 1 : plan.original[next]!.index);
+      const slot = context.page.fallbackSlots?.has(index) ? original : undefined;
       const staged =
         retained === undefined
-          ? this.stageEditRun(context, run, matrix, anchor)
+          ? this.stageEditRun(context, run, matrix, { anchor, slot })
           : this.stageRetainedRun(layout, plan.original[retained]!, matrix, retained === source ? undefined : anchor);
       if (!staged) return null;
       handles.push(staged.handle);
@@ -712,17 +752,23 @@ export class PageTextObjects {
    * Writes one changed run and stages its underline if requested.
    * @param context The destination and owned resources.
    * @param run The run to write.
-   * @param matrix Its baseline transform.
-   * @param anchor Its drawing order relative to the original page.
+   * @param model Its baseline transform.
+   * @param target Its drawing order and optional original fallback slot.
    * @returns The text handle and advance, or null on failure.
    */
-  private stageEditRun(context: EditStageContext, run: TextRun, matrix: number[], anchor: number) {
-    const { page, plan, fonts, layout } = context;
-    const size = run.fontSize / (Math.hypot(matrix[2]!, matrix[3]!) || 1);
-    const sized = { ...run, fontSize: size };
-    const written = this.writeRun(page, sized, fonts);
-    if (!written) return null;
-    const { handle, advance } = written;
+  private stageEditRun(
+    context: EditStageContext,
+    run: TextRun,
+    model: number[],
+    target: { anchor: number; slot?: EditSourceRun },
+  ) {
+    const { page, plan, layout } = context;
+    const { anchor, slot } = target;
+    const prepared = this.prepareGeometry(context, run, model, slot);
+    if (!prepared) return null;
+    const { handle, advance, matrix, sized, width } = prepared;
+    if (slot && width > slot.advance) this.shiftFollowing(context, slot, width - slot.advance);
+
     layout.incoming.push({ handle, anchor });
     if (!this.setMatrix(handle, matrix) || !this.marks.tag(page.doc, handle, { id: plan.markId, gap: EXACT_RUN })) {
       return null;
@@ -734,7 +780,63 @@ export class PageTextObjects {
       for (const path of paths) layout.incoming.push({ handle: path, anchor });
       if (!staged || !this.tagUnderline(page, paths[0]!)) return null;
     }
-    return { handle, advance: advance * Math.hypot(matrix[0]!, matrix[1]!) };
+    return { handle, advance: width };
+  }
+
+  /**
+   * Prepares the detached drawing object and its advance with the same font, size and transform.
+   * @param context The staged edit.
+   * @param run The resolved font and text.
+   * @param model The source transform at the target baseline.
+   * @param slot The original slot when substituting a missing face.
+   * @returns The drawing geometry, or null if the text could not be written.
+   */
+  private prepareGeometry(context: EditStageContext, run: TextRun, model: number[], slot?: EditSourceRun) {
+    const sized = { ...run, fontSize: run.fontSize / (Math.hypot(model[2]!, model[3]!) || 1) };
+    const written = this.writeRun(context.page, sized, context.fonts);
+    if (!written) return null;
+    const natural = written.advance * Math.hypot(model[0]!, model[1]!);
+    const fit = slot && natural > 0 ? Math.max(MIN_FIT_SCALE, Math.min(1, slot.advance / natural)) : 1;
+    const matrix = [...model];
+    matrix[0] = model[0]! * fit;
+    matrix[1] = model[1]! * fit;
+    return { ...written, sized, matrix, width: natural * fit };
+  }
+
+  /**
+   * Records translations for independent text objects following an overflowing slot.
+   * @param context The staged page and history record.
+   * @param slot The original slot.
+   * @param overflow The extra advance in page points.
+   * @returns Nothing.
+   */
+  private shiftFollowing(context: EditStageContext, slot: EditSourceRun, overflow: number): void {
+    const { page, plan, layout } = context;
+    const [a, b, , , x, y] = slot.matrix as [number, number, number, number, number, number];
+    const scale = Math.hypot(a, b);
+    if (!scale) return;
+    const excluded = new Set(plan.original.map(({ handle }) => handle));
+    const count = this.pdfium.FPDFPage_CountObjects(page.page);
+    for (let index = 0; index < count; index++) {
+      const handle = this.pdfium.FPDFPage_GetObject(page.page, index);
+      if (excluded.has(handle) || !this.objects.isActiveText(handle)) continue;
+      const matrix = this.measure.matrixOf(handle);
+      const dx = matrix[4]! - x;
+      const dy = matrix[5]! - y;
+      if ((dx * a + dy * b) / scale <= 0) continue;
+      if (Math.abs(dx * b - dy * a) / scale > BASELINE_TOLERANCE) continue;
+      const direction = Math.hypot(matrix[0]!, matrix[1]!);
+      if (!direction || matrix[0]! * a + matrix[1]! * b < 0.999 * scale * direction) continue;
+      const existing = layout.translations.find((translation) => translation.handle === handle);
+      const translation = { handle, originalMatrix: matrix, dx: (overflow * a) / scale, dy: (overflow * b) / scale };
+      if (existing) {
+        layout.translations.splice(layout.translations.indexOf(existing), 1, {
+          ...translation,
+          dx: translation.dx + existing.dx,
+          dy: translation.dy + existing.dy,
+        });
+      } else layout.translations.push(translation);
+    }
   }
 
   /**
@@ -1218,6 +1320,7 @@ export class PageTextObjects {
     fonts.set(handle, style);
     const { family, bold, italic } = style;
     const documentFontId = ids.fontId(handle, member.handle);
+    const matrix = this.measure.matrixOf(member.handle);
     return {
       text,
       font: {
@@ -1234,11 +1337,8 @@ export class PageTextObjects {
       bold,
       italic,
       underline: Boolean(this.underlineAt(context.page, member.index + 1)),
-      originalWidth: this.measure.lengthAlongBaseline(member.handle),
-      baseline: (() => {
-        const matrix = this.measure.matrixOf(member.handle);
-        return { x: matrix[4] ?? 0, y: matrix[5] ?? 0 };
-      })(),
+      originalWidth: this.measure.lengthAlongBaseline(member.handle) * Math.hypot(...matrix.slice(0, 2)),
+      baseline: { x: matrix[4] ?? 0, y: matrix[5] ?? 0 },
     };
   }
 }

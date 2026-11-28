@@ -1,6 +1,6 @@
 import { summarizeFields, type DocumentSession, type FieldSummary, type FormField } from "@pdf-editor/core";
-import { useEffect, useRef, useState } from "react";
-import { useDocument, useEditorServices } from "../../editor/hooks";
+import { useMemo } from "react";
+import { usePanelScan } from "../../editor/use-panel-scan";
 
 export interface DocumentField extends FieldSummary {
   readonly pageId: string;
@@ -8,56 +8,26 @@ export interface DocumentField extends FieldSummary {
 
 interface PageFields {
   readonly pageId: string;
-  readonly revision: number;
   readonly widgets: readonly FormField[];
 }
 
-interface FieldRead {
-  readonly session: DocumentSession;
-  readonly pages: ReadonlyMap<string, PageFields>;
-  readonly fields: readonly DocumentField[];
+/**
+ * @param session The current document session.
+ * @param id The page to inspect.
+ * @returns All widgets on the page.
+ */
+async function readFields(session: DocumentSession, id: string) {
+  return { pageId: id, widgets: await session.readFormFields(id) };
 }
 
 /**
- * Reads the document's widgets in page order and refreshes them on page revisions.
- * @returns One entry per field, with the location of its first widget.
+ * @param enabled Whether a fields panel is open.
+ * @returns All fields, or a status message until they are available.
  */
-export function useDocumentFields(): readonly DocumentField[] {
-  const { session } = useEditorServices();
-  const pages = useDocument((state) => state.pages);
-  const revisions = useDocument((state) => state.annotationRevisions);
-  const [read, setRead] = useState<FieldRead>();
-  const lastRead = useRef<FieldRead>(undefined);
-
-  useEffect(() => {
-    let active = true;
-    const previous = lastRead.current?.session === session ? lastRead.current.pages : undefined;
-    const reads = pages.map(({ id }) => {
-      const revision = revisions[id] ?? 0;
-      const cached = previous?.get(id);
-      if (cached?.revision === revision) return cached;
-      return session.readFormFields(id).then(
-        (widgets) => ({ pageId: id, revision, widgets }),
-        () => undefined,
-      );
-    });
-    void Promise.all(reads).then((perPage) => {
-      if (!active) return;
-      const resolved = perPage.filter((page) => page !== undefined);
-      const next = {
-        session,
-        pages: new Map(resolved.map((page) => [page.pageId, page])),
-        fields: summarizeDocumentFields(resolved),
-      };
-      lastRead.current = next;
-      setRead(next);
-    });
-    return () => {
-      active = false;
-    };
-  }, [session, pages, revisions]);
-
-  return read?.session === session ? read.fields : [];
+export function useDocumentFields(enabled = true) {
+  const { values, message } = usePanelScan(enabled, readFields);
+  const fields = useMemo(() => summarizeDocumentFields(values ?? []), [values]);
+  return { fields, message };
 }
 
 /**

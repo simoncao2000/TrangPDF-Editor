@@ -4,7 +4,7 @@ import { useShowPalette } from "../../../state/palette-store";
 
 interface PanelTabsProps {
   readonly threadCount: number;
-  readonly progress: { readonly done: number; readonly total: number };
+  readonly progress?: { readonly done: number; readonly total: number };
 }
 
 /**
@@ -36,11 +36,11 @@ export function PanelTabs({ threadCount, progress }: PanelTabsProps) {
         pressed={panel === "comments"}
         onClick={() => openPanel("comments")}
       />
-      {progress.total > 0 && (
+      {(!progress || progress.total > 0 || panel === "fields") && (
         <PanelTab
           icon={ListChecks}
           label="Fields"
-          badge={`${progress.done}/${progress.total}`}
+          badge={progress ? `${progress.done}/${progress.total}` : undefined}
           pressed={panel === "fields"}
           onClick={() => openPanel("fields")}
         />

@@ -1,6 +1,6 @@
-import { commentText, type Annotation } from "@pdf-editor/core";
-import { useEffect, useState } from "react";
-import { useDocument, useEditorServices } from "../../editor/hooks";
+import { commentText, type DocumentSession, type Annotation } from "@pdf-editor/core";
+import { useMemo } from "react";
+import { usePanelScan } from "../../editor/use-panel-scan";
 
 /** One annotation's thread, and where it is. */
 export interface ThreadEntry {
@@ -21,33 +21,22 @@ export function countCommentThreads(threads: readonly ThreadEntry[]): number {
 }
 
 /**
- * Every annotation in the document, as comment threads in page order. Read again when a page's
- * annotations change; pages already read come from the session's cache.
- * @param showRich Whether the comments panel is open.
- * @returns The displayed threads and the available thread count.
+ * @param session The current document session.
+ * @param pageId The page to inspect.
+ * @param pageIndex Its position in the document.
+ * @returns All threads on the page.
  */
-export function useDocumentThreads(showRich: boolean) {
-  const { session } = useEditorServices();
-  const pages = useDocument((state) => state.pages);
-  const revisions = useDocument((state) => state.annotationRevisions);
-  const [result, setResult] = useState<{ rich: boolean; threads: readonly ThreadEntry[] }>();
+async function readThreads(session: DocumentSession, pageId: string, pageIndex: number) {
+  const annotations = await session.readAnnotations(pageId);
+  return annotations.map((annotation) => ({ pageId, pageIndex, annotation }));
+}
 
-  useEffect(() => {
-    let active = true;
-    const reads = pages.map((page, pageIndex) =>
-      session.readAnnotations(page.id, !showRich).then(
-        (annotations) => annotations.map((annotation) => ({ pageId: page.id, pageIndex, annotation })),
-        () => [],
-      ),
-    );
-    void Promise.all(reads).then((perPage) => active && setResult({ rich: showRich, threads: perPage.flat() }));
-    return () => {
-      active = false;
-    };
-  }, [session, pages, revisions, showRich]);
-
-  return {
-    threads: result && showRich && result.rich ? result.threads : [],
-    count: result ? countCommentThreads(result.threads) : 0,
-  };
+/**
+ * @param enabled Whether the comments panel is open.
+ * @returns The complete threads, count and scan status.
+ */
+export function useDocumentThreads(enabled: boolean) {
+  const { values, message } = usePanelScan(enabled, readThreads);
+  const threads = useMemo(() => values?.flat() ?? [], [values]);
+  return { threads, count: countCommentThreads(threads), message };
 }

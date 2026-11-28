@@ -21,7 +21,7 @@ type Story = StoryObj<typeof meta>;
 export const Default: Story = {
   /** @returns The interactive example. */
   render: () => (
-    <EditorFixture>
+    <EditorFixture sample="form">
       <Example />
     </EditorFixture>
   ),

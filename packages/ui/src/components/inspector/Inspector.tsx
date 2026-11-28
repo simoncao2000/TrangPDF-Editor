@@ -19,12 +19,10 @@ export function Inspector() {
   const [viewedReview, setViewedReview] = useState<BlockedExport>();
   const request = useExport((state) => state.request);
   const review = request?.stage === "blocked" && request.session === session ? request : undefined;
-  const fields = useDocumentFields();
-  const items = fields.length || !review ? fields : [review.first];
-  const hasFields = items.length > 0;
-  const selected = review && review !== viewedReview ? "fields" : tab;
-  const current = selected === "fields" && !hasFields ? "properties" : selected;
-  const { threads, count } = useDocumentThreads(current === "comments");
+  const current = review && review !== viewedReview ? "fields" : tab;
+  const { fields, message: fieldMessage } = useDocumentFields(current === "fields");
+  const { threads, count, message: commentMessage } = useDocumentThreads(current === "comments");
+  const message = current === "comments" ? commentMessage : current === "fields" ? fieldMessage : undefined;
 
   /** @param next The tab the user explicitly chose. */
   const select = (next: Tab) => {
@@ -37,7 +35,7 @@ export function Inspector() {
       aria-label="Inspector"
       className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] border-l border-divider bg-rail"
     >
-      <InspectorTabs current={current} onSelect={select} threads={count} hasFields={hasFields} />
+      <InspectorTabs current={current} onSelect={select} threads={count} />
       <div
         role="tabpanel"
         id={`inspector-${current}`}
@@ -46,8 +44,9 @@ export function Inspector() {
         className={`overflow-y-auto ${current === "fields" ? "px-(--space-4) pt-(--space-4) pb-(--space-6)" : "p-3"}`}
       >
         {current === "properties" && <PropertiesPanel />}
-        {current === "comments" && <CommentsPanel threads={threads} />}
-        {current === "fields" && <FieldsPanel fields={items} validate={!!review} />}
+        {message && <p role="status">{message}</p>}
+        {!message && current === "comments" && <CommentsPanel threads={threads} />}
+        {!message && current === "fields" && <FieldsPanel fields={fields} validate={!!review} />}
       </div>
     </aside>
   );
@@ -57,14 +56,13 @@ interface InspectorTabsProps {
   readonly current: Tab;
   readonly onSelect: (tab: Tab) => void;
   readonly threads: number;
-  readonly hasFields: boolean;
 }
 
 /**
  * @param props The active tab, available panels and selection handler.
  * @returns The keyboard-navigable Inspector tab list.
  */
-function InspectorTabs({ current, onSelect, threads, hasFields }: InspectorTabsProps) {
+function InspectorTabs({ current, onSelect, threads }: InspectorTabsProps) {
   return (
     <div
       role="tablist"
@@ -79,11 +77,9 @@ function InspectorTabs({ current, onSelect, threads, hasFields }: InspectorTabsP
         Comments
         {threads > 0 && <span className="text-xs text-muted tabular-nums">{threads}</span>}
       </TabButton>
-      {hasFields && (
-        <TabButton id="fields" current={current} onSelect={onSelect}>
-          Fields
-        </TabButton>
-      )}
+      <TabButton id="fields" current={current} onSelect={onSelect}>
+        Fields
+      </TabButton>
     </div>
   );
 }

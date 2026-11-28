@@ -13,6 +13,7 @@ describe("fontStyleOf", () => {
     ["ABCDEF+CMR10", 0, { family: "serif", bold: false, italic: false }],
     ["ABCDEF+CMBX12", 0, { family: "serif", bold: true, italic: false }],
     ["ABCDEF+CMTI10", 0, { family: "serif", bold: false, italic: true }],
+    ["ArialMT", 2, { family: "serif", bold: false, italic: false }],
     ["ArialMT", 0, { family: "sans", bold: false, italic: false }],
     ["Helvetica-BoldOblique", 0, { family: "sans", bold: true, italic: true }],
     ["CourierNewPSMT", 0, { family: "mono", bold: false, italic: false }],

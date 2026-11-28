@@ -55,7 +55,7 @@ function PaletteDialog({ initialQuery, onClose }: PaletteDialogProps) {
   const [raw, setRaw] = useState(initialQuery);
   const [active, setActive] = useState(0);
   const query = parseQuery(raw);
-  const items = usePaletteItems(query, onClose, narrow, presentation.showHint);
+  const { items, message } = usePaletteItems(query, onClose, narrow, presentation.showHint);
   const listRef = useRef<HTMLUListElement>(null);
 
   // Keep the highlighted row in range and in view.
@@ -146,7 +146,12 @@ function PaletteDialog({ initialQuery, onClose }: PaletteDialogProps) {
               </li>
             );
           })}
-          {items.length === 0 && (
+          {message && (
+            <li role="status" className="px-3 py-2 text-sm text-muted">
+              {message}
+            </li>
+          )}
+          {!message && items.length === 0 && (
             <li className="px-3 py-6 text-center text-sm text-muted">{emptyMessage(query.mode)}</li>
           )}
         </ul>
@@ -171,23 +176,24 @@ function emptyMessage(mode: ReturnType<typeof parseQuery>["mode"]): string {
  * @param query The parsed text.
  * @param narrow Whether the palette uses the phone layout.
  * @param close Closes the palette before running a row action.
- * @returns The rows, in display order.
+ * @param showHint Whether to show keyboard hints.
+ * @returns The rows in display order and the document search status.
  */
 function usePaletteItems(
   query: ReturnType<typeof parseQuery>,
   close: PaletteDialogProps["onClose"],
   narrow: boolean,
   showHint: boolean,
-): readonly Item[] {
+) {
   const { workspace, session } = useEditorServices();
   const commands = useCommands();
   const tabs = useStore(workspace.store, (state) => state.tabs);
   const pageCount = useDocument((state) => state.pages.length);
   const fileName = useDocument((state) => state.fileName);
   const { goToPage, showSearchHit } = useViewer();
-  const matches = useTextMatches(query.mode === "search" ? query.text : "");
+  const { matches, message } = useTextMatches(query.mode === "search" ? query.text : "");
 
-  return useMemo(() => {
+  const items = useMemo<readonly Item[]>(() => {
     /**
      * Runs a palette action after returning to the underlying view.
      * @param action The selected action.
@@ -271,23 +277,24 @@ function usePaletteItems(
     showSearchHit,
     close,
   ]);
+  return { items, message };
 }
 
 /**
  * Text matches in the document in front, searched shortly after typing stops.
  * @param text What to find; blank finds nothing.
- * @returns The matches (the previous ones until the new search finishes).
+ * @returns Completed matches for this query and its loading or error message.
  */
-function useTextMatches(text: string): readonly DocumentMatch[] {
+function useTextMatches(text: string) {
   const { session } = useEditorServices();
-  const [matches, setMatches] = useState<readonly DocumentMatch[]>([]);
+  const [result, setResult] = useState<{ session: typeof session; text: string; matches?: readonly DocumentMatch[] }>();
   useEffect(() => {
     if (!text) return;
     let active = true;
     const timer = setTimeout(() => {
       session.findText(text, MATCH_LIMIT).then(
-        (found) => active && setMatches(found),
-        () => active && setMatches([]),
+        (found) => active && setResult({ session, text, matches: found }),
+        () => active && setResult({ session, text }),
       );
     }, SEARCH_DELAY_MS);
     return () => {
@@ -295,7 +302,9 @@ function useTextMatches(text: string): readonly DocumentMatch[] {
       clearTimeout(timer);
     };
   }, [session, text]);
-  return text ? matches : [];
+  const current = result?.session === session && result.text === text ? result : undefined;
+  const message = !text || current?.matches ? undefined : current ? "Search failed." : "Searching…";
+  return { matches: current?.matches ?? [], message };
 }
 
 /**
