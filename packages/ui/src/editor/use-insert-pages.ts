@@ -8,23 +8,24 @@ import { useDocumentActions, type PagesToInsert } from "./use-document-actions";
 
 export interface InsertFlowState {
   /** A picked file waiting for a position, or `null`. */
-  readonly pending: PagesToInsert | null;
-  set(pending: PagesToInsert | null): void;
+  readonly pending: (PagesToInsert & { atEnd?: boolean }) | null;
+  set(pending: (PagesToInsert & { atEnd?: boolean }) | null): void;
 }
 
 const useInsertFlow = create<InsertFlowState>((set) => ({ pending: null, set: (pending) => set({ pending }) }));
 
 /**
  * Starts importing pages.
+ * @param atEnd Whether to default to appending the file.
  * @returns A function that shows the file picker, then asks where the pages go.
  */
-export function useStartInsertPages(): () => Promise<void> {
+export function useStartInsertPages(atEnd = false): () => Promise<void> {
   const actions = useDocumentActions();
   const set = useInsertFlow((state) => state.set);
   return useCallback(async () => {
     const picked = await actions.pickPagesToInsert();
-    if (picked) set(picked);
-  }, [actions, set]);
+    if (picked) set({ ...picked, atEnd });
+  }, [actions, set, atEnd]);
 }
 
 /**

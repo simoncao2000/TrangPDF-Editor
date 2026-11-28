@@ -12,6 +12,7 @@ export interface InsertPosition {
 }
 
 interface InsertPagesDialogProps {
+  readonly initialPosition?: InsertPosition["id"];
   readonly fileName: string;
   readonly pageCount: number;
   readonly positions: readonly InsertPosition[];
@@ -24,8 +25,9 @@ interface InsertPagesDialogProps {
  * @param props The file, the positions to offer, and the handlers.
  * @returns The dialog.
  */
-export function InsertPagesDialog({ fileName, pageCount, positions, onInsert, onCancel }: InsertPagesDialogProps) {
-  const [chosen, setChosen] = useState(positions.at(1)?.id ?? positions[0]?.id);
+export function InsertPagesDialog(props: InsertPagesDialogProps) {
+  const { fileName, pageCount, positions, initialPosition, onInsert, onCancel } = props;
+  const [chosen, setChosen] = useState(initialPosition ?? positions.at(1)?.id ?? positions[0]?.id);
   const index = positions.find((position) => position.id === chosen)?.index ?? 0;
 
   return (

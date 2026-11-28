@@ -12,6 +12,7 @@ import {
 } from "@pdf-editor/core";
 import { createMemoryHistory, EditorProvider, EditorRouter, type EditorServices } from "../src";
 import { useEffect, useState, type ReactNode } from "react";
+import threePages from "../../../test-corpus/three-pages.pdf?url";
 import textPdf from "../../../test-corpus/text.pdf?url";
 import formPdf from "../../../test-corpus/form.pdf?url";
 import encryptedPdf from "../../../test-corpus/encrypted-harbour.pdf?url";
@@ -22,8 +23,8 @@ import { mark, rect, textObject } from "./sample-data";
 import { useEditorServices } from "../src/editor/hooks";
 import { usePageDrawInfo } from "../src/components/viewer/use-page-geometry";
 
-export type Sample = "text" | "form" | "encrypted" | "highlighted" | "empty";
-const samples = { text: textPdf, highlighted: textPdf, form: formPdf, encrypted: encryptedPdf };
+export type Sample = "threePages" | "text" | "form" | "encrypted" | "highlighted" | "empty";
+const samples = { threePages, text: textPdf, highlighted: textPdf, form: formPdf, encrypted: encryptedPdf };
 
 /**
  * Creates a routed preview with its own worker and workspace.

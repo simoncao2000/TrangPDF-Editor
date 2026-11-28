@@ -7,6 +7,7 @@ import type { PageDrawInfo } from "../viewer/use-page-geometry";
 import { moveTarget } from "./move-target";
 
 interface MoveToSheetProps {
+  readonly compactPreview?: boolean;
   readonly pages: readonly PageDrawInfo[];
   readonly id: string;
   readonly onDismiss: () => void;
@@ -20,7 +21,7 @@ const STEP_STYLE = "grid h-11 w-11 place-items-center rounded-md hover:bg-hover 
  * @param props Pages in their current order, the moving page and sheet actions.
  * @returns The destination sheet.
  */
-export function MoveToSheet({ pages, id, onDismiss, onMove }: MoveToSheetProps) {
+export function MoveToSheet({ pages, id, onDismiss, onMove, compactPreview }: MoveToSheetProps) {
   const original = pages.findIndex((page) => page.id === id);
   const [after, setAfter] = useState(original);
   const boundary = Math.min(after, pages.length);
@@ -33,6 +34,8 @@ export function MoveToSheet({ pages, id, onDismiss, onMove }: MoveToSheetProps) 
   const moving = pages[original];
   if (!moving) return null;
   preview.splice(target, 0, moving);
+  const previewStart = Math.max(0, Math.min(target - 3, preview.length - 7));
+  const visible = compactPreview ? preview.slice(previewStart, previewStart + 7) : preview;
   const title = `Move page ${original + 1}`;
 
   return (
@@ -80,7 +83,7 @@ export function MoveToSheet({ pages, id, onDismiss, onMove }: MoveToSheetProps) 
           aria-label="Resulting page order"
           className="flex items-end gap-1.5 overflow-x-auto rounded-lg bg-canvas p-3"
         >
-          {preview.map((page) => (
+          {visible.map((page) => (
             <li
               key={page.id}
               aria-current={page.id === id ? "true" : undefined}

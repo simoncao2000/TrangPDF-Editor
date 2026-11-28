@@ -36,6 +36,7 @@ export function InsertPagesFlow() {
       fileName={pending.name}
       pageCount={pending.pageCount}
       positions={positions}
+      initialPosition={pending.atEnd ? "end" : "after"}
       onInsert={(index) => {
         pending.insert(index);
         set(null);
