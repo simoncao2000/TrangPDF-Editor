@@ -22,6 +22,18 @@ export const Default: Story = {
   ),
 };
 
+export const ClickToEditDragToSelect: Story = {
+  parameters: {
+    docs: { description: { story: "Click a line to edit it, or drag from its edge or center to select text." } },
+  },
+  /** @returns A Select surface with editable lines and markup on the first line. */
+  render: () => (
+    <EditorFixture sample="highlighted">
+      <PageViewport narrow={false} />
+    </EditorFixture>
+  ),
+};
+
 export const TouchSelect: Story = {
   /** @returns The text layer within its zoomable viewport. */
   render: () => (

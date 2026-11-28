@@ -1,4 +1,4 @@
-import type { PageFrame, PageTextObject, ScreenRect, ScreenPoint } from "@pdf-editor/core";
+import type { PageFrame, PageTextObject, ScreenPoint } from "@pdf-editor/core";
 import { displayedSize, pdfRectToScreen, screenDeltaToPdf } from "@pdf-editor/core";
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
 
@@ -104,16 +104,4 @@ export function useTextDrag(
       setMoving(null);
     },
   };
-}
-
-/**
- * @param box The displayed line bounds.
- * @param point The page-relative pointer position.
- * @returns Whether a mouse press should move this line.
- */
-export function onLineEdge(box: ScreenRect, point: ScreenPoint) {
-  const dx = Math.min(point.x - box.left, box.left + box.width - point.x);
-  const dy = Math.min(point.y - box.top, box.top + box.height - point.y);
-  // Reserve the middle half of a small line for text selection.
-  return dx >= -6 && dy >= -6 && (dx <= Math.min(6, box.width / 4) || dy <= Math.min(6, box.height / 4));
 }
