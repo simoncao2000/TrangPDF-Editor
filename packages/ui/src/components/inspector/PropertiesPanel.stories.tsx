@@ -1,3 +1,5 @@
+import { PlacementFixture } from "../../../stories/PlacementFixture";
+import { dragSample, seedSignatures } from "../../../stories/signature-placement";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { EditorFixture } from "../../../stories/fixtures";
 import { PropertiesPanel } from "./PropertiesPanel";
@@ -15,3 +17,15 @@ export const Default: Story = {
     </EditorFixture>
   ),
 };
+
+export const Signatures: Story = {
+  beforeEach: seedSignatures,
+  /** @returns The signature tiles beside a drop target. */
+  render: () => (
+    <PlacementFixture>
+      <PropertiesPanel />
+    </PlacementFixture>
+  ),
+};
+
+export const Dragging: Story = { ...Signatures, play: dragSample };

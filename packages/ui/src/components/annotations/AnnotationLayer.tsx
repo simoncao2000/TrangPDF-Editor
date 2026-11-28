@@ -19,6 +19,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type KeyboardEvent,
   type PointerEvent,
@@ -101,9 +102,13 @@ export function AnnotationLayer({ page, zoom, width, height }: AnnotationLayerPr
   // A fresh list from the engine replaces whatever was shown while it loaded.
   useEffect(clearPreview, [annotations, clearPreview]);
 
+  const signatureToFocus = useRef<string | null>(null);
   const create = useCallback(
-    (annotation: EditableAnnotation) => session.dispatch((content) => addAnnotation(content, page.id, annotation)),
-    [session, page.id],
+    (annotation: EditableAnnotation) => {
+      if (tool === "sign") signatureToFocus.current = annotation.id;
+      session.dispatch((content) => addAnnotation(content, page.id, annotation));
+    },
+    [session, page.id, tool],
   );
 
   const finishText = (text: string | null, height: number) => {
@@ -157,6 +162,12 @@ export function AnnotationLayer({ page, zoom, width, height }: AnnotationLayerPr
             return (
               <rect
                 key={annotation.id}
+                ref={(node) => {
+                  if (node && isSelected && signatureToFocus.current === annotation.id) {
+                    signatureToFocus.current = null;
+                    node.focus({ preventScroll: true });
+                  }
+                }}
                 data-annotation=""
                 role="button"
                 tabIndex={0}

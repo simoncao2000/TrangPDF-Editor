@@ -44,7 +44,7 @@ const TOOL_HINTS: Record<DrawingTool, string> = {
   circle: "Drag on the page to draw an ellipse.",
   line: "Drag on the page to draw a line.",
   arrow: "Drag from where the arrow starts to where it points.",
-  sign: "Click on the page to place your signature, then drag its corners to size it.",
+  sign: "Drag a signature onto the page, or activate its tile to place it in the centre.",
   image: "Choose a picture, then drag a box on the page for it, or click to place it at its own size.",
   textBox:
     "Click on the page and type. The text becomes part of the page, like its other text: change it later with Edit text. Enter starts a new line; click away to finish.",
